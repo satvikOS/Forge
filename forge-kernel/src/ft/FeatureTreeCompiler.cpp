@@ -54,6 +54,10 @@
 
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"
+#include "forge/native/brep/Fillet.hpp"           // enumerateSharpConvexEdges
+#include "forge/native/brep/SolidTessellate.hpp"  // tessellateSolid
+#include "forge/ShapeRegistry.hpp"                // getNativeSolid
+#include "forge/ShapeHandle.hpp"                  // shapeKind — names no OCCT type
 #endif
 
 #include <Standard_Failure.hxx>   // OCCT's raise root. It is NOT a std::exception:
@@ -64,8 +68,10 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1057,11 +1063,13 @@ private:
     // invariant, because the gate now certifies the hole. Every argument from the
     // selector slot onward is checked, and an argument past the documented arity
     // is refused rather than ignored -- see refuseExtraArgs below.
-    void refuseTextSelector(const Op& op, std::size_t i) {
-        refuseNonKeyword(op, i, "edge selector", EDGE_SELECTOR_DOMAIN,
-                         "It used to be read as ALL, which acts on EVERY edge of "
-                         "the body instead of the ones named.");
-    }
+    // refuseTextSelector is GONE. Its only callers were FILLET, CHAMFER and
+    // BLEND, and a QUOTED selector is no longer a malformed argument there: it
+    // is how a user names an edge set (edgeSelectorArg / resolveEdgeSelector
+    // below). The invariant it protected -- that a present-and-wrong selector
+    // is never widened to ALL -- is kept, and strengthened: a quoted selector
+    // the grammar does not define is refused BY NAME, and refuseExtraArgs still
+    // refuses a token past the documented arity rather than dropping it.
 
     // ---- a keyword SLOT must not silently take its default -------------------
     // The generalisation of the above. kwOpt() returns its DEFAULT for any token
@@ -1085,7 +1093,9 @@ private:
     // An ABSENT slot is a different thing and stays legal -- `FILLET(%body, r
     // [, sel=ALL])` means the default when omitted. PRESENT-and-not-a-keyword is
     // refused; absent keeps its default. That one line is the whole distinction.
-    static constexpr const char* EDGE_SELECTOR_DOMAIN = "ALL | VERTICAL | RIM | HORIZONTAL";
+    static constexpr const char* EDGE_SELECTOR_DOMAIN =
+        "ALL | CONVEX | CONCAVE | TANGENT | VERTICAL | HORIZONTAL | RIM | "
+        "edge:<faceA>_<faceB>[#k] | edge:<n>";
 
     void refuseNonKeyword(const Op& op, std::size_t i, const std::string& slot,
                           const std::string& domain, const std::string& extra = "") {
@@ -2095,98 +2105,603 @@ private:
         return forge::cut(r, cylCutter(cbd, bx, by, bz, ax, ay, az, cbdep));
     }
 
-    // Classify + select edges by a keyword filter, then fillet/chamfer.
-    std::vector<std::uint32_t> selectEdges(Handle body, const std::string& sel, int opId,
-                                          const std::string& opName) {
-        // "NO EDGES MATCH" IS NOT WHAT HAPPENED when the keyword is one this
-        // function never implemented. MEASURED on the app's own emission path:
-        // part.fillet offers ALL | VERTICAL | RIM | CONVEX (ui/src/PartCommands.cpp)
-        // and CONVEX is not in the four branches below, so FILLET(%1, 1, CONVEX)
-        // came back "no edges match selector `CONVEX`" -- which reads as "your
-        // body has no convex edges" on a BOX that is nothing but convex edges.
-        // The refusal has to say which of the two it is or the user re-selects
-        // for ever -- and it has to name the OP the user clicked, because
-        // "selector `CONVEX` is not implemented here" does not say WHERE here is
-        // when three handlers share this function. ft_app_path_probe.py now runs
-        // this exact emission (part.fillet's own CONVEX branch), and the gate
-        // requires both the op name and a next step.
-        if (sel != "ALL" && sel != "VERTICAL" && sel != "RIM" && sel != "HORIZONTAL")
-            throw OpError(opId, opName + ": selector `" + sel + "` is NOT IMPLEMENTED here -- "
-                                "this op resolves " + std::string(EDGE_SELECTOR_DOMAIN) +
-                                " only. It is not that no edge matched; the keyword has no "
-                                "resolver, so nothing could have matched. Use " +
-                                std::string(EDGE_SELECTOR_DOMAIN) + " instead.");
-        auto segs = forge::direct::edgeSegments(body, 0.25);
-        std::vector<std::uint32_t> ids;
-        for (auto& e : segs) {
-            const auto& p = e.points;
-            if (p.size() < 6) { if (sel == "ALL") ids.push_back(e.id); continue; }
-            double ax = p[0], ay = p[1], az = p[2];
-            double bx = p[p.size() - 3], by = p[p.size() - 2], bz = p[p.size() - 1];
-            double dx = bx - ax, dy = by - ay, dz = bz - az;
-            double len = std::sqrt(dx * dx + dy * dy + dz * dz);
-            bool vertical = (len > 1e-9) && (std::fabs(std::fabs(dz) / len - 1.0) < 1e-2);
-            bool horizontal = (len < 1e-9) || (std::fabs(dz) / len < 1e-2);
-            if (sel == "ALL") ids.push_back(e.id);
-            else if (sel == "VERTICAL" && vertical) ids.push_back(e.id);
-            else if ((sel == "RIM" || sel == "HORIZONTAL") && horizontal) ids.push_back(e.id);
+    // ───────────────────────── EDGE SELECTION ────────────────────────────────
+    //
+    // The face side of this compiler has had a real language since the editing
+    // family landed — @name with signature matching, face:N, +Z, plane:largest,
+    // bore/boss/fillet predicates, radial:k. The edge side had FOUR KEYWORDS
+    // classified off a TESSELLATED CHORD, and two of them were the same one.
+    // MEASURED on BOX(60,40,20), HEAD build, one process per row:
+    //
+    //   FILLET(%1,3,RIM)        -> 47248.141380  14f/28e
+    //   FILLET(%1,3,HORIZONTAL) -> 47248.141380  14f/28e     identical, to the digit
+    //   FILLET(%1,3,CONVEX)     -> refused; the app's own fillet command offers
+    //                              CONVEX and the kernel had no resolver for it
+    //   FILLET(%1,3,"concave")  -> refused; every quoted selector was refused
+    //
+    // So a rib root could not be filleted without also rounding the whole plate
+    // outline, and RIM was a lie about the size of the vocabulary. This resolver
+    // replaces the chord classification with forge::edgeInventory, which reads
+    // the B-rep: real curve kinds, real adjacency, and a real dihedral angle.
+    //
+    // THE GRAMMAR, deliberately the mirror of the face grammar so there is ONE
+    // language and not two:
+    //
+    //   ALL                     every edge
+    //   CONVEX | CONCAVE        by dihedral: a plate corner vs a rib root
+    //   TANGENT                 a smooth joint (interior dihedral ~180 deg).
+    //                           Worth naming because a boolean on this build
+    //                           can emit a TRIANGULATED B-rep, and every
+    //                           diagonal across a flat face lands here: on the
+    //                           L-bracket below, 15 of 36 edges are diagonals
+    //                           that ALL would have tried to round.
+    //   VERTICAL | HORIZONTAL   by the edge's own tangent, not a chord
+    //   RIM                     a CLOSED circular edge — a bore or boss rim.
+    //                           It used to be a byte-identical alias of
+    //                           HORIZONTAL; a duplicate keyword is a lie about
+    //                           the vocabulary, so it now denotes the thing a
+    //                           user means by "the rim".
+    //   edge:<a>_<b>[#<k>]      the edge between faces a and b, 1-based on
+    //                           faceInventory's own ids. More than one
+    //                           component and no #k is a REFUSAL naming the
+    //                           count, never a guess.
+    //   edge:<n>                the n-th edge, 1-based (mirrors face:<n>)
+    //   a comma list of any of the above
+    //
+    // @name is REFUSED by name: persistent edge tags need TAG to bind an edge
+    // signature as well as a face one, which is a separate change to the `names`
+    // map and its witness rules. Refusing it is the honest state; silently
+    // resolving it against the FACE table would name the wrong thing.
+    static std::string edgeClassCounts(const std::vector<forge::EdgeInfo>& inv) {
+        int cx = 0, cc = 0, tg = 0, rim = 0, vert = 0, horiz = 0;
+        for (const auto& e : inv) {
+            if (e.convexity == forge::EdgeConvexity::Convex)  ++cx;
+            if (e.convexity == forge::EdgeConvexity::Concave) ++cc;
+            if (e.convexity == forge::EdgeConvexity::Tangent) ++tg;
+            if (e.closed && e.kind == "circle") ++rim;
+            const double az = std::fabs(e.tangent[2]);
+            if (az > 0.99)      ++vert;
+            else if (az < 0.01) ++horiz;
         }
-        if (ids.empty()) throw OpError(opId, "no edges match selector `" + sel + "`");
-        return ids;
+        return "this body has " + std::to_string(inv.size()) + " edges: " +
+               std::to_string(cx) + " convex, " + std::to_string(cc) + " concave, " +
+               std::to_string(tg) + " tangent, " + std::to_string(rim) + " rim, " +
+               std::to_string(vert) + " vertical, " + std::to_string(horiz) + " horizontal";
+    }
+
+    // Resolve an edge selector against `body`'s live edge inventory. Returns the
+    // ids forge::part::filletEdges / chamferEdges / varfillet consume — one per
+    // UNIQUE edge, never the duplicate explorer positions (a box's 12 edges
+    // occupy 24 ids; see DirectEdit.hpp).
+    // ── A NATIVE SOLID ADDRESSES ITS EDGES IN A DIFFERENT ID SPACE ───────────
+    //
+    // edgeInventory (DirectEdit.cpp) walks ShapeRegistry::get(body) -- the OCCT
+    // representation -- and its ids are TopExp_Explorer visit ids. A NativeSolid
+    // has no such walk: forge::part::filletEdges routes it through
+    // enumerateSharpConvexEdges, whose ids are indices into THAT vector.
+    // edgeInventory's own failure path states the consequence verbatim:
+    //
+    //   "A native solid addresses its edges through a different, geometric
+    //    enumeration (enumerateSharpConvexEdges); the two id spaces are not
+    //    interchangeable, and mixing them selects the wrong edge silently."
+    //
+    // The registry still HOLDS an OCCT copy for a native body, so get() succeeds
+    // rather than throwing, and the explorer ids reach a native fillet path: the
+    // wrong edges are rounded with ok=true. MEASURED before this dispatch, on
+    // forge_desktop_document_gate's own body (RECT 80x50 -> EXTRUDE 20 ->
+    // CYL r6 -> CUT, native-only operands, so a NativeSolid): VERTICAL selected
+    // 27 edges -- the whole body -- and radius 3 was then declined at a ceiling
+    // of 2.9883 on an edge set that should have been four corner verticals.
+    //
+    // Resolving natively also removes an OCCT dependency from the native path
+    // instead of adding one, which is what doc 11 §4.2 asks for: "Do not continue
+    // creating native algorithms that immediately reconstruct their outputs back
+    // into OCCT types as the normal internal path."
+    //
+    // WHAT THIS ENUMERATION CAN AND CANNOT SAY. It yields sharp CONVEX feature
+    // edges with a unit direction, so ALL, CONVEX, VERTICAL, HORIZONTAL and
+    // edge:<n> are answerable from it exactly. CONCAVE and TANGENT are NOT: the
+    // enumeration is convex by construction, so "no concave edges here" would be
+    // a statement about the instrument, not the body. RIM needs closedness and
+    // curve kind, and edge:<faceA>_<faceB> needs a face enumeration, neither of
+    // which this vector carries. Those four REFUSE BY NAME on this path rather
+    // than returning an empty set that reads as "your body has none".
+#ifdef FORGE_NATIVE_BREP
+    std::vector<std::uint32_t> resolveEdgeSelectorNative(Handle body,
+                                                         const std::string& selRaw,
+                                                         int opId,
+                                                         const std::string& opName) {
+        namespace nb = ::forge::native::brep;
+        std::vector<double> pos;
+        std::vector<std::uint32_t> idx;
+        try {
+            nb::tessellateSolid(
+                forge::ShapeRegistry::instance().getNativeSolid(body), pos, idx);
+        } catch (const std::exception& e) {
+            throw OpError(opId, opName + ": could not tessellate this native solid to "
+                                "enumerate its edges: " + e.what());
+        }
+        const std::vector<nb::SharpConvexEdge> inv = nb::enumerateSharpConvexEdges(pos, idx);
+        if (inv.empty())
+            throw OpError(opId, opName + ": this native body exposes no sharp convex edge "
+                                "to select (enumerateSharpConvexEdges returned none; the "
+                                "soup may not be a closed 2-manifold).");
+
+        const std::string selAll = lower(trim(selRaw));
+        if (selAll.empty()) throw OpError(opId, opName + ": empty edge selector");
+
+        std::vector<std::uint32_t> out;
+        std::vector<char> taken(inv.size(), 0);
+        auto take = [&](std::size_t k) {
+            if (taken[k]) return;
+            taken[k] = 1;
+            out.push_back(inv[k].id);
+        };
+
+        std::vector<std::string> terms;
+        {
+            std::size_t p = 0;
+            while (p <= selAll.size()) {
+                const std::size_t c = selAll.find(',', p);
+                const std::string t = trim(selAll.substr(p, c == std::string::npos
+                                                                ? std::string::npos
+                                                                : c - p));
+                if (!t.empty()) terms.push_back(t);
+                if (c == std::string::npos) break;
+                p = c + 1;
+            }
+        }
+        if (terms.empty()) throw OpError(opId, opName + ": empty edge selector");
+
+        auto refuseHere = [&](const std::string& term, const std::string& why) {
+            throw OpError(opId, opName + ": `" + term + "` is NOT APPLIED on a NATIVE solid -- "
+                          + why + " This body's edges come from the native geometric "
+                          "enumeration (enumerateSharpConvexEdges), which is what "
+                          "filletEdges honours here; the OCCT edge walk that answers "
+                          "this keyword names a different id space and selecting "
+                          "through it would round a different edge. Use "
+                          "ALL | CONVEX | VERTICAL | HORIZONTAL | edge:<n> on a native "
+                          "body, or import the body through OCCT for the full grammar.");
+        };
+
+        for (const std::string& term : terms) {
+            const std::size_t before = out.size();
+
+            if (!term.empty() && term[0] == '@')
+                refuseHere(term, "a persistent @name binds a FACE signature, and this "
+                                 "enumeration carries no face table.");
+            if (term == "concave")
+                refuseHere(term, "this enumeration is CONVEX by construction, so an empty "
+                                 "result would describe the instrument and not the body.");
+            if (term == "tangent")
+                refuseHere(term, "a tangent (smooth) edge is by definition not a sharp "
+                                 "feature edge, so this enumeration cannot contain one.");
+            if (term == "rim")
+                refuseHere(term, "RIM means a CLOSED circular edge, and this enumeration "
+                                 "carries neither closedness nor curve kind.");
+
+            if (term == "all") {
+                for (std::size_t k = 0; k < inv.size(); ++k) take(k);
+            } else if (term == "convex") {
+                // Free: every edge this enumeration yields is sharp and convex.
+                for (std::size_t k = 0; k < inv.size(); ++k) take(k);
+            } else if (term == "vertical" || term == "horizontal") {
+                // From the edge's own unit direction, the same quantity the OCCT
+                // path reads off the curve tangent at mid parameter.
+                const bool wantVert = (term == "vertical");
+                for (std::size_t k = 0; k < inv.size(); ++k) {
+                    const double az = std::fabs(inv[k].dz);
+                    if (wantVert ? (az > 0.99) : (az < 0.01)) take(k);
+                }
+            } else if (term.rfind("edge:", 0) == 0) {
+                const std::string spec = trim(term.substr(5));
+                if (spec.find('_') != std::string::npos)
+                    refuseHere(term, "the face-pair form edge:<faceA>_<faceB> needs a face "
+                                     "enumeration, which this vector does not carry.");
+                double v = 0;
+                if (!parseDouble(spec, v))
+                    throw OpError(opId, opName + ": bad edge selector `" + term + "`");
+                const int n = static_cast<int>(v);
+                if (n < 1 || n > static_cast<int>(inv.size()))
+                    throw OpError(opId, opName + ": edge:" + std::to_string(n) +
+                                        " out of range (1.." + std::to_string(inv.size()) +
+                                        " on this native body; the ordinal is 1-based over "
+                                        "the sharp-convex enumeration).");
+                take(static_cast<std::size_t>(n - 1));
+            } else {
+                throw OpError(opId, opName + ": edge selector `" + term +
+                    "` is NOT IMPLEMENTED on a native solid -- this path resolves "
+                    "ALL | CONVEX | VERTICAL | HORIZONTAL | edge:<n>. It is not that no "
+                    "edge matched; the keyword has no resolver here.");
+            }
+
+            if (out.size() == before)
+                throw OpError(opId, opName + ": selector `" + term +
+                                    "` matched no edge on this native body (" +
+                                    std::to_string(inv.size()) + " sharp convex edges).");
+        }
+
+        if (out.empty())
+            throw OpError(opId, opName + ": selector `" + selRaw + "` matched no edge.");
+        return out;
+    }
+#endif
+
+    std::vector<std::uint32_t> resolveEdgeSelector(Handle body, const std::string& selRaw,
+                                                   int opId, const std::string& opName) {
+#ifdef FORGE_NATIVE_BREP
+        // Branch on the BACKEND before touching any OCCT walk. shapeKind() lives
+        // in ShapeHandle.hpp and names no OCCT type.
+        if (forge::shapeKind(static_cast<forge::ShapeHandle>(body))
+                == forge::ShapeKind::NativeSolid)
+            return resolveEdgeSelectorNative(body, selRaw, opId, opName);
+#endif
+        std::vector<forge::EdgeInfo> inv;
+        try {
+            inv = forge::edgeInventory(body);
+        } catch (const std::exception& e) {
+            throw OpError(opId, opName + ": edgeInventory failed: " + e.what());
+        }
+        if (inv.empty()) throw OpError(opId, opName + ": this body has no edges to select");
+
+        const std::string selAll = lower(trim(selRaw));
+        if (selAll.empty()) throw OpError(opId, opName + ": empty edge selector");
+
+        std::vector<std::uint32_t> out;
+        std::vector<char> taken(inv.size(), 0);
+        auto take = [&](std::size_t k) {
+            if (taken[k]) return;
+            taken[k] = 1;
+            out.push_back(static_cast<std::uint32_t>(inv[k].filletId));
+        };
+
+        // split the comma list
+        std::vector<std::string> terms;
+        {
+            std::size_t p = 0;
+            while (p <= selAll.size()) {
+                const std::size_t c = selAll.find(',', p);
+                const std::string t = trim(selAll.substr(p, c == std::string::npos
+                                                                ? std::string::npos
+                                                                : c - p));
+                if (!t.empty()) terms.push_back(t);
+                if (c == std::string::npos) break;
+                p = c + 1;
+            }
+        }
+        if (terms.empty()) throw OpError(opId, opName + ": empty edge selector");
+
+        for (const std::string& term : terms) {
+            const std::size_t before = out.size();
+
+            if (!term.empty() && term[0] == '@') {
+                throw OpError(opId, opName + ": `" + term +
+                    "` is NOT APPLIED -- a persistent @name currently binds a FACE "
+                    "signature (bound by TAG), and there is no edge signature for it "
+                    "to match. Resolving it against the face table would name a "
+                    "different entity. Use a dihedral class (CONVEX | CONCAVE | "
+                    "TANGENT), a face pair (edge:<faceA>_<faceB>), or edge:<n>.");
+            }
+
+            if (term == "all") {
+                for (std::size_t k = 0; k < inv.size(); ++k) take(k);
+            } else if (term == "convex" || term == "concave" || term == "tangent") {
+                const forge::EdgeConvexity want =
+                    (term == "convex")  ? forge::EdgeConvexity::Convex :
+                    (term == "concave") ? forge::EdgeConvexity::Concave
+                                        : forge::EdgeConvexity::Tangent;
+                for (std::size_t k = 0; k < inv.size(); ++k)
+                    if (inv[k].convexity == want) take(k);
+            } else if (term == "rim") {
+                // A RIM is a CLOSED circular edge: the mouth of a bore, the top
+                // of a boss. This is a DELIBERATE change of meaning -- RIM used
+                // to be a byte-identical alias of HORIZONTAL (both 47248.141380
+                // on a box), and a keyword that denotes nothing of its own is
+                // worse than a missing one, because the vocabulary claims a
+                // capability it does not have.
+                for (std::size_t k = 0; k < inv.size(); ++k)
+                    if (inv[k].closed && (inv[k].kind == "circle" || inv[k].kind == "ellipse"))
+                        take(k);
+            } else if (term == "vertical" || term == "horizontal") {
+                // From the edge's OWN tangent at its mid parameter, not from the
+                // chord between the first and last point of a 0.25 mm-deflection
+                // polyline. On a circular edge the chord answer depended on the
+                // tessellation; this one does not.
+                const bool wantVert = (term == "vertical");
+                for (std::size_t k = 0; k < inv.size(); ++k) {
+                    const double az = std::fabs(inv[k].tangent[2]);
+                    if (wantVert ? (az > 0.99) : (az < 0.01)) take(k);
+                }
+            } else if (term.rfind("edge:", 0) == 0) {
+                std::string spec = trim(term.substr(5));
+                if (spec.empty())
+                    throw OpError(opId, opName + ": `" + term + "` names no edge. Use "
+                                        "edge:<faceA>_<faceB>[#k] or edge:<n>.");
+                // optional #k component index
+                int wantComponent = -1;
+                const std::size_t hash = spec.find('#');
+                if (hash != std::string::npos) {
+                    double kv = 0;
+                    if (!parseDouble(trim(spec.substr(hash + 1)), kv) || kv < 0)
+                        throw OpError(opId, opName + ": bad component index in `" + term +
+                                            "` (want edge:<a>_<b>#<k>, k from 0)");
+                    wantComponent = static_cast<int>(kv);
+                    spec = trim(spec.substr(0, hash));
+                }
+                const std::size_t und = spec.find('_');
+                if (und == std::string::npos) {
+                    // edge:<n> — 1-based ordinal, the mirror of face:<n>
+                    if (wantComponent >= 0)
+                        throw OpError(opId, opName + ": `" + term + "` gives a component "
+                                            "index to an ordinal; #k belongs to the face-pair "
+                                            "form edge:<a>_<b>#<k>.");
+                    double v = 0;
+                    if (!parseDouble(spec, v))
+                        throw OpError(opId, opName + ": bad edge selector `" + term + "`");
+                    const int n = static_cast<int>(v);
+                    if (n < 1 || n > static_cast<int>(inv.size()))
+                        throw OpError(opId, opName + ": edge:" + std::to_string(n) +
+                                            " out of range (1.." + std::to_string(inv.size()) +
+                                            "). NOTE the ordinal is 1-based over UNIQUE edges; "
+                                            "it is NOT the kernel's internal fillet id, which is "
+                                            "0-based over a traversal that visits a shared edge "
+                                            "once per face.");
+                    take(static_cast<std::size_t>(n - 1));
+                } else {
+                    double av = 0, bv = 0;
+                    if (!parseDouble(trim(spec.substr(0, und)), av) ||
+                        !parseDouble(trim(spec.substr(und + 1)), bv))
+                        throw OpError(opId, opName + ": bad face pair in `" + term +
+                                            "` (want edge:<faceA>_<faceB>)");
+                    const int fa = static_cast<int>(av), fb = static_cast<int>(bv);
+                    std::vector<std::size_t> hit;
+                    for (std::size_t k = 0; k < inv.size(); ++k)
+                        if ((inv[k].faceA == fa && inv[k].faceB == fb) ||
+                            (inv[k].faceA == fb && inv[k].faceB == fa)) hit.push_back(k);
+                    if (hit.empty())
+                        throw OpError(opId, opName + ": no edge lies between face " +
+                                            std::to_string(fa) + " and face " +
+                                            std::to_string(fb) + ". " + edgeClassCounts(inv));
+                    if (wantComponent >= 0) {
+                        if (wantComponent >= static_cast<int>(hit.size()))
+                            throw OpError(opId, opName + ": `" + term + "` asks for component " +
+                                                std::to_string(wantComponent) + " of a pair with " +
+                                                std::to_string(hit.size()) + " (0.." +
+                                                std::to_string(hit.size() - 1) + ")");
+                        take(hit[static_cast<std::size_t>(wantComponent)]);
+                    } else if (hit.size() > 1) {
+                        // AMBIGUITY IS A REFUSAL, NEVER A GUESS. Two faces can
+                        // meet along more than one curve -- a plate cut by a slot
+                        // meets its wall twice -- and picking the first would be a
+                        // silent wrong edge with ok=true.
+                        throw OpError(opId, opName + ": faces " + std::to_string(fa) + " and " +
+                                            std::to_string(fb) + " meet along " +
+                                            std::to_string(hit.size()) +
+                                            " separate edges; name which with edge:" +
+                                            std::to_string(fa) + "_" + std::to_string(fb) +
+                                            "#<k>, k from 0 to " +
+                                            std::to_string(hit.size() - 1) + ".");
+                    } else {
+                        take(hit.front());
+                    }
+                }
+            } else {
+                throw OpError(opId, opName + ": edge selector `" + term +
+                    "` is NOT IMPLEMENTED here -- this op resolves " +
+                    std::string(EDGE_SELECTOR_DOMAIN) +
+                    ". It is not that no edge matched; the keyword has no resolver, "
+                    "so nothing could have matched. " + edgeClassCounts(inv));
+            }
+
+            if (out.size() == before)
+                throw OpError(opId, opName + ": selector `" + term +
+                                    "` matched no edge on this body. " + edgeClassCounts(inv));
+        }
+
+        if (out.empty())
+            throw OpError(opId, opName + ": selector `" + selRaw + "` matched no edge. " +
+                                edgeClassCounts(inv));
+        return out;
+    }
+
+    // The selector SLOT accepts a KEYWORD (ALL, CONCAVE, ...) or a QUOTED
+    // selector ("edge:3_7"). It accepts nothing else.
+    //
+    // A quoted selector used to be refused outright -- and the app's own
+    // part.fillet / part.chamfer carry a user-typed `selector` Text parameter
+    // whose value is emitted as a quoted argument for anything outside
+    // ALL|VERTICAL|RIM|CONVEX (ui/src/PartCommands.cpp:1591,1602). So the
+    // command existed, the field existed, and every value a user typed into it
+    // died at this boundary. Accepting the quoted form here is what makes that
+    // field work; it is not a new UI, it is the other end of an existing one.
+    std::string edgeSelectorArg(const Op& op, std::size_t i, const std::string& def) {
+        if (i >= op.args.size()) return def;
+        if (op.args[i].kind == TokKind::Keyword) return op.args[i].kw;
+        if (op.args[i].kind == TokKind::Str)     return op.args[i].str;
+        throw OpError(op.id, op.name + ": the non-keyword token at arg #" +
+                      std::to_string(i) + " is NOT APPLIED -- the edge selector is a "
+                      "keyword or a quoted selector (" +
+                      std::string(EDGE_SELECTOR_DOMAIN) + "). It used to fall "
+                      "through to ALL, which acts on EVERY edge of the body instead "
+                      "of the ones named.");
+    }
+
+    // ── THE TOPOLOGY GUARD THAT IS DELIBERATELY NOT HERE ─────────────────────
+    //
+    // A FILLET or CHAMFER removes or adds material along an edge; it does not
+    // drill a through-hole. So "a dress-up op may not change the genus" reads
+    // like an obviously correct invariant, and this file carried an
+    // implementation of it for exactly as long as it took to measure it.
+    //
+    // THE CLAIM IT WAS BUILT ON IS FALSE. The reported defect was:
+    //   FILLET(BOX(60,40,20),  9, ALL) -> ok=true valid=true vol=40632.582385 genus=1
+    //   FILLET(BOX(60,40,20), 10, ALL) -> ok=true valid=true            genus=1
+    // read as "a filleted box with a through-hole in it, passed by checkBRep".
+    // It is not. A box a x b x c with every edge rolled at radius r decomposes
+    // exactly (Minkowski-style: core + face slabs + four quarter-cylinders per
+    // direction + eight corner octants):
+    //
+    //   V = (a-2r)(b-2r)(c-2r)
+    //     + 2r[(a-2r)(b-2r) + (b-2r)(c-2r) + (a-2r)(c-2r)]
+    //     + pi r^2[(a-2r) + (b-2r) + (c-2r)]
+    //     + (4/3) pi r^3                          valid while 2r <= min(a,b,c)
+    //
+    // MEASURED against it, 60x40x20:
+    //   r=3  closed form 47109.079392   kernel 47109.079392   rel 1.0e-11
+    //   r=5  closed form 45592.182246   kernel 45592.182246   rel 3.8e-12
+    //   r=9  closed form 40632.582385   kernel 40632.582385   rel 9.4e-12
+    //
+    // The kernel is exact to one part in 1e11 at every radius, INCLUDING the
+    // two that were called defective. There is no hole. At r=9, 2r=18 <= 20, so
+    // the fillets do not even interfere; at r=10 they exactly meet and the
+    // kernel declines, which is correct.
+    //
+    // BOTH AVAILABLE INSTRUMENTS ARE WRONG ON FILLETED SOLIDS, IN OPPOSITE
+    // DIRECTIONS, and that is the finding worth keeping:
+    //
+    //   A. forge::topologySignature -- weld-betti genus over a 0.3/0.6
+    //      tessellation. Says genus 1 for the box at r=5 (where 2r=10 is half
+    //      the thickness and nothing can have met), and says genus 0 for the
+    //      4-hole bracket after ANY horizontal fillet -- i.e. it reports that
+    //      four dia-9 mounting holes vanished when faceInventory still counts
+    //      all four concave cylindrical bore faces, at r=0.5.
+    //   B. Euler-Poincare over the B-rep maps, G = S - (V - E + 2F - L)/2
+    //      (Mantyla 1988 ch.4; Braid, Hillyard & Stroud 1978). Exact on a
+    //      box (0) and on the drilled bracket (4), and says 4 for a plain
+    //      FILLET(box, r=3) -- which is genus 0.
+    //
+    // A guard built on A refuses a legitimate 2.25 mm fillet on a real bracket
+    // (measured); a guard built on B refuses a plain rounded box. A refusal is
+    // only worth shipping when the instrument behind it is sound, and neither
+    // is. The gate pins the closed-form volumes instead, so the "over-radius
+    // fillets are silently invalid" claim cannot be re-made without first
+    // moving a number that is right to eleven digits.
+    //
+    // What a real guard would need is a B-rep instrument calibrated on a case
+    // where a dress-up op genuinely DOES change topology. No such case has been
+    // produced on this build, and inventing one to calibrate against would be
+    // the same mistake in a different order.
+
+    // ── the largest size that actually builds ────────────────────────────────
+    //
+    // THE THREE RETRY LADDERS ARE GONE. Each of FILLET, CHAMFER and BLEND used
+    // to wrap its kernel call in `for (double rr : {r, r*0.75, r*0.5, r*0.35,
+    // r*0.2})` and return the FIRST rung that did not throw, with ok=true and no
+    // message. MEASURED on BOX(60,40,20), HEAD build:
+    //
+    //   CHAMFER(%1,11,ALL) -> vol 34659.750000 area 6275.218685
+    //   CHAMFER(%1,8.25,ALL)-> vol 34659.750000 area 6275.218685   (11 x 0.75)
+    //   CHAMFER(%1,15,ALL) -> vol 36750.000000 area 6521.691947
+    //   CHAMFER(%1,7.5,ALL)-> vol 36750.000000 area 6521.691947    (15 x 0.50)
+    //
+    // byte-identical in both pairs: ask for 15 mm, get 7.5 mm. The cheapest tell
+    // is that it is NON-MONOTONIC -- the bigger ask returns MORE volume, which no
+    // real chamfer can do. A dimension the user typed and a dimension the part
+    // carries have to be the same number or the model is not a model.
+    //
+    // The refusal that replaces it is worth more than the silent substitution
+    // was: a bisection over [0, asked] reports the largest size that DOES build
+    // on this edge set, so the next statement is a number rather than a guess.
+    // Capped at 8 probes, and only ever run on the failure path.
+    double largestBuildable(double asked, const std::function<bool(double)>& build) {
+        double lo = 0.0, hi = asked, best = 0.0;
+        for (int i = 0; i < 8 && (hi - lo) > 1e-4 * asked; ++i) {
+            const double mid = 0.5 * (lo + hi);
+            if (mid <= 0) break;
+            if (build(mid)) { best = mid; lo = mid; } else { hi = mid; }
+        }
+        return best;
+    }
+
+    static std::string fmtNum(double v) {
+        std::ostringstream o;
+        o.setf(std::ios::fixed);
+        o.precision(4);
+        o << v;
+        std::string s = o.str();
+        while (s.size() > 1 && s.back() == '0') s.pop_back();
+        if (!s.empty() && s.back() == '.') s.pop_back();
+        return s;
+    }
+
+    std::string declineAdvice(const Op& op, double asked, const char* sizeWord,
+                              std::size_t nEdges,
+                              const std::function<bool(double)>& build) {
+        const double best = largestBuildable(asked, build);
+        std::string s = op.name + ": " + sizeWord + " " + fmtNum(asked) +
+                        " was DECLINED by the kernel on the " + std::to_string(nEdges) +
+                        " selected edge(s). It used to fall back to " + fmtNum(asked * 0.75) +
+                        ", " + fmtNum(asked * 0.5) + ", " + fmtNum(asked * 0.35) + " or " +
+                        fmtNum(asked * 0.2) + " and report the smaller result as a success.";
+        if (best > 0)
+            s += " The largest " + std::string(sizeWord) + " that DOES build on this "
+                 "edge set is about " + fmtNum(best) + ".";
+        else
+            s += " No positive " + std::string(sizeWord) +
+                 " builds on this edge set; select fewer edges.";
+        return s;
     }
 
     Handle opFillet(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
-        double r = num(op, 1);
-        // EVERY argument from the selector slot on, not just arg #2: the 4-arg
-        // form FILLET(%1,1,ALL,"face:top") dropped its fourth token and built the
-        // ALL solid. See refuseTextSelector.
-        for (std::size_t i = 2; i < op.args.size(); ++i) refuseTextSelector(op, i);
+        const double r = num(op, 1);
         refuseExtraArgs(op, 3, "FILLET(%body, radius [, sel=ALL])");
-        std::string sel = kwOpt(op, 2, "ALL");
-        auto ids = selectEdges(body, sel, op.id, op.name);
-        // retry with a shrinking radius (native fillet declines on thin/large radii)
-        for (double rr : {r, r * 0.75, r * 0.5, r * 0.35, r * 0.2}) {
-            if (rr <= 0) break;
-            try { return forge::part::filletEdges(body, ids, rr); }
-            catch (...) { /* try smaller */ }
+        const std::string sel = edgeSelectorArg(op, 2, "ALL");
+        const auto ids = resolveEdgeSelector(body, sel, op.id, op.name);
+        auto build = [&](double rr) {
+            try { (void)forge::part::filletEdges(body, ids, rr); return true; }
+            catch (...) { return false; }
+        };
+        Handle out;
+        try {
+            out = forge::part::filletEdges(body, ids, r);
+        } catch (...) {
+            throw OpError(op.id, declineAdvice(op, r, "radius", ids.size(), build));
         }
-        throw OpError(op.id, "FILLET: kernel declined at every radius (r=" + std::to_string(r) + ")");
+        return out;
     }
 
     Handle opChamfer(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
-        double d = num(op, 1);
-        for (std::size_t i = 2; i < op.args.size(); ++i) refuseTextSelector(op, i);
+        const double d = num(op, 1);
         refuseExtraArgs(op, 3, "CHAMFER(%body, dist [, sel=ALL])");
-        std::string sel = kwOpt(op, 2, "ALL");
-        auto ids = selectEdges(body, sel, op.id, op.name);
-        for (double dd : {d, d * 0.75, d * 0.5, d * 0.35, d * 0.2}) {
-            if (dd <= 0) break;
-            try { return forge::part::chamferEdges(body, ids, dd, -1); }
-            catch (...) { /* try smaller */ }
+        const std::string sel = edgeSelectorArg(op, 2, "ALL");
+        const auto ids = resolveEdgeSelector(body, sel, op.id, op.name);
+        auto build = [&](double dd) {
+            try { (void)forge::part::chamferEdges(body, ids, dd, -1); return true; }
+            catch (...) { return false; }
+        };
+        Handle out;
+        try {
+            out = forge::part::chamferEdges(body, ids, d, -1);
+        } catch (...) {
+            throw OpError(op.id, declineAdvice(op, d, "distance", ids.size(), build));
         }
-        throw OpError(op.id, "CHAMFER: kernel declined at every distance");
+        return out;
     }
 
     // BLEND — variable-radius fillet: radius sweeps rStart -> rEnd along each
     // selected edge (linear law, or S-law with SMOOTH). Maps to native
-    // varfillet::fillet. Same shrinking-radius retry as FILLET.
+    // varfillet::fillet. Same rules as FILLET: the radii asked for are the radii
+    // built, or the op refuses and names the largest scale that does build.
     Handle opBlend(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
-        double r0 = num(op, 1), r1 = num(op, 2);
+        const double r0 = num(op, 1), r1 = num(op, 2);
         refuseExtraArgs(op, 5, "BLEND(%body, rStart, rEnd [, sel=ALL] [, SMOOTH])");
         std::string sel = "ALL";
         bool smooth = false;
+        bool sawSel = false;
         for (std::size_t i = 3; i < op.args.size(); ++i) {
-            refuseTextSelector(op, i);      // "face:top" used to mean ALL. See above.
-            if (op.args[i].kind != TokKind::Keyword) continue;
-            const std::string& kw = op.args[i].kw;
-            if (kw == "SMOOTH") smooth = true;
-            else sel = kw;
+            if (op.args[i].kind == TokKind::Keyword && op.args[i].kw == "SMOOTH") {
+                smooth = true;
+                continue;
+            }
+            sel = edgeSelectorArg(op, i, sel);     // refuses a Number/Ref/Points token
+            sawSel = true;
         }
-        auto ids = selectEdges(body, sel, op.id, op.name);
-        for (double scale : {1.0, 0.75, 0.5, 0.35, 0.2}) {
+        (void)sawSel;
+        const auto ids = resolveEdgeSelector(body, sel, op.id, op.name);
+        auto specsAt = [&](double scale) {
             std::vector<forge::varfillet::EdgeSpec> specs;
             specs.reserve(ids.size());
             for (auto id : ids) {
@@ -2196,12 +2711,24 @@ private:
                 s.radiusEnd   = r1 * scale;
                 specs.push_back(s);
             }
-            try { return forge::varfillet::fillet(body, specs, smooth); }
-            catch (...) { /* try smaller radii */ }
+            return specs;
+        };
+        auto build = [&](double scaledEnd) {
+            const double scale = (r1 > 1e-12) ? (scaledEnd / r1) : 0.0;
+            if (!(scale > 0)) return false;
+            try { (void)forge::varfillet::fillet(body, specsAt(scale), smooth); return true; }
+            catch (...) { return false; }
+        };
+        Handle out;
+        try {
+            out = forge::varfillet::fillet(body, specsAt(1.0), smooth);
+        } catch (...) {
+            throw OpError(op.id, declineAdvice(op, r1, "end radius", ids.size(), build) +
+                          " (start radius " + fmtNum(r0) + " scales with it.)");
         }
-        throw OpError(op.id, "BLEND: kernel declined at every radius (r=" +
-                      std::to_string(r0) + "->" + std::to_string(r1) + ")");
+        return out;
     }
+
 
     Handle opShell(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);

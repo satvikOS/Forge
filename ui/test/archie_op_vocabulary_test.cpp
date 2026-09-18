@@ -754,10 +754,20 @@ int main() {
     }
   }
   CHECK(examplesRun >= 25);
-  // part.fillet and part.chamfer contribute two each. If this reaches zero the
+  // part.fillet and part.chamfer contribute ONE each. If this reaches zero the
   // vocabulary has stopped deriving the refused half and every instrument that
   // reads it -- this test and ft_app_path_probe.py -- goes blind to it together.
-  CHECK(refusedRun >= 4);
+  //
+  // THE FLOOR WAS 4 AND THE KERNEL EARNED IT DOWN TO 2. Each of the two commands
+  // used to contribute two refused rows: the keyword CONVEX, and a quoted
+  // selector. resolveEdgeSelector resolves CONVEX now, so that row is legal and
+  // correctly gone; the quoted row survives because "face:top" is still not a
+  // form the grammar defines. MEASURED on this build: `dispatched 101 recorded
+  // examples and 2 app-reachable refused emissions through the live registry`
+  // (was 99 and 4). A floor lowered because a capability arrived is not the same
+  // as a floor lowered to get green -- the distinction is that the example count
+  // went UP by exactly the two the new grammar made legal.
+  CHECK(refusedRun >= 2);
   std::printf("  [info] dispatched %zu recorded examples and %zu app-reachable refused "
               "emissions through the live registry\n", examplesRun, refusedRun);
 

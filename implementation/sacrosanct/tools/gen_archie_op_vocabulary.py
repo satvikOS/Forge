@@ -1460,19 +1460,36 @@ EXAMPLE_TEXT_SELECTOR = "face:top"
 # refused form teaches it to emit exactly that form; 30,472 of 120,000 rows
 # across data/forge/vocab_legal_v1..v3 already carry one.
 #
-# Both facts below are READ OUT OF forge-kernel/src/ft/FeatureTreeCompiler.cpp
+# Every fact below is READ OUT OF forge-kernel/src/ft/FeatureTreeCompiler.cpp
 # (SOURCES["kernel_compiler"]), never asserted here, so the JSON follows the
-# kernel the next time either moves:
+# kernel the next time any of them moves:
 #
-#   refuses_text_selector  ops whose handler calls refuseTextSelector /
-#                          refuseNonKeyword -- a non-keyword token in that slot
+#   edge_ops               ops whose dispatched handler calls the edge-selector
+#                          resolver. This, not `refuses`, is what says "this
+#                          slot's domain is the kernel's edge domain".
+#   refuses                ops whose handler calls refuseTextSelector /
+#                          refuseNonKeyword -- a non-keyword TOKEN in that slot
 #                          is an error, so no example may use one.
-#   resolvable             the keyword domain selectEdges() can actually resolve.
-#                          The app offers ALL|VERTICAL|RIM|CONVEX and the kernel
-#                          resolves ALL|VERTICAL|RIM|HORIZONTAL: MEASURED,
-#                          FILLET(%1,1,CONVEX) on BOX(60,40,20) does not build.
-#                          Documenting CONVEX as legal teaches an unbuildable
-#                          form just as surely as the quoted one does.
+#   resolvable             the keyword domain the resolver resolves.
+#   grammar                the QUOTED forms it resolves (edge:<a>_<b>[#k],
+#                          edge:<n>), empty where quoted selectors are refused.
+#   grammar_example        one legal instance of that grammar, derived from the
+#                          ordinal form -- never invented.
+#
+# THE DOMAIN IS DERIVED TWICE AND THE TWO MUST AGREE. EDGE_SELECTOR_DOMAIN is
+# what the kernel TELLS the user in its own refusal message; the `sel == "KW"`
+# branches are what it DOES. Deriving from the message alone would document a
+# keyword that denotes nothing; deriving from the branches alone would ship a
+# domain no error message can name. They are cross-checked and a disagreement
+# is CANNOT DERIVE, because that disagreement is the defect.
+#
+# WHY THE RESOLVER IS FOUND THROUGH ITS CALL SITES. The first version of this
+# block pinned the literal signature `selectEdges(Handle body, const std::string&
+# sel, int opId`. When the kernel grew a real selector grammar the function was
+# renamed to resolveEdgeSelector, and this generator stopped with CANNOT DERIVE
+# -- so the vocabulary, and therefore Archie, could not learn that any of the new
+# capability existed. A parser pinned to a name turns every rename into an
+# outage; pinned to the CALL SHAPE it follows the kernel instead.
 def parse_selector_rules(compiler_src, spellings):
     # Comments out first: this file documents the very C++ shapes the patterns
     # below match (a doc block spelling `catch (...) { ... }` would unbalance the
@@ -1501,28 +1518,114 @@ def parse_selector_rules(compiler_src, spellings):
                           % ", ".join(unknown))
     refuses = {by_enum[e] for e in refuses}
 
-    m = re.search(r"selectEdges\(Handle body, const std::string& sel, int opId\b", compiler_src)
-    if not m:
-        raise DeriveError("selectEdges signature not found -- cannot derive the selector domain")
-    body, _ = balanced(compiler_src, compiler_src.index("{", m.end()), "{", "}")
-    guard = re.search(r'if \(((?:sel != "\w+"(?:\s*&&\s*)?)+)\)', body)
-    if not guard:
-        raise DeriveError("selectEdges has no `sel != \"KW\" && ...` domain guard")
-    resolvable = re.findall(r'sel != \"(\w+)\"', guard.group(1))
-    if not resolvable:
-        raise DeriveError("selectEdges domain guard names no keywords")
-    return {"refuses": refuses, "resolvable": resolvable}
+    # ---- the DOCUMENTED domain: what the kernel TELLS the user it resolves ----
+    dm = re.search(r"EDGE_SELECTOR_DOMAIN\s*=\s*((?:\s*\"(?:[^\"\\]|\\.)*\")+)\s*;",
+                   compiler_src)
+    if not dm:
+        raise DeriveError("no `EDGE_SELECTOR_DOMAIN = \"...\"` in the compiler -- that "
+                          "constant is the domain the kernel names in its own refusal "
+                          "message, and half of this derivation is cross-checking it")
+    documented = "".join(re.findall(r'"((?:[^"\\]|\\.)*)"', dm.group(1)))
+    alts = [a.strip() for a in documented.split("|") if a.strip()]
+    resolvable = [a for a in alts if re.fullmatch(r"[A-Z][A-Z0-9_]*", a)]
+    grammar = [a for a in alts if a not in resolvable]
+    bad = [a for a in grammar if ":" not in a]
+    if bad:
+        raise DeriveError("EDGE_SELECTOR_DOMAIN alternative(s) %s are neither a bare "
+                          "KEYWORD nor a `prefix:` quoted form" % ", ".join(map(repr, bad)))
+
+    # ---- the EXECUTED domain, and the resolver's own name --------------------
+    # The resolver is found through its CALL SITES, never by spelling its name
+    # here. It has already been renamed once (selectEdges -> resolveEdgeSelector)
+    # and a hard-coded signature turned that rename into "CANNOT DERIVE": the
+    # generator refused to run at all, which is exactly how a kernel grows a
+    # selector grammar that the vocabulary -- and therefore Archie -- never
+    # learns exists.
+    callers = sorted(set(re.findall(r"\b(\w+)\(body, sel, op\.id, op\.name\)", compiler_src)))
+    if len(callers) != 1:
+        raise DeriveError("expected exactly one edge-selector resolver called as "
+                          "`f(body, sel, op.id, op.name)`, found %s"
+                          % (", ".join(callers) or "none"))
+    resolver = callers[0]
+    md = re.search(r"\b%s\(Handle body, const std::string& \w+," % re.escape(resolver),
+                   compiler_src)
+    if not md:
+        raise DeriveError("%s is called but never defined as "
+                          "`%s(Handle body, const std::string& <sel>, ...)`"
+                          % (resolver, resolver))
+    rbody, _ = balanced(compiler_src, compiler_src.index("{", md.end()), "{", "}")
+
+    # A bare identifier compared against a string literal -- `sel != "ALL"`,
+    # `term == "convex"`. The lookbehind drops member tests (`inv[k].kind ==
+    # "circle"`), which are geometry, not selector keywords.
+    by_var = {}
+    for var, lit in re.findall(r'(?<![\w.>\]])(\w+) [!=]= "(\w+)"', rbody):
+        by_var.setdefault(var, set()).add(lit.lower())
+    want = {k.lower() for k in resolvable}
+    hits = sorted(v for v, lits in by_var.items() if lits == want)
+    if len(hits) != 1:
+        raise DeriveError(
+            "%s does not TEST the domain it DOCUMENTS. EDGE_SELECTOR_DOMAIN names the "
+            "keywords {%s}; no single selector variable in the body is compared against "
+            "exactly that set (candidates: %s). One of the two has moved without the "
+            "other, and a keyword that denotes nothing is worse than a missing one."
+            % (resolver, ", ".join(sorted(want)) or "-",
+               "; ".join("%s={%s}" % (v, ",".join(sorted(l))) for v, l in sorted(by_var.items()))
+               or "none"))
+
+    # The quoted grammar is cross-checked the same way: every `prefix:` form the
+    # constant advertises must have a prefix test in the body, and vice versa.
+    prefixes = {a.split(":", 1)[0] + ":" for a in grammar}
+    tested = set(re.findall(r'\.rfind\("([^"]+)", 0\) == 0', rbody))
+    if prefixes != tested:
+        raise DeriveError("%s documents quoted selector prefixes %s and tests %s"
+                          % (resolver, sorted(prefixes) or "none", sorted(tested) or "none"))
+
+    # A worked example of the quoted grammar has to be DERIVED from a form that is
+    # legal on any body -- the ordinal `prefix:<n>`. Inventing one is how
+    # FILLET(%body, 1, "face:top") reached 30,472 of 120,000 training rows.
+    grammar_example = None
+    for a in grammar:
+        gm = re.fullmatch(r"([a-z]+:)<\w+>", a)
+        if gm:
+            grammar_example = gm.group(1) + "1"
+            break
+    if grammar and grammar_example is None:
+        raise DeriveError("%s documents a quoted grammar (%s) with no bare `prefix:<n>` "
+                          "ordinal form, so no legal worked example can be derived"
+                          % (resolver, " | ".join(grammar)))
+
+    edge_ops = set()
+    for enum, fn in dispatch.items():
+        m = re.search(r"\bHandle\s+%s\s*\(const Op& op" % re.escape(fn), compiler_src)
+        if not m:
+            continue
+        hbody, _ = balanced(compiler_src, compiler_src.index("{", m.end()), "{", "}")
+        if resolver + "(" in hbody:
+            edge_ops.add(enum)
+    unknown = sorted(e for e in edge_ops if e not in by_enum)
+    if unknown:
+        raise DeriveError("%s is called from OpCode %s, which opFromName does not spell"
+                          % (resolver, ", ".join(unknown)))
+    edge_ops = {by_enum[e] for e in edge_ops}
+    if not edge_ops:
+        raise DeriveError("%s is defined but no dispatched handler calls it" % resolver)
+
+    return {"refuses": refuses, "resolvable": resolvable, "grammar": grammar,
+            "grammar_example": grammar_example, "edge_ops": edge_ops,
+            "resolver": resolver}
 
 
 # Filled by build() from the kernel source before any form is enumerated.
-SELECTOR_RULES = {"refuses": set(), "resolvable": []}
+SELECTOR_RULES = {"refuses": set(), "resolvable": [], "grammar": [],
+                  "grammar_example": None, "edge_ops": set(), "resolver": "?"}
 
 
 def selector_keywords(cmd, selects_on):
     """The keyword alternatives this op's selector slot may document: what the
     APP offers, narrowed to what the KERNEL resolves. Order follows the app."""
     app = ternary_domain(selects_on)
-    if cmd["feature_ir_op"] not in SELECTOR_RULES["refuses"]:
+    if cmd["feature_ir_op"] not in SELECTOR_RULES["edge_ops"]:
         return app
     keep = [k for k in app if k in SELECTOR_RULES["resolvable"]]
     if not keep:
@@ -1563,7 +1666,7 @@ def refused_app_emissions(cmd, slots, active, params, text_params):
     user types anything but ALL/VERTICAL/RIM into its selector box.
     """
     app = app_selector_domain(cmd, slots)
-    if app is None or cmd["feature_ir_op"] not in SELECTOR_RULES["refuses"]:
+    if app is None or cmd["feature_ir_op"] not in SELECTOR_RULES["edge_ops"]:
         return []
     if len(text_params) != 1:
         raise DeriveError("%s has a keyword/text slot but %d Text parameters"
@@ -1572,11 +1675,21 @@ def refused_app_emissions(cmd, slots, active, params, text_params):
     for kw in app:
         if kw in SELECTOR_RULES["resolvable"]:
             continue
-        rows.append((kw, kw, "selectEdges resolves %s only, so the keyword has no resolver"
-                     % " | ".join(SELECTOR_RULES["resolvable"])))
-    rows.append(('"%s"' % EXAMPLE_TEXT_SELECTOR, EXAMPLE_TEXT_SELECTOR,
-                 "the slot is keyword-only; a quoted selector used to fall "
-                 "through kwOpt() to the slot default and act on every edge"))
+        rows.append((kw, kw, "%s resolves %s only, so the keyword has no resolver"
+                     % (SELECTOR_RULES["resolver"],
+                        " | ".join(SELECTOR_RULES["resolvable"]))))
+    # A quoted selector is refused either at the TOKEN (the slot is keyword-only)
+    # or by the GRAMMAR (the form is not one the resolver defines). Both are
+    # refusals and both belong here, but they are not the same refusal, and the
+    # row has to say which or the negative example teaches the wrong lesson.
+    if cmd["feature_ir_op"] in SELECTOR_RULES["refuses"]:
+        why = ("the slot is keyword-only; a quoted selector used to fall "
+               "through kwOpt() to the slot default and act on every edge")
+    else:
+        why = ("the quoted selector grammar is %s, and this form is none of them -- "
+               "it is refused BY NAME, never widened to ALL"
+               % " | ".join(SELECTOR_RULES["grammar"]))
+    rows.append(('"%s"' % EXAMPLE_TEXT_SELECTOR, EXAMPLE_TEXT_SELECTOR, why))
     out = []
     for token, value, why in rows:
         ex_params = dict(params)
@@ -1599,8 +1712,12 @@ def fmt_num(v):
 def slot_token(slot, cmd):
     if "alternatives" in slot:
         kws = selector_keywords(cmd, slot["selects_on"])
-        # `"<face selector>"` is only a legal token where the kernel does not
-        # refuse a non-keyword in this slot. See parse_selector_rules.
+        # A quoted token is legal in this slot only where the kernel defines a
+        # grammar for it, and then the DOCUMENTED FORMS are the token -- not the
+        # placeholder `"<face selector>"`, which named no grammar the kernel could
+        # check and so could not be emitted correctly by anything reading this.
+        if cmd["feature_ir_op"] in SELECTOR_RULES["edge_ops"]:
+            return "|".join(kws + ['"%s"' % g for g in SELECTOR_RULES["grammar"]])
         if cmd["feature_ir_op"] in SELECTOR_RULES["refuses"]:
             return "|".join(kws)
         return "|".join(kws + ['"<face selector>"'])
@@ -1813,7 +1930,10 @@ def enumerate_forms(cmd, kernel_arity):
             alt = [s for s in slots if "alternatives" in s][0]
             kws = selector_keywords(cmd, alt["selects_on"])
             choices = [kws[0]]
-            if cmd["feature_ir_op"] not in SELECTOR_RULES["refuses"]:
+            if cmd["feature_ir_op"] in SELECTOR_RULES["edge_ops"]:
+                if SELECTOR_RULES["grammar_example"]:
+                    choices.append('"%s"' % SELECTOR_RULES["grammar_example"])
+            elif cmd["feature_ir_op"] not in SELECTOR_RULES["refuses"]:
                 choices.append('"%s"' % EXAMPLE_TEXT_SELECTOR)
         text_params = [p["name"] for p in cmd["parameters"] if p["type"] == "Text"]
         for ch in choices:
