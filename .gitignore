@@ -163,6 +163,10 @@ forge-kernel/.build-thicken-orientation/
 # A/B). It is a gate, rebuilt and rerun from source every time, so it has no
 # committed artefact.
 forge-kernel/.build-curve-kind-ab/
+# test/run_multi_solid_import_gate.sh's binary and object cache (T-152's
+# multi-solid import gate). It is a gate, rebuilt and rerun from source every
+# time, so it has no committed artefact.
+forge-kernel/.build-multi-solid-import/
 # test/sarc_ring_mutation.sh's default build dir. It holds a CMake tree that is
 # deliberately built against a mutated source and then restored, so nothing in it
 # is ever a fact about the repository.
