@@ -57,6 +57,7 @@
 //
 // Exit 0 = every part passed. Exit 1 = a part failed (named). Exit 2 = usage.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -85,6 +86,8 @@
 #include <BRepBuilderAPI_Transform.hxx>
 
 #include "forge/OcctImport.hpp"                  // THE FUNCTION UNDER TEST
+#include "forge/ShapeClassify.hpp"               // classifyPoint + its cache bound
+#include "forge/ShapeRegistry.hpp"                // handles for the cache-bound check
 #include "forge/native/brep/MassProps.hpp"       // volume of the imported solid
 #include "forge/native/brep/Query.hpp"           // pointInSolid
 #include "forge/native/brep/Topology.hpp"
@@ -418,6 +421,49 @@ int main(int argc, char** argv) {
             ++failures;
         }
         ++measured;
+    }
+
+    // ── THE CLASSIFY CACHE IS BOUNDED ───────────────────────────────────────
+    // classifyPoint caches one imported topology per OCCT handle. Handles are
+    // never reused and a released handle is rejected, so this was never a
+    // staleness bug — it was a LEAK: ShapeRegistry::release() freed the body and
+    // the topology cached beside it stayed for the life of the process. In a
+    // batch run that is "bounded by the parts you process"; in Forge.app, a
+    // persistent process, it is unbounded across a modelling session.
+    //
+    // This lives in THIS gate because this gate RUNS — classifyPoint is the
+    // consumer the T-152 importer exists for, and a leak with no test is a leak
+    // that comes back. The assertion is on the BOUND, not on a size: capacity is
+    // lowered so eviction is forced without allocating 64 bodies.
+    {
+        const std::size_t savedCap = forge::classifyCacheCapacity();
+        forge::classifyCacheClear();
+        forge::classifyCacheSetCapacity(8);
+
+        const int kBodies = 64;
+        std::size_t peak = 0;
+        for (int i = 0; i < kBodies; ++i) {
+            // A DISTINCT body each time, so each gets its own handle and its own
+            // import — the create/classify/release cycle the finding describes.
+            TopoDS_Shape s = BRepPrimAPI_MakeBox(1.0 + i * 0.01, 2.0, 3.0).Shape();
+            const forge::ShapeHandle h = forge::ShapeRegistry::instance().add(s);
+            try { forge::classifyPoint(h, 0.5, 1.0, 1.5, 1e-9); } catch (...) {}
+            peak = std::max(peak, forge::classifyCacheSize());
+            forge::ShapeRegistry::instance().release(h);
+        }
+        const std::size_t after = forge::classifyCacheSize();
+        const bool pass = (peak <= 8 && after <= 8);
+        std::printf("  %-22s bodies=%d cap=8 peakCached=%zu finalCached=%zu  %s\n",
+                    "classify cache bound", kBodies, peak, after, pass ? "PASS" : "FAIL");
+        if (!pass) {
+            std::printf("      ^ the classify cache grew past its capacity — one imported "
+                        "topology per distinct handle is retained without bound\n");
+            ++failures;
+        }
+        ++measured;
+
+        forge::classifyCacheClear();
+        forge::classifyCacheSetCapacity(savedCap);
     }
 
     std::printf("--- built-in fixtures (probes=%d) ---\n", probes);

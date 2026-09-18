@@ -16,6 +16,8 @@
 //
 // must read 0, and it cannot read 0 if any TU in the library names the type.
 
+#include <list>
+
 #include "forge/ShapeClassify.hpp"
 
 #include <memory>
@@ -95,6 +97,7 @@ struct CacheEntry {
     std::string reason;                                     // why not, when it did not
     std::shared_ptr<native::brep::TopologyBuilder> owner;  // keeps the topology alive
     native::brep::Solid* solid = nullptr;                   // non-owning view into *owner
+    std::list<ShapeHandle>::iterator lru{};                 // position in lruOrder()
 };
 
 std::mutex& cacheMutex() {
@@ -105,6 +108,83 @@ std::mutex& cacheMutex() {
 std::unordered_map<ShapeHandle, CacheEntry>& cache() {
     static std::unordered_map<ShapeHandle, CacheEntry> c;
     return c;
+}
+
+// ---------------------------------------------------------------------------
+// THE BOUND. Until this existed the comment above called the cache a "BOUNDED
+// LEAK ... bounded by the number of distinct bodies a process classifies". That
+// is a bound in a BATCH process and no bound at all in the product: the shipped
+// Forge.app is a persistent C++ process, and over a modelling session the number
+// of distinct bodies ever classified only grows. ShapeRegistry::release() drops
+// the body; nothing dropped the imported topology beside it, so the cost of a
+// deleted body was retained for the life of the process.
+//
+// WHY A CAP AND NOT ERASE-ON-RELEASE. Erasing exactly when the registry frees a
+// handle is tighter and needs no number. It also needs the registry to tell the
+// cache, and ShapeRegistry exposes no non-throwing liveness query to ask the
+// other way round -- kindOf() ABORTS on an invalid handle rather than returning
+// false, so the cache cannot poll it. That would mean new public API on a type
+// most of the kernel includes, to fix a defect local to this file. The cap is
+// local, needs no coupling, and bounds the memory whatever the registry does.
+//
+// WHY 64. It has to be larger than any plausible SIMULTANEOUS working set and
+// small enough that the retained topologies are bounded by tens of megabytes,
+// and the consumers say what the working set is: VoxelIoU probes gridN^3 points
+// against TWO bodies, the A/B gate classifies ONE part per process, and an
+// interactive session hit-tests against the handful of bodies on screen. 64 is
+// an order of magnitude above all of those, so eviction never touches a hot
+// entry in the uses that exist; it is a ceiling on the pathological case, not a
+// working-set estimate. Tunable via classifyCacheSetCapacity() -- which is also
+// how the gate drives eviction without allocating 64 bodies.
+//
+// EVICTION IS SAFE MID-CALL. classifyPoint takes its own shared_ptr (keepAlive)
+// before unlocking, so evicting an entry a call is still reading only drops the
+// cache's reference, never the topology.
+constexpr std::size_t kDefaultCacheCapacity = 64;
+
+std::size_t& cacheCapacity() {
+    static std::size_t cap = kDefaultCacheCapacity;
+    return cap;
+}
+
+// Most-recently-used at the FRONT; evictions come off the back.
+std::list<ShapeHandle>& lruOrder() {
+    static std::list<ShapeHandle> l;
+    return l;
+}
+
+// Caller holds cacheMutex().
+void touchLocked(std::unordered_map<ShapeHandle, CacheEntry>::iterator it) {
+    lruOrder().splice(lruOrder().begin(), lruOrder(), it->second.lru);
+}
+
+// Caller holds cacheMutex(). Drops least-recently-used entries until the cache
+// is within capacity. A capacity of 0 means "no cache", which is a legitimate
+// setting and must not loop for ever, hence the empty() guard.
+void evictLocked() {
+    while (cache().size() > cacheCapacity() && !lruOrder().empty()) {
+        const ShapeHandle victim = lruOrder().back();
+        lruOrder().pop_back();
+        cache().erase(victim);
+    }
+}
+
+// Caller holds cacheMutex(). Inserts (or returns the existing entry) and keeps
+// the LRU list in step. Returns the live iterator either way.
+std::unordered_map<ShapeHandle, CacheEntry>::iterator
+insertLocked(ShapeHandle h, CacheEntry&& e) {
+    auto [it, fresh] = cache().try_emplace(h, std::move(e));
+    if (fresh) {
+        lruOrder().push_front(h);
+        it->second.lru = lruOrder().begin();
+        evictLocked();
+        it = cache().find(h);          // evictLocked never drops the entry just
+                                       // pushed to the FRONT, but re-find rather
+                                       // than reason about rehashing.
+    } else {
+        touchLocked(it);
+    }
+    return it;
 }
 
 #endif  // FORGE_NATIVE_BREP
@@ -126,10 +206,30 @@ std::size_t classifyCacheSize() {
 #endif
 }
 
+std::size_t classifyCacheCapacity() {
+#ifdef FORGE_NATIVE_BREP
+    std::lock_guard<std::mutex> lk(cacheMutex());
+    return cacheCapacity();
+#else
+    return 0;
+#endif
+}
+
+void classifyCacheSetCapacity(std::size_t cap) {
+#ifdef FORGE_NATIVE_BREP
+    std::lock_guard<std::mutex> lk(cacheMutex());
+    cacheCapacity() = cap;
+    evictLocked();          // a LOWERED cap must take effect now, not on next insert
+#else
+    (void)cap;
+#endif
+}
+
 void classifyCacheClear() {
 #ifdef FORGE_NATIVE_BREP
     std::lock_guard<std::mutex> lk(cacheMutex());
     cache().clear();
+    lruOrder().clear();
 #endif
 }
 
@@ -180,6 +280,7 @@ PointClass classifyPoint(ShapeHandle h, double x, double y, double z,
                     " is OCCT-backed and importOcctSolid declined: " + it->second.reason);
             }
             if (it != cache().end()) {
+                touchLocked(it);       // a hit is a use: keep it out of the LRU tail
                 // Take our OWN reference to the topology before unlocking. The
                 // raw Solid* views into *owner, so holding the shared_ptr for the
                 // duration of the call is what makes it safe to run the query
@@ -209,7 +310,7 @@ PointClass classifyPoint(ShapeHandle h, double x, double y, double z,
                     CacheEntry neg;
                     neg.ok = false;
                     neg.reason = why;
-                    cache().try_emplace(h, std::move(neg));
+                    insertLocked(h, std::move(neg));
                 }
                 throw ClassifyRefused(
                     "classifyPoint: handle " + std::to_string(h) +
@@ -225,7 +326,7 @@ PointClass classifyPoint(ShapeHandle h, double x, double y, double z,
             pos.ok = true;
             pos.owner = imported.owner;
             pos.solid = imported.solid;
-            auto it = cache().try_emplace(h, std::move(pos)).first;
+            auto it = insertLocked(h, std::move(pos));
             keepAlive = it->second.owner;
             solid = it->second.solid;
         }

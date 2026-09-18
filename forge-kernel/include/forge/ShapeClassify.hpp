@@ -136,6 +136,17 @@ std::size_t classifyCacheSize();
 // topology it is reading for the whole call, so a concurrent clear cannot dangle
 // a live call — but the next call then pays for a re-import, which in production
 // would be a performance cliff and never a correctness need.)
+// The cache is BOUNDED, because Forge.app is a persistent process and the
+// registry freeing a body did not free the topology cached beside it. Least
+// recently used entries are evicted past the capacity; an in-flight
+// classifyPoint holds its own reference, so eviction is safe mid-call.
+// Default 64 — an order of magnitude above every working set the consumers
+// actually have (VoxelIoU: 2 bodies; the A/B gate: 1 part per process; an
+// interactive session: the bodies on screen), so this is a ceiling on the
+// pathological case, not a working-set estimate.
+std::size_t classifyCacheCapacity();
+void classifyCacheSetCapacity(std::size_t cap);
+
 void classifyCacheClear();
 
 }  // namespace forge
