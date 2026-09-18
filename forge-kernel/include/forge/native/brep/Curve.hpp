@@ -54,10 +54,29 @@ namespace brep {
 // non-colliding distinct type in the same forge::native::brep namespace.
 // ---------------------------------------------------------------------------
 enum class GeomCurveKind {
-    Line,     // origin + t*dir,            t in [t0,t1]
-    Circle,   // centre + r*(cos t * refDir + sin t * binormal),  t = angle
-    Ellipse,  // centre + a*cos t * refDir + b*sin t * binormal,  t = eccentric angle
-    BSpline   // rational/polynomial B-spline (NurbsCurve), t in [t0,t1] over its knots
+    Line,      // origin + t*dir,            t in [t0,t1]
+    Circle,    // centre + r*(cos t * refDir + sin t * binormal),  t = angle
+    Ellipse,   // centre + a*cos t * refDir + b*sin t * binormal,  t = eccentric angle
+    BSpline,   // rational/polynomial B-spline (NurbsCurve), t in [t0,t1] over its knots
+    // ── the two remaining CONICS (T-151) ────────────────────────────────────
+    // They complete the conic family (a plane section of a cone is exactly one
+    // of circle / ellipse / parabola / hyperbola), and they cost NO new state:
+    // each reuses the `a`/`b` semi-axis slots the Ellipse already carries. They
+    // were added because a differential-property query is handed them by real
+    // parts -- a parabolic sketch fillet, a hyperbolic transition -- and the
+    // native curve model could not name them, so the property facade had to
+    // decline a curve whose derivatives are a two-line closed form.
+    Parabola,  // VERTEX at `origin`, opening along +refDir:
+               //   C(t) = origin + (t^2/(4f))*refDir + t*binormal
+               // with f = `a` the FOCAL LENGTH (vertex-to-focus distance) and
+               // `b` UNUSED. t is the signed distance along the binormal, so
+               // t = 0 is the apex. (This is the standard focal-length form of
+               // a parabola in its own frame, y^2 = 4 f x.)
+    Hyperbola  // CENTRE at `origin`, the +refDir branch:
+               //   C(t) = origin + a*cosh(t)*refDir + b*sinh(t)*binormal
+               // with `a` the real (transverse) semi-axis and `b` the imaginary
+               // (conjugate) semi-axis. t = 0 is the vertex/waist. This is the
+               // standard hyperbolic parameterisation of x^2/a^2 - y^2/b^2 = 1.
 };
 
 // ---------------------------------------------------------------------------
@@ -65,14 +84,19 @@ enum class GeomCurveKind {
 // is right-handed for the conic kinds: refDir is the local +X in the conic's
 // plane, binormal = normal x refDir the local +Y, and `normal` the plane axis.
 //
-//   Line:    C(t) = origin + t*dir
-//   Circle:  C(t) = origin + r*(cos t * refDir + sin t * (normal x refDir))
-//   Ellipse: C(t) = origin + a*cos t * refDir + b*sin t * (normal x refDir)
-//   BSpline: C(t) = NurbsCurve::evaluate(t)   (its own knot domain is the trim)
+//   Line:      C(t) = origin + t*dir
+//   Circle:    C(t) = origin + r*(cos t * refDir + sin t * (normal x refDir))
+//   Ellipse:   C(t) = origin + a*cos t * refDir + b*sin t * (normal x refDir)
+//   Parabola:  C(t) = origin + (t*t/(4a)) * refDir + t * (normal x refDir)
+//   Hyperbola: C(t) = origin + a*cosh t * refDir + b*sinh t * (normal x refDir)
+//   BSpline:   C(t) = NurbsCurve::evaluate(t)   (its own knot domain is the trim)
 //
 // `t0,t1` is the parameter trim window (the portion of the curve the Edge spans).
-// For the conic kinds t is an angle in radians; for Line/BSpline it is the
-// curve's intrinsic parameter.
+// For Circle/Ellipse t is an angle in radians; for Parabola it is the signed
+// distance along the binormal and for Hyperbola the hyperbolic argument; for
+// Line/BSpline it is the curve's intrinsic parameter. NOTE that the two
+// UNBOUNDED conics have no natural closed domain, so t0/t1 are ALWAYS the
+// caller's trim and are not defaulted to anything meaningful.
 // ---------------------------------------------------------------------------
 struct Curve {
     GeomCurveKind kind = GeomCurveKind::Line;
@@ -82,8 +106,10 @@ struct Curve {
     Vec3   refDir{1, 0, 0};        // conic in-plane +X axis (unit)
     Vec3   normal{0, 0, 1};        // conic plane axis (unit); binormal = normal x refDir
     double r = 0.0;                // Circle radius
-    double a = 0.0;                // Ellipse semi-axis along refDir
-    double b = 0.0;                // Ellipse semi-axis along binormal
+    double a = 0.0;                // Ellipse/Hyperbola semi-axis along refDir;
+                                   // Parabola FOCAL LENGTH f (vertex-to-focus)
+    double b = 0.0;                // Ellipse/Hyperbola semi-axis along binormal
+                                   // (UNUSED by Parabola)
 
     double t0 = 0.0;               // parameter-domain start (trim)
     double t1 = 1.0;               // parameter-domain end   (trim)
@@ -108,6 +134,16 @@ struct Curve {
     static Curve makeEllipse(const Vec3& centre, const Vec3& refDir,
                              const Vec3& normal, double semiA, double semiB,
                              double t0 = 0.0, double t1 = 6.28318530717958647692);
+    // `vertex` is the APEX; the parabola opens along +refDir with focal length f.
+    // t0/t1 are REQUIRED (a parabola is unbounded, so there is no honest default).
+    static Curve makeParabola(const Vec3& vertex, const Vec3& refDir,
+                              const Vec3& normal, double focal,
+                              double t0, double t1);
+    // `centre` is the hyperbola's CENTRE (not its vertex); the +refDir branch is
+    // the one parameterised. t0/t1 are REQUIRED for the same reason.
+    static Curve makeHyperbola(const Vec3& centre, const Vec3& refDir,
+                               const Vec3& normal, double semiA, double semiB,
+                               double t0, double t1);
     static Curve makeBSpline(const NurbsCurve& c);
 };
 

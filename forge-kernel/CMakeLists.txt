@@ -1975,6 +1975,12 @@ set(FORGE_KERNEL_SOURCES
     src/LineageRegistry.cpp
     src/Tessellate.cpp
     src/MassProps.cpp
+    src/SurfaceProps.cpp          # T-147 — THE native differential-property facade
+                                  # (point/derivatives/normal/K,H,kmin,kmax on a
+                                  # native brep::Surface or brep::Curve). Names no
+                                  # OCCT type; it is the one place the 61-symbol
+                                  # GeomLProp_/BRepLProp_ cluster has to be deleted
+                                  # from, so its 33 owners can converge on one call.
     src/ShapeHandle.cpp
     src/NativeShapeAccess.cpp
     src/ShapeQuery.cpp
@@ -3318,6 +3324,12 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         native_vs_occt_shell
         native_vs_occt_step_read        # NOTE: its own verdict counts PARTIAL as passing
         native_vs_occt_stl
+        native_vs_occt_surface_props    # T-147: every LProp quantity the migrated
+                                        # property sites read, native-through-the-
+                                        # bridge vs live OCCT, on every kind
+        native_vs_occt_classa_props_e2e # T-147: the four migrated forge::classa
+                                        # entry points END TO END vs closed forms
+                                        # (the arithmetic BETWEEN those quantities)
         native_vs_occt_surfacefill
         native_vs_occt_surfacefill_g2
         native_vs_occt_trimmed_face

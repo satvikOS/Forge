@@ -51,6 +51,14 @@
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_ToroidalSurface.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <Geom_BezierCurve.hxx>          // T-147 edge bridge: exact Bezier->B-spline
+#include <Geom_Line.hxx>                 // T-147 edge bridge
+#include <Geom_Circle.hxx>               // T-147 edge bridge
+#include <Geom_Ellipse.hxx>              // T-147 edge bridge
+#include <Geom_Parabola.hxx>             // T-151 edge bridge: the 4th conic
+#include <Geom_Hyperbola.hxx>            // T-151 edge bridge: the 5th conic
+#include <Geom_TrimmedCurve.hxx>         // T-151: unwrap a trimmed revolution meridian
+#include <Geom_ConicalSurface.hxx>       // T-151: the base of a general OFFSET
 #include <GeomConvert.hxx>
 #include <Standard_Failure.hxx>
 #include <TColgp_Array2OfPnt.hxx>
@@ -67,6 +75,12 @@
 #include "forge/native/brep/FaceNormal.hpp"  // native BRepGProp_Face::Normal replacement
 #include <GeomAbs_SurfaceType.hxx>
 #include <gp_Pln.hxx>
+#include <gp_Lin.hxx>                    // T-147 edge bridge
+#include <gp_Circ.hxx>                   // T-147 edge bridge
+#include <gp_Elips.hxx>                  // T-147 edge bridge
+#include <gp_Parab.hxx>                  // T-151 edge bridge
+#include <gp_Hypr.hxx>                   // T-151 edge bridge
+#include <gp_Ax2.hxx>                    // T-147 edge bridge (conic frame)
 #include <gp_Cylinder.hxx>
 #include <gp_Cone.hxx>
 #include <gp_Sphere.hxx>
@@ -800,6 +814,84 @@ struct BSample {
     Vec3 p3;                       // 3-D point on the edge's curve
     std::array<double, 2> uv;      // this face's NATIVE (u,v) at that point
 };
+
+// ---------------------------------------------------------------------------
+// EXACT Geom_BSplineCurve -> native nb::NurbsCurve. The CURVE counterpart of
+// readBSplineSurface above, and the same 1:1 contract: every pole + weight and
+// the FLAT (multiplicity-expanded) clamped knot vector copied verbatim, no
+// refit. A PERIODIC curve is de-periodised and re-clamped to its natural bounds
+// first (SetNotPeriodic leaves a full-revolution curve's end knots at
+// multiplicity 1, which the native clamped invariant rejects; Segment re-clamps
+// WITHOUT changing the geometry — OCCT's own knot insertion).
+//
+// The native curve's parameter IS OCCT's: knots carry OCCT's actual values, so a
+// caller's edge parameter indexes the native curve directly with no remap.
+bool readBSplineCurve(const Handle(Geom_BSplineCurve)& srcIn,
+                      nb::NurbsCurve& out, std::string& why) {
+    if (srcIn.IsNull()) { why = "null BSpline curve"; return false; }
+
+    // Copy: converting periodic->clamped must never mutate the input shape.
+    Handle(Geom_BSplineCurve) c =
+        Handle(Geom_BSplineCurve)::DownCast(srcIn->Copy());
+    if (c.IsNull()) { why = "BSpline curve copy failed"; return false; }
+    if (c->IsPeriodic()) {
+        c->SetNotPeriodic();
+        Standard_Real b1 = c->FirstParameter(), b2 = c->LastParameter();
+        try {
+            c->Segment(b1, b2);
+        } catch (const Standard_Failure&) {
+            // leave as-is; the valid() gate below catches a residual non-clamp.
+        }
+    }
+
+    const int n = c->NbPoles();
+    if (n < 2) { why = "BSpline curve pole count < 2"; return false; }
+
+    out.degree = (std::size_t)c->Degree();
+    out.controlPoints.assign(n, nb::Vec3{});
+    out.weights.assign(n, 1.0);
+    const bool rational = c->IsRational();
+    for (int i = 1; i <= n; ++i) {
+        gp_Pnt p = c->Pole(i);
+        out.controlPoints[i - 1] = nb::Vec3{p.X(), p.Y(), p.Z()};
+        if (rational) {
+            const double w = c->Weight(i);
+            if (!(w > 0.0)) { why = "BSpline curve non-positive weight"; return false; }
+            out.weights[i - 1] = w;
+        }
+    }
+
+    // FLAT knot vector (multiplicities expanded): size n + degree + 1.
+    //
+    // Expanded from Knots() + Multiplicities() rather than read from
+    // KnotSequence(), for a MEASURED reason: Geom_BSplineCurve::KnotSequence had
+    // ZERO other owners in this build, so calling it would have been the one
+    // genuinely NEW OCCT symbol this task added to the dylib. Knots() and
+    // Multiplicities() are already named by this same file (the revolution
+    // tensor-surface path above), so this spelling costs nothing. The expansion
+    // is the definition of a knot sequence, not an approximation of one.
+    const int nk = c->NbKnots();
+    TColStd_Array1OfReal    kv(1, nk);
+    TColStd_Array1OfInteger km(1, nk);
+    c->Knots(kv);
+    c->Multiplicities(km);
+    out.knots.clear();
+    out.knots.reserve(n + c->Degree() + 1);
+    for (int i = 1; i <= nk; ++i) {
+        const int m = km.Value(i);
+        for (int r = 0; r < m; ++r) out.knots.push_back(kv.Value(i));
+    }
+    if ((int)out.knots.size() != n + (int)c->Degree() + 1) {
+        why = "BSpline curve knot sequence length != poles + degree + 1";
+        return false;
+    }
+
+    if (!out.valid()) {
+        why = "BSpline curve invalid for native (degree/pole/knot count disagree)";
+        return false;
+    }
+    return true;
+}
 
 } // namespace
 
@@ -2056,6 +2148,406 @@ ProfileImportResult importOcctProfile(const TopoDS_Face& face) {
     r.yDir   = {{yd.x,  yd.y,  yd.z}};
     r.ok = true;
     return r;
+}
+
+// ===========================================================================
+// PER-FACE / PER-EDGE PROPERTY BRIDGE (T-147)
+//
+// Declared in OcctImport.hpp, which carries the contract. Placed HERE, in the
+// solid importer, for one reason worth stating: readSurface() is the tree's
+// single OCCT->native analytic surface extractor, and a second copy of that
+// switch would be a second truth. A face therefore imports to the SAME native
+// surface whether it is reached through the solid path or through this one.
+// ===========================================================================
+
+namespace {
+
+// ---------------------------------------------------------------------------
+// ONE Geom_Curve -> native brep::Curve converter (T-151), shared by the EDGE
+// bridge and the surface-of-revolution MERIDIAN. It was extracted from
+// importOcctEdgeCurve rather than copied, because a second curve reader would be
+// a second truth about what "circle" means and the two would drift.
+//
+// It does NOT set t0/t1: an EDGE's trim is the edge's, a MERIDIAN's is the
+// face's v-window, and only the caller knows which it holds.
+//
+// ★ NO NEW OCCT SYMBOL. Every accessor named here — Geom_Parabola::Parab,
+//   Geom_Hyperbola::Hypr, Geom_TrimmedCurve::BasisCurve, and the typeinfo the
+//   handle DownCasts use — was ALREADY an undefined symbol of this dylib before
+//   T-151, named by other owners; the census after the change confirms ARRIVALS
+//   is empty. That was checked BEFORE the code was written, because the obvious
+//   spelling of the T-147 edge bridge had cost four symbols the same way.
+// ---------------------------------------------------------------------------
+bool readGeomCurve(const Handle(Geom_Curve)& gcIn, nb::Curve& c, std::string& why) {
+    Handle(Geom_Curve) gc = gcIn;
+    if (gc.IsNull()) { why = "null 3-D curve"; return false; }
+
+    // A Geom_TrimmedCurve SHARES its basis curve's parameterisation (it restricts
+    // the range only; a reversed-sense trim stores an already-reversed basis), so
+    // unwrapping it is exactly parameter-preserving and the caller's t still names
+    // the same point.
+    while (Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(gc))
+        gc = tc->BasisCurve();
+
+    if (Handle(Geom_Line) ln = Handle(Geom_Line)::DownCast(gc)) {
+        // OCCT's line parameter IS arc length along a UNIT direction, and the
+        // native Line is origin + t*dir with dir carried as-is, so t matches.
+        const gp_Lin g = ln->Lin();
+        c.kind   = nb::GeomCurveKind::Line;
+        c.origin = toV3(g.Location());
+        c.dir    = toV3(g.Direction());
+        return true;
+    }
+    if (Handle(Geom_Circle) ci = Handle(Geom_Circle)::DownCast(gc)) {
+        // gp_Ax2's YDirection is Direction ^ XDirection, which is exactly the
+        // native binormal = normal x refDir, so C(t) agrees term for term.
+        const gp_Circ g = ci->Circ();
+        const gp_Ax2& ax = g.Position();
+        c.kind   = nb::GeomCurveKind::Circle;
+        c.origin = toV3(ax.Location());
+        c.refDir = toV3(ax.XDirection());
+        c.normal = toV3(ax.Direction());
+        c.r      = g.Radius();
+        return true;
+    }
+    if (Handle(Geom_Ellipse) el = Handle(Geom_Ellipse)::DownCast(gc)) {
+        const gp_Elips g = el->Elips();
+        const gp_Ax2& ax = g.Position();
+        c.kind   = nb::GeomCurveKind::Ellipse;
+        c.origin = toV3(ax.Location());
+        c.refDir = toV3(ax.XDirection());
+        c.normal = toV3(ax.Direction());
+        c.a      = g.MajorRadius();
+        c.b      = g.MinorRadius();
+        return true;
+    }
+    if (Handle(Geom_Parabola) pa = Handle(Geom_Parabola)::DownCast(gc)) {
+        // gp_Parab's DOCUMENTED parameterisation is
+        //     P(U) = Location + (U^2 / (4*Focal)) * XDirection + U * YDirection
+        // with Location the VERTEX and YDirection = Direction ^ XDirection — which
+        // is term for term the native Parabola (vertex at origin, focal length in
+        // `a`, t along the binormal). Nothing is fitted or approximated.
+        const gp_Parab g = pa->Parab();
+        const gp_Ax2& ax = g.Position();
+        c.kind   = nb::GeomCurveKind::Parabola;
+        c.origin = toV3(ax.Location());
+        c.refDir = toV3(ax.XDirection());
+        c.normal = toV3(ax.Direction());
+        c.a      = g.Focal();
+        c.b      = 0.0;
+        return true;
+    }
+    if (Handle(Geom_Hyperbola) hy = Handle(Geom_Hyperbola)::DownCast(gc)) {
+        // gp_Hypr's DOCUMENTED parameterisation is
+        //     P(U) = Location + MajorRadius*cosh(U)*XDirection
+        //                     + MinorRadius*sinh(U)*YDirection
+        // with Location the CENTRE — term for term the native Hyperbola.
+        const gp_Hypr g = hy->Hypr();
+        const gp_Ax2& ax = g.Position();
+        c.kind   = nb::GeomCurveKind::Hyperbola;
+        c.origin = toV3(ax.Location());
+        c.refDir = toV3(ax.XDirection());
+        c.normal = toV3(ax.Direction());
+        c.a      = g.MajorRadius();
+        c.b      = g.MinorRadius();
+        return true;
+    }
+    if (Handle(Geom_BSplineCurve) bc = Handle(Geom_BSplineCurve)::DownCast(gc)) {
+        if (!readBSplineCurve(bc, c.nurbs, why)) return false;
+        c.kind = nb::GeomCurveKind::BSpline;
+        return true;
+    }
+    if (Handle(Geom_BezierCurve) bz = Handle(Geom_BezierCurve)::DownCast(gc)) {
+        // A Bezier is the clamped-knot special case of a B-spline; the promotion
+        // is exact (same native converter the extrusion basis path uses).
+        Handle(Geom_BSplineCurve) bs;
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+        try { bs = forge::occtconv::curveToBSpline(bz); }
+        catch (const Standard_Failure&) { bs.Nullify(); }
+#else
+        try { bs = GeomConvert::CurveToBSplineCurve(bz); }
+        catch (const Standard_Failure&) { bs.Nullify(); }
+#endif
+        if (bs.IsNull()) { why = "Bezier->BSpline conversion failed"; return false; }
+        if (!readBSplineCurve(bs, c.nurbs, why)) return false;
+        c.kind = nb::GeomCurveKind::BSpline;
+        return true;
+    }
+    why = "curve type has no native analytic route (not line / circle / ellipse / "
+          "parabola / hyperbola / B-spline / Bezier)";
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// SURFACE OF REVOLUTION -> the EXACT composite form (T-151).
+//
+// WHY THIS DOES NOT GO THROUGH readSurface. readSurface answers the SOLID
+// importer, which needs a surface it can INTEGRATE, so for a revolution it builds
+// a rational-quadratic tensor NURBS whose u is the arc's projective parameter —
+// and OCCT's uniform revolution ANGLE maps onto that NON-AFFINELY, which is
+// exactly why T-147 had to defer here: no (scale, shift) pair carries the
+// caller's (u,v). A PROPERTY query needs no tensor form at all, only
+// derivatives, and the exact revolution has those in closed form. So this reads
+// the revolution as itself — meridian + axis — and the parameter map becomes the
+// IDENTITY. Nothing is approximated and readSurface is left untouched.
+//
+// PARAMETER ORDER: OCCT's Geom_SurfaceOfRevolution is (U = revolution angle,
+// V = basis-curve parameter) — the order readSurface's own revolution path
+// already documents at its UVBounds call — and props::PropSurface::Form::Revolved
+// is defined in that same order, so uScale = vScale = 1 and both shifts are 0.
+SurfaceImportResult revolvedFaceSurface(const TopoDS_Face& face) {
+    SurfaceImportResult res;
+
+    Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+    Handle(Geom_SurfaceOfRevolution) rev =
+        Handle(Geom_SurfaceOfRevolution)::DownCast(gs);
+    if (rev.IsNull()) {
+        res.reason = "revolution face had no Geom_SurfaceOfRevolution";
+        return res;
+    }
+
+    nb::Curve m;
+    if (!readGeomCurve(rev->BasisCurve(), m, res.reason)) {
+        res.reason = "revolution meridian: " + res.reason;
+        return res;
+    }
+
+    const gp_Ax1 ax = rev->Axis();
+    const Vec3 k = nb::vnorm(toV3(ax.Direction()));
+    if (!(std::fabs(nb::vlen(k) - 1.0) <= 1e-12)) {
+        res.reason = "revolution axis direction is not unit";
+        return res;
+    }
+
+    double umin = 0.0, umax = 1.0, vmin = 0.0, vmax = 1.0;
+    BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+    m.t0 = vmin;                      // the meridian's trim IS the face's v-window
+    m.t1 = vmax;
+
+    res.surface.form = props::PropSurface::Form::Revolved;
+    res.surface.meridian = m;
+    res.surface.axisOrigin = toV3(ax.Location());
+    res.surface.axisDir = k;
+    res.surface.revolvedReversed = false;   // the map is the identity (see above)
+    res.ok = true;
+    return res;
+}
+
+// ---------------------------------------------------------------------------
+// OFFSET SURFACE whose base readOffsetSurface could not re-express EXACTLY ->
+// the general composite form (T-151).
+//
+// readOffsetSurface stays the FIRST route and is unchanged: the offset of a
+// plane / cylinder / sphere / torus IS the same elementary quadric with a shifted
+// origin or radius, and re-expressing it that way is exact and cheaper. It
+// DECLINES a CONE or a free-form base, and this is where those land — as
+// props::PropSurface::Form::Offset, which differentiates S + d*n directly.
+//
+// ★ THIS ORDERING IS DELIBERATE AND IS WHAT KEEPS THE GENERAL PATH FROM BEING
+//   INERT. Adding the cone to readOffsetSurface's exact list would have been
+//   ~12 lines and would also have made the probe green — while leaving the
+//   general offset code with no fixture that reaches it. The cone is the one
+//   measured offset kind, so the cone is what exercises the general path.
+//
+// SCOPE, stated rather than implied: the BASE READER below handles the CONE. A
+// free-form (B-spline / Bezier) base declines with a named reason — the facade
+// itself is general (the closed-form gate drives Form::Offset on sphere,
+// cylinder and NURBS bases directly), but wiring a free-form base through this
+// bridge needs the basis-surface NURBS extraction that readSurface only reaches
+// from a TopoDS_Face, and no measured kind needs it. It is NOT silently
+// approximated.
+SurfaceImportResult offsetFaceSurface(const TopoDS_Face& face) {
+    SurfaceImportResult res;
+
+    Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+    Handle(Geom_OffsetSurface) off = Handle(Geom_OffsetSurface)::DownCast(gs);
+    if (off.IsNull()) return res;          // not an offset: caller keeps its reason
+
+    Handle(Geom_Surface) basis = off->BasisSurface();
+    Handle(Geom_ConicalSurface) co = Handle(Geom_ConicalSurface)::DownCast(basis);
+    if (co.IsNull()) {
+        res.reason = "offset of a base this bridge cannot read natively (only a "
+                     "CONE base is wired; plane/cylinder/sphere/torus are taken "
+                     "EXACTLY by readOffsetSurface before reaching here)";
+        return res;
+    }
+
+    // Geom_ConicalSurface's DOCUMENTED parameterisation is
+    //   P(u,v) = Loc + (RefRadius + v*sin(a))*(cos u * XDir + sin u * YDir)
+    //                + v*cos(a) * ZDir
+    // and Geom_OffsetSurface PRESERVES its basis's (u,v). So the base imports with
+    // the IDENTICAL re-anchor the plain-cone path applies: native t in [0,1] over
+    // the face's OCCT v-window. Same algebra, same window, on purpose.
+    double umin = 0.0, umax = 1.0, vmin = 0.0, vmax = 1.0;
+    BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+    const double span = vmax - vmin;
+    if (!(span > 0.0) || !std::isfinite(span)) {
+        res.reason = "offset-of-cone face has a degenerate OCCT v-window";
+        return res;
+    }
+    const double semi = co->SemiAngle();
+    const double Rref = co->RefRadius();
+    const double cs = std::cos(semi), sn = std::sin(semi);
+    const gp_Ax3& ax = co->Position();
+
+    nb::Surface& b = res.surface.base;
+    b.kind   = nb::SurfaceKind::Cone;
+    b.axis   = nb::vnorm(toV3(ax.Direction()));
+    b.refDir = toV3(ax.XDirection());
+    // Same defensive re-orthonormalisation readSurface applies, for the same
+    // reason: a non-unit / non-orthogonal XDirection would skew the frame.
+    b.refDir = nb::vnorm(nb::vsub(b.refDir,
+                                  nb::vscale(b.axis, nb::vdot(b.refDir, b.axis))));
+    b.origin = nb::vadd(toV3(ax.Location()), nb::vscale(b.axis, vmin * cs));
+    b.r1     = Rref + vmin * sn;
+    b.r2     = Rref + vmax * sn;
+    b.param  = span * cs;
+    b.reversed = false;                   // the map below is orientation-preserving
+
+    res.surface.form = props::PropSurface::Form::Offset;
+    // Signed along the BASE's own normal, which is the convention BOTH
+    // Geom_OffsetSurface and props::PropSurface use, so it transfers unchanged.
+    res.surface.offsetDistance = off->Offset();
+    res.vScale = 1.0 / span;
+    res.vShift = -vmin / span;
+    res.ok = true;
+    return res;
+}
+
+}  // namespace
+
+SurfaceImportResult importOcctFaceSurface(const TopoDS_Face& face) {
+    SurfaceImportResult res;
+
+    // ── THE REVOLUTION IS INTERCEPTED BEFORE readSurface (T-151) ────────────
+    // Not after: readSurface's revolution route builds a tensor-NURBS
+    // approximation for the solid importer and can itself DECLINE on some
+    // generatrices, so a post-hoc branch would never be reached for those. The
+    // exact composite form needs none of that work.
+    {
+        BRepAdaptor_Surface ad(face, Standard_True);
+        if (ad.GetType() == GeomAbs_SurfaceOfRevolution)
+            return revolvedFaceSurface(face);
+    }
+
+    FaceSurf fs;
+    std::string why;
+    if (!readSurface(face, fs, why)) {
+        // ── THE GENERAL OFFSET IS THE SECOND CHANCE, NEVER THE FIRST ───────
+        // readSurface already took every offset whose base re-expresses EXACTLY.
+        // Only what it declined arrives here.
+        SurfaceImportResult off = offsetFaceSurface(face);
+        if (off.ok) return off;
+        res.reason = off.reason.empty() ? why : off.reason;
+        return res;
+    }
+
+    // readSurface can still report a revolution if OCCT's adaptor typed the face
+    // differently from its Geom_ surface; that would mean the interception above
+    // missed it, so say so rather than fall through to an affine map that does
+    // not exist for this kind.
+    if (fs.revolution) {
+        res.reason = "surface of revolution reached the analytic path (the adaptor "
+                     "type and the Geom_ surface disagree); no (scale,shift) pair "
+                     "carries OCCT's uniform-angle u onto the native arc parameter";
+        return res;
+    }
+
+    double umin = 0.0, umax = 1.0, vmin = 0.0, vmax = 1.0;
+    BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+
+    if (fs.kind == nb::SurfaceKind::Cone) {
+        // Re-anchor so native t in [0,1] spans the face's OCCT v-window. This is
+        // the SAME algebra the solid path applies after readSurface (which leaves
+        // r1 = RefRadius and stashes the semi-angle in r2), kept identical on
+        // purpose: OCCT cone radius(v) = Rref + v*sin(semi), axial = v*cos(semi).
+        const double span = vmax - vmin;
+        if (!(span > 0.0) || !std::isfinite(span)) {
+            res.reason = "cone face has a degenerate OCCT v-window "
+                         "(no affine t in [0,1] map exists)";
+            return res;
+        }
+        const double semi = fs.r2;                  // stashed semi-angle
+        const double Rref = fs.r1;
+        const double cs   = std::cos(semi);
+        fs.origin = nb::vadd(fs.origin, nb::vscale(fs.axis, vmin * cs));
+        fs.r1     = Rref + vmin * std::sin(semi);
+        fs.r2     = Rref + vmax * std::sin(semi);
+        fs.param  = span * cs;
+        res.vScale = 1.0 / span;
+        res.vShift = -vmin / span;
+    } else if (fs.sphere) {
+        // Native v is COLATITUDE from +axis; OCCT's is latitude. vn = pi/2 - vo.
+        res.vScale = -1.0;
+        res.vShift = 0.5 * kPi;
+    }
+    // Plane / Cylinder / Torus / Nurbs(B-spline, Bezier, extrusion): IDENTITY.
+
+    res.surface.form = props::PropSurface::Form::Native;
+    nb::Surface& s = res.surface.base;
+    s.kind   = fs.kind;
+    s.origin = fs.origin;
+    s.axis   = fs.axis;
+    s.refDir = fs.refDir;
+    s.r1     = fs.r1;
+    s.r2     = fs.r2;
+    s.param  = fs.param;
+    s.nurbs  = fs.nurbs;
+    // PRE-SET so surfaceProps' own `reversed` algebra hands the caller the normal,
+    // mean curvature and principals in OCCT's frame. S_uo x S_vo =
+    // (uScale*vScale)(S_un x S_vn), so an orientation-reversing map (the sphere's
+    // colatitude) is exactly a reversed normal. See OcctImport.hpp.
+    s.reversed = (res.uScale * res.vScale) < 0.0;
+
+    res.ok = true;
+    return res;
+}
+
+CurveImportResult importOcctEdgeCurve(const TopoDS_Edge& edge) {
+    CurveImportResult res;
+
+    // ── WHY BRep_Tool::Curve AND NOT BRepAdaptor_Curve'S TYPED ACCESSORS ──────
+    // The obvious spelling of this function is BRepAdaptor_Curve + GetType() +
+    // ad.Line()/Circle()/Ellipse()/BSpline()/Bezier(). It was written that way
+    // first, and MEASURED: it ADDED FIVE symbols to the very cluster this task
+    // exists to shrink (BRepAdaptor_Curve::{Line,Circle,Ellipse,BSpline,Bezier}),
+    // four of which had no other owner in the build — so the cluster fell 61->40
+    // instead of 61->36 and the task would have paid 4 symbols for the 25 it
+    // removed (§4.3: the count may never increase).
+    //
+    // BRep_Tool::Curve(edge, first, last) returns the SAME geometry — already
+    // transformed into world space by the edge's location, which is exactly what
+    // the adaptor did — and the Geom_* accessors it leads to (Geom_Line::Lin,
+    // Geom_Circle::Circ, Geom_Ellipse::Elips) are ALREADY undefined symbols of
+    // this dylib, named by existing owners. So this spelling adds nothing.
+    // The edge's TopAbs orientation is ignored either way, matching what
+    // BRepLProp_CLProps measured at the call sites.
+    Standard_Real f = 0.0, l = 0.0;
+    Handle(Geom_Curve) gc = BRep_Tool::Curve(edge, f, l);
+    if (gc.IsNull()) {
+        res.reason = "edge has no 3-D curve (degenerate or purely parametric)";
+        return res;
+    }
+    if (!std::isfinite(f) || !std::isfinite(l)) {
+        res.reason = "edge has a non-finite parameter range";
+        return res;
+    }
+
+    // ONE converter, shared with the revolution meridian (T-151) — see
+    // readGeomCurve above for why it is not a second copy of this switch, and for
+    // the PARABOLA / HYPERBOLA cases that complete the conic family.
+    nb::Curve& c = res.curve;
+    if (!readGeomCurve(gc, c, res.reason)) {
+        res.reason = "edge " + res.reason;
+        return res;
+    }
+    // The EDGE's trim window, which readGeomCurve deliberately does not set: only
+    // this caller knows the range belongs to the edge rather than to the curve.
+    c.t0 = f;
+    c.t1 = l;
+
+    res.ok = true;
+    return res;
 }
 
 }  // namespace forge
