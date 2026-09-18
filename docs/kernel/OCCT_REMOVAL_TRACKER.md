@@ -16,7 +16,7 @@ overstate the work by roughly threefold on this tree.
 | APP | 0 | YES |
 | KERNEL | 1402 | YES |
 | TOOLING | 23 | yes, last |
-| ORACLE | 2065 | no — by design |
+| ORACLE | 2090 | no — by design |
 | SCRATCH | 0 | no — by design |
 | OTHER | 0 | no — by design |
 
@@ -130,7 +130,7 @@ migration:
 | | |
 |---|---:|
 | distinct `struct Vec3` declarations in the tree | **1** |
-| files including `forge/math/Vec3.hpp` | 15 |
+| files including `forge/math/Vec3.hpp` | 16 |
 | of those, under `native/` | **9** |
 | `gp_Pnt` uses in `src/native/brep` | **625** |
 | `Vec3` uses there (now the canonical type) | **2440** |
