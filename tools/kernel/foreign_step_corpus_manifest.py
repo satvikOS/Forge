@@ -48,7 +48,7 @@ from multiprocessing import Pool
 # that skip off so the duplication can be MEASURED rather than asserted.
 SKIP_DIRS_ALWAYS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
 
-STEP_EXT = (".step", ".stp", ".STEP", ".STP")
+STEP_EXT = (".step", ".stp")  # compared against fn.lower(); see walk()
 
 # Surface entity keywords, for the per-file surface multiset. Anything ending in
 # _SURFACE is caught by the suffix rule; PLANE has no suffix and is listed.
@@ -206,7 +206,7 @@ def walk(roots, include_worktrees):
                 keep.append(d)
             dirnames[:] = keep
             for fn in filenames:
-                if fn.endswith(STEP_EXT):
+                if fn.lower().endswith(STEP_EXT):
                     p = os.path.join(dirpath, fn)
                     rp = os.path.realpath(p)
                     if rp in seen:
