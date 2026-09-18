@@ -21,6 +21,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KERNEL="$ROOT/forge-kernel"
 BUILD="${BUILD:-$KERNEL/build-app}"
 cd "$ROOT"
+# An rpath must be absolute, so a relative BUILD= (which CI passes) is resolved here.
+case "$BUILD" in /*) ;; *) BUILD="$ROOT/$BUILD" ;; esac
 
 PROBES="${1:-150}"
 CORPUS="${CORPUS:-/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps}"

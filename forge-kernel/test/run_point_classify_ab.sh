@@ -33,8 +33,10 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KERNEL="$ROOT/forge-kernel"
-BUILD="$KERNEL/build-app"
+BUILD="${BUILD:-$KERNEL/build-app}"
 cd "$ROOT"
+# An rpath must be absolute, so a relative BUILD= (which CI passes) is resolved here.
+case "$BUILD" in /*) ;; *) BUILD="$ROOT/$BUILD" ;; esac
 
 NSPEC="${1:-40}"
 BULK="${2:-400}"
@@ -125,7 +127,26 @@ NTRI=$(nm -u "$DYLIB" | c++filt | grep -c 'BRep_Tool::Triangulation')
 echo "[pc-ab] whole-library: BRepClass3d = $NLIB, BRep_Tool::Triangulation = $NTRI"
 
 # ── corpus ──────────────────────────────────────────────────────────────────
-if [ ! -d "$CORPUS" ]; then echo "[pc-ab] FATAL: corpus not found: $CORPUS" >&2; exit 2; fi
+# ── THE CORPUS PHASE IS OPTIONAL; THE STRUCTURAL PROOFS ABOVE ARE NOT ───────
+# The 600-part gold corpus is not in this repository and is not in CI. Everything
+# above this line — the gate compiles, the seam's object file imports ZERO
+# BRepClass3d, the gate TU imports more than zero — needs no corpus and is a real
+# assertion that fails the job. Running the concordance half without parts would
+# be the "zero discordance out of zero samples" this file's own verdict block was
+# rewritten to refuse, so when the corpus is absent the run STOPS here and says so
+# rather than printing a green nothing.
+#
+# REQUIRE_CORPUS=1 turns a missing corpus back into a hard failure, for a local
+# run whose whole purpose is the concordance number.
+if [ ! -d "$CORPUS" ]; then
+  if [ "${REQUIRE_CORPUS:-0}" = "1" ]; then
+    echo "[pc-ab] FATAL: corpus not found and REQUIRE_CORPUS=1: $CORPUS" >&2; exit 2
+  fi
+  echo "[pc-ab] corpus not present ($CORPUS)."
+  echo "[pc-ab] STRUCTURAL PROOFS PASSED; the concordance half is SKIPPED, not passed."
+  echo "[pc-ab] Set CORPUS=<dir> (or REQUIRE_CORPUS=1 to make its absence fatal)."
+  exit 0
+fi
 ALL="$OUTDIR/corpus.list"
 LC_ALL=C find "$CORPUS" -maxdepth 1 -name '*.step' | LC_ALL=C sort > "$ALL"
 TOTAL=$(grep -c . "$ALL")

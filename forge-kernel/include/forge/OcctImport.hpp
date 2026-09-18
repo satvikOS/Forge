@@ -96,9 +96,28 @@ struct ImportResult {
     std::shared_ptr<native::brep::TopologyBuilder> owner;
 };
 
-// Import the FIRST solid found in `shape` (or, if the shape carries no TopoDS_Solid,
-// the shape's faces directly) into a native analytic B-rep Solid. Never throws on
-// an unsupported face — returns ok=false with a reason so the caller can defer.
+// Import EVERY TopoDS_Solid in `shape` (or, if the shape carries no TopoDS_Solid,
+// the shape's faces directly) into ONE native analytic B-rep Solid — one native
+// Shell per source body, so `solid->shells` has as many entries as `shape` has
+// solids. Never throws on an unsupported face — returns ok=false with a reason so
+// the caller can defer.
+//
+// ── T-152: ok=true IS A CLAIM ABOUT THE WHOLE SHAPE ─────────────────────────
+// This used to import the FIRST solid only and return ok=true anyway. That is
+// what this comment said it did, in these words, and it did not help: the
+// callers read ok=true as "the whole shape is now native" and quietly lost
+// solids 2..N. MEASURED on the gold corpus before the fix (the loss is of
+// material, counted as deep-interior probes coming back OUTSIDE):
+//
+//     ho1     2 solids   96.0% lost, ok=true
+//     ho1005  3 solids   98.7% lost, ok=true
+//     ho1191  1 solid     0.0% lost, ok=true
+//
+// There is now no ok=true partial import. Either every solid is imported, or the
+// call REFUSES and `reason` begins "multi-solid shape (N solids): " — so a caller
+// that only logs the reason still has the count in front of it.
+// test/multi_solid_import_gate.cpp is the guard; it fails if any part reports
+// ok=true with any material loss at all.
 ImportResult importOcctSolid(const TopoDS_Shape& shape);
 
 // ---------------------------------------------------------------------------
