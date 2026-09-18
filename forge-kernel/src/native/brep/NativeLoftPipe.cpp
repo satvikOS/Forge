@@ -129,6 +129,7 @@
 #include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <GeomAbs_CurveType.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -149,11 +150,9 @@
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_BezierSurface.hxx>   // the EXACT bilinear ruled patch (TKG3d)
-#include <Geom_Circle.hxx>
 #include <Standard_Type.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_Curve.hxx>
-#include <Geom_Line.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <Standard_Failure.hxx>
@@ -177,8 +176,6 @@
 #include <gp_XYZ.hxx>
 
 #include <Geom_BSplineCurve.hxx>
-#include <Geom_BezierCurve.hxx>
-#include <Geom_Ellipse.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -521,14 +518,29 @@ bool twistedCorrespondence(const std::vector<gp_Pnt>& a, std::vector<gp_Pnt>& b,
 }
 
 // ---------------------------------------------------------------- extraction
-// Unwrap Geom_TrimmedCurve and report whether the edge's support is a LINE.
+// Report whether the edge's support is a LINE.
+//
+// ★ WHY THE ADAPTOR AND NOT RTTI. This test used to read
+// `c->IsKind(STANDARD_TYPE(Geom_Line))` under a `Handle(Geom_TrimmedCurve)`
+// unwrap loop, and that is a native engine asking OCCT to classify its geometry
+// — the normal internal path doc 11 §4.2 prohibits. It also cost the shipped
+// dylib six undefined `Geom_*::get_type_descriptor()` symbols in TKG3d, of which
+// this translation unit was the ONLY owner. `BRepAdaptor_Curve::GetType()`
+// answers the same question with a `GeomAbs_CurveType` enum constant, and an
+// enum constant is not a symbol; the adaptor also resolves Geom_TrimmedCurve
+// wrappers itself, so the unwrap loop goes with it. Same idiom as circleSection
+// below and DirectEdit.cpp.
+//
+// THE NULL GUARD IS LOAD-BEARING, not defensive noise. With no 3D curve
+// BRepAdaptor_Curve falls back to the edge's pcurve-on-surface and would report
+// a line-on-a-plane as GeomAbs_Line, where the RTTI form answered false.
+// test/curve_kind_ab_probe.cpp runs the guardless body as its control and shows
+// exactly that flip (guarded=None, unguarded=Line), so removing this line
+// silently admits non-line edges into polygonRing and the spine test.
 bool isLineEdge(const TopoDS_Edge& e) {
     Standard_Real f = 0.0, l = 0.0;
-    Handle(Geom_Curve) c = BRep_Tool::Curve(e, f, l);
-    while (!c.IsNull() && c->IsKind(STANDARD_TYPE(Geom_TrimmedCurve))) {
-        c = Handle(Geom_TrimmedCurve)::DownCast(c)->BasisCurve();
-    }
-    return !c.IsNull() && c->IsKind(STANDARD_TYPE(Geom_Line));
+    if (BRep_Tool::Curve(e, f, l).IsNull()) return false;
+    return BRepAdaptor_Curve(e).GetType() == GeomAbs_Line;
 }
 
 // Ordered vertex ring of a CLOSED polygon wire (every edge a line segment).
@@ -1243,25 +1255,37 @@ bool envOnRuled(const char* name) {
 // and B-spline — but its own header states that a parabola, hyperbola or offset
 // curve is instead SAMPLED and least-squares fitted. This engine's whole contract
 // is that every shape it builds is exact and everything else is an honest defer,
-// so those classes are turned away here rather than silently approximated. The
-// test is on the BASIS curve, under any number of Geom_TrimmedCurve wrappers.
-bool exactlyConvertible(const Handle(Geom_Curve)& c0) {
-    Handle(Geom_Curve) c = c0;
-    while (!c.IsNull() && c->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
-        c = Handle(Geom_TrimmedCurve)::DownCast(c)->BasisCurve();
-    if (c.IsNull()) return false;
-    return c->IsKind(STANDARD_TYPE(Geom_Line))
-        || c->IsKind(STANDARD_TYPE(Geom_Circle))
-        || c->IsKind(STANDARD_TYPE(Geom_Ellipse))
-        || c->IsKind(STANDARD_TYPE(Geom_BezierCurve))
-        || c->IsKind(STANDARD_TYPE(Geom_BSplineCurve));
+// so those classes are turned away here rather than silently approximated.
+//
+// ★ IT TAKES THE EDGE, NOT A BARE Handle(Geom_Curve). The old signature could
+// only classify the curve it was handed, which forced OCCT RTTI plus a
+// Geom_TrimmedCurve unwrap loop (and six get_type_descriptor symbols with it —
+// doc 11 §4.2). Its ONE caller is edgeToBSpline01, which has the edge, so taking
+// the edge lets BRepAdaptor_Curve answer instead: the whitelist becomes the five
+// GeomAbs_* enum constants, the trim wrappers are the adaptor's problem, and the
+// admitted set is unchanged — GeomAbs_Parabola, GeomAbs_Hyperbola and
+// GeomAbs_OffsetCurve all fall to `default:` exactly as they fell off the
+// IsKind chain. Verified class by class in test/curve_kind_ab_probe.cpp.
+bool exactlyConvertible(const TopoDS_Edge& e) {
+    switch (BRepAdaptor_Curve(e).GetType()) {
+        case GeomAbs_Line:
+        case GeomAbs_Circle:
+        case GeomAbs_Ellipse:
+        case GeomAbs_BezierCurve:
+        case GeomAbs_BSplineCurve:
+            return true;
+        default:
+            return false;       // parabola, hyperbola, offset curve, anything else
+    }
 }
 
 Handle(Geom_BSplineCurve) edgeToBSpline01(const TopoDS_Edge& e) {
     Standard_Real f = 0.0, l = 0.0;
     Handle(Geom_Curve) c = BRep_Tool::Curve(e, f, l);
+    // This null check is also what makes the adaptor safe below: with no 3D curve
+    // BRepAdaptor_Curve would classify the pcurve instead of declining.
     if (c.IsNull() || !(l > f)) return Handle(Geom_BSplineCurve)();
-    if (!exactlyConvertible(c)) return Handle(Geom_BSplineCurve)();
+    if (!exactlyConvertible(e)) return Handle(Geom_BSplineCurve)();
     Handle(Geom_BSplineCurve) b;
     try {
         // The NATIVE converter, not GeomConvert: GeomConvert lives in TKGeomBase,
@@ -2259,14 +2283,13 @@ TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
 // rather than assumed.
 bool edgeIsTranslateOf(const TopoDS_Edge& g, const TopoDS_Edge& s,
                        const gp_Vec& off, double t) {
+    // The null-3D-curve check stays, and it is what licenses the adaptors below:
+    // on an edge carrying only a pcurve, BRepAdaptor_Curve would classify that
+    // instead of declining, where the RTTI form this replaces declined.
     Standard_Real f1 = 0, l1 = 0, f2 = 0, l2 = 0;
-    Handle(Geom_Curve) cg = BRep_Tool::Curve(g, f1, l1);
-    Handle(Geom_Curve) cs = BRep_Tool::Curve(s, f2, l2);
-    while (!cg.IsNull() && cg->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
-        cg = Handle(Geom_TrimmedCurve)::DownCast(cg)->BasisCurve();
-    while (!cs.IsNull() && cs->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
-        cs = Handle(Geom_TrimmedCurve)::DownCast(cs)->BasisCurve();
-    if (cg.IsNull() || cs.IsNull()) return false;
+    if (BRep_Tool::Curve(g, f1, l1).IsNull()) return false;
+    if (BRep_Tool::Curve(s, f2, l2).IsNull()) return false;
+    const BRepAdaptor_Curve acg(g), acs(s);
     // endpoints must differ by exactly `off`
     const gp_Pnt g0 = BRep_Tool::Pnt(TopExp::FirstVertex(g, Standard_True));
     const gp_Pnt g1 = BRep_Tool::Pnt(TopExp::LastVertex(g, Standard_True));
@@ -2274,15 +2297,21 @@ bool edgeIsTranslateOf(const TopoDS_Edge& g, const TopoDS_Edge& s,
     const gp_Pnt s1 = BRep_Tool::Pnt(TopExp::LastVertex(s, Standard_True));
     if (s0.Translated(off).Distance(g0) > t) return false;
     if (s1.Translated(off).Distance(g1) > t) return false;
-    if (cg->IsKind(STANDARD_TYPE(Geom_Line)) && cs->IsKind(STANDARD_TYPE(Geom_Line)))
+    const GeomAbs_CurveType tg = acg.GetType(), ts = acs.GetType();
+    if (tg == GeomAbs_Line && ts == GeomAbs_Line)
         return true;                       // a segment is pinned by its endpoints
-    Handle(Geom_Circle) kg = Handle(Geom_Circle)::DownCast(cg);
-    Handle(Geom_Circle) ks = Handle(Geom_Circle)::DownCast(cs);
-    if (!kg.IsNull() && !ks.IsNull()) {
-        if (std::fabs(kg->Radius() - ks->Radius()) > t) return false;
-        if (!kg->Circ().Axis().Direction().IsParallel(
-                 ks->Circ().Axis().Direction(), 1.0e-7)) return false;
-        return ks->Circ().Location().Translated(off).Distance(kg->Circ().Location()) <= t;
+    // A CIRCLE pair, read through the adaptor rather than a DownCast on an
+    // RTTI-classified basis curve. BRepAdaptor_Curve::Circle() applies the edge's
+    // location, which is the same world-space circle BRep_Tool::Curve's own
+    // transform produced — agreement measured at <= 9.4e-17 across the whole
+    // fixture matrix in test/curve_kind_ab_probe.cpp, so no tolerance moved.
+    if (tg == GeomAbs_Circle && ts == GeomAbs_Circle) {
+        const gp_Circ kg = acg.Circle();
+        const gp_Circ ks = acs.Circle();
+        if (std::fabs(kg.Radius() - ks.Radius()) > t) return false;
+        if (!kg.Axis().Direction().IsParallel(ks.Axis().Direction(), 1.0e-7))
+            return false;
+        return ks.Location().Translated(off).Distance(kg.Location()) <= t;
     }
     return false;                          // any other curve kind: not proved
 }
@@ -2452,12 +2481,10 @@ bool circleProfile(const TopoDS_Shape& s, gp_Pnt& c, gp_Dir& ax, double& r) {
     }
     if (ne != 1) return false;
     Standard_Real f = 0.0, l = 0.0;
-    Handle(Geom_Curve) cv = BRep_Tool::Curve(e, f, l);
-    while (!cv.IsNull() && cv->IsKind(STANDARD_TYPE(Geom_TrimmedCurve))) {
-        cv = Handle(Geom_TrimmedCurve)::DownCast(cv)->BasisCurve();
-    }
-    if (cv.IsNull() || !cv->IsKind(STANDARD_TYPE(Geom_Circle))) return false;
-    const gp_Circ ci = Handle(Geom_Circle)::DownCast(cv)->Circ();
+    if (BRep_Tool::Curve(e, f, l).IsNull()) return false;   // pcurve-only: decline
+    const BRepAdaptor_Curve ac(e);
+    if (ac.GetType() != GeomAbs_Circle) return false;
+    const gp_Circ ci = ac.Circle();
     c = ci.Location();
     ax = ci.Axis().Direction();
     r = ci.Radius();
@@ -3071,12 +3098,13 @@ bool fullCircleWire(const TopoDS_Wire& w, gp_Pnt& c, gp_Dir& ax, double& r,
     int ne = 0;
     for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
         const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+        // f/l stay BRep_Tool's: the arc SPAN summed below is the edge's parameter
+        // range, and only the CLASSIFICATION moves to the adaptor.
         Standard_Real f = 0.0, l = 0.0;
-        Handle(Geom_Curve) cv = BRep_Tool::Curve(e, f, l);
-        while (!cv.IsNull() && cv->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
-            cv = Handle(Geom_TrimmedCurve)::DownCast(cv)->BasisCurve();
-        if (cv.IsNull() || !cv->IsKind(STANDARD_TYPE(Geom_Circle))) return false;
-        const gp_Circ ci = Handle(Geom_Circle)::DownCast(cv)->Circ();
+        if (BRep_Tool::Curve(e, f, l).IsNull()) return false;   // pcurve-only: decline
+        const BRepAdaptor_Curve ac(e);
+        if (ac.GetType() != GeomAbs_Circle) return false;
+        const gp_Circ ci = ac.Circle();
         if (first) {
             c = ci.Location(); ax = ci.Axis().Direction(); r = ci.Radius();
             first = false;
@@ -3419,17 +3447,18 @@ bool arcChainRing(const TopoDS_Wire& w, const gp_Dir& pn,
     std::vector<RingSeg> got;
     for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) {
         const TopoDS_Edge e = ex.Current();
+        // f/l stay BRep_Tool's: the arc's stated sweep magnitude below is the
+        // edge's parameter range, and only the CLASSIFICATION moves to the adaptor.
         Standard_Real f = 0.0, l = 0.0;
-        Handle(Geom_Curve) cv = BRep_Tool::Curve(e, f, l);
-        while (!cv.IsNull() && cv->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
-            cv = Handle(Geom_TrimmedCurve)::DownCast(cv)->BasisCurve();
-        if (cv.IsNull()) FK_DEFER_F("arc_edge_no_curve");
+        if (BRep_Tool::Curve(e, f, l).IsNull()) FK_DEFER_F("arc_edge_no_curve");
+        const BRepAdaptor_Curve ac(e);
+        const GeomAbs_CurveType ct = ac.GetType();
         RingSeg s;
         s.a = BRep_Tool::Pnt(ex.CurrentVertex());
-        if (cv->IsKind(STANDARD_TYPE(Geom_Line))) {
+        if (ct == GeomAbs_Line) {
             s.arc = false;
-        } else if (cv->IsKind(STANDARD_TYPE(Geom_Circle))) {
-            const gp_Circ ci = Handle(Geom_Circle)::DownCast(cv)->Circ();
+        } else if (ct == GeomAbs_Circle) {
+            const gp_Circ ci = ac.Circle();
             const gp_Dir ax = ci.Axis().Direction();
             if (!ax.IsParallel(pn, 1.0e-7)) FK_DEFER_F("arc_axis_not_profile_normal");
             s.arc = true;
@@ -3809,11 +3838,10 @@ bool profileFrame(const TopoDS_Shape& profile, gp_Dir& pn, gp_Pnt& org, double t
         pts.push_back(BRep_Tool::Pnt(ex.CurrentVertex()));
         if (haveAxis) continue;
         Standard_Real f = 0.0, l = 0.0;
-        Handle(Geom_Curve) cv = BRep_Tool::Curve(ex.Current(), f, l);
-        while (!cv.IsNull() && cv->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
-            cv = Handle(Geom_TrimmedCurve)::DownCast(cv)->BasisCurve();
-        if (!cv.IsNull() && cv->IsKind(STANDARD_TYPE(Geom_Circle))) {
-            pn = Handle(Geom_Circle)::DownCast(cv)->Circ().Axis().Direction();
+        if (BRep_Tool::Curve(ex.Current(), f, l).IsNull()) continue;  // pcurve-only
+        const BRepAdaptor_Curve ac(ex.Current());
+        if (ac.GetType() == GeomAbs_Circle) {
+            pn = ac.Circle().Axis().Direction();
             haveAxis = true;
         }
     }

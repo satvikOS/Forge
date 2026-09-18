@@ -1156,6 +1156,28 @@ jobs:
         # (FORGE_BUILD_DESKTOP_FOUNDATION defaults OFF, CMakeLists.txt:77), so
         # the addon is what this step measures and it now says so.
         #
+        # ★ 539 -> 532 (T-146). NativeLoftPipe classified edge curves through OCCT
+        # RTTI and was the ONLY owner of six Geom_*::get_type_descriptor() symbols;
+        # BRepAdaptor_Curve::GetType() answers with a GeomAbs_CurveType enum
+        # constant, which is not a symbol. Removing the last IsKind call in the
+        # whole of forge-kernel/src took Standard_Transient::IsKind with it, so the
+        # measured delta is SEVEN, not the six that were targeted:
+        #
+        #   OCCT_SYMBOLS  539 -> 532   (TKG3d 152 -> 146, TKernel 27 -> 26)
+        #   OCCT_DIRECT     8 ->   8   unchanged
+        #   OCCT_CLOSURE   14 ->  14   unchanged
+        #   OCCT_PHANTOM    2 ->   2   unchanged
+        #
+        # DERIVED ON THIS ARTIFACT, not inferred from the dylib. The ceiling here
+        # governs forge-kernel.node, so it was measured by building the addon
+        # (-DFORGE_BUILD_NODE_ADDON=ON) twice from the same tree -- once with the
+        # parent's NativeLoftPipe.cpp and once with this change -- and diffing the
+        # two `nm -u | c++filt` sets: 7 departures, and ZERO arrivals. The dylib
+        # figure quoted above (546 / DIRECT 11) is itself now stale: the same tree
+        # builds libforge_kernel_core.dylib at 539 / DIRECT 10, which is exactly
+        # why this step names its artifact instead of letting the fallback search
+        # choose one.
+        #
         # ★ 539 -> 514, T-147. The ceiling is lowered in the same commit that earns
         #   it, as the note below requires. It is a CI-ARTIFACT number and it was
         #   MEASURED ON THE CI ARTIFACT, not converted from the dylib: forge-kernel.node
@@ -1186,10 +1208,26 @@ jobs:
         #   build, named by other owners, so adding an owner cost nothing. The
         #   pre-migration addon still FAILS this ceiling at 539 and 513 still fails
         #   on the migrated one, so the ratchet measures this work rather than drift.
+        #
+        #   MERGE MEASUREMENT (T-151 onto T-146). These two changes removed DISJOINT
+        #   symbol sets from the same artifact -- T-146 took six Geom_*
+        #   get_type_descriptor plus Standard_Transient::IsKind out of NativeLoftPipe,
+        #   T-147/T-151 took the 25 GeomLProp_/BRepLProp_ members out of the property
+        #   call sites -- so the merged ceiling is NEITHER branch's. It was NOT
+        #   computed as 532 - 25: the addon was rebuilt FROM THE MERGED TREE and
+        #   MEASURES 507. Against the shared pre-both 539 baseline that is 32
+        #   departures and ZERO arrivals, and the 32 partition EXACTLY into T-146's
+        #   seven RTTI symbols and T-147/T-151's twenty-five LProp members -- so
+        #   neither change undid the other. That mattered here and was not assumed:
+        #   the restored conic routes DownCast Geom_Parabola/Geom_Hyperbola/
+        #   Geom_TrimmedCurve handles, and six of T-146's seven departures are
+        #   Geom_*::get_type_descriptor. If opencascade::handle::DownCast reached
+        #   the type descriptor rather than typeinfo, this merge would have handed
+        #   T-146's symbols straight back. The census says it does not.
         run: |
           bash forge-kernel/scripts/occt_closure_count.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --assert-closure 14 --assert-direct 8 --assert-symbols 514
+            --assert-closure 14 --assert-direct 8 --assert-symbols 507
       # ── AND THE GATE THAT WAS WRITTEN FOR THIS AND NEVER CALLED ────────────────
       # The comment above states the hole and does not close it: PHANTOM is still
       # unguarded, and forge-kernel/scripts/tkoffset_ledger_gate.sh -- which carries
@@ -1233,16 +1271,47 @@ jobs:
         run: |
           bash forge-kernel/test/occt_lib_resolution_gate.sh \
             forge-kernel/build/Release/forge-kernel.node
+      # ── AND THE SAME NUMBER, BY NAME ─────────────────────────────────────────
+      # The two ratchets above assert TOTALS, so both go green on any seven
+      # symbols and neither can say which. That is exactly the hole a re-added
+      # STANDARD_TYPE(Geom_Circle) would fit through: displace seven symbols
+      # anywhere else and the ceiling still holds while the doc 11 §4.2 violation
+      # is back. This gate names the six Geom_* descriptors and the IsKind entry
+      # point, and reads the WHOLE library -- so it also cannot be satisfied by
+      # moving the RTTI into another translation unit.
+      - name: No OCCT curve RTTI (doc 11 §4.2, named not totalled)
+        run: |
+          bash forge-kernel/scripts/curve_kind_rtti_gate.sh \
+            forge-kernel/build/Release/forge-kernel.node
+      # The A/B behind that gate: both the RTTI and the BRepAdaptor_Curve
+      # classification, run in ONE process over line / circle / ellipse / Bezier /
+      # B-spline / trimmed / doubly-trimmed / parabola / hyperbola / offset /
+      # located / reversed / pcurve-only edges. Exit 0 iff every answer matches,
+      # and it carries its own negative control: the guardless body must DISAGREE
+      # on the pcurve-only edge, or the probe is declared blind and fails.
+      - name: Curve-kind A/B (the classification answers did not move)
+        run: |
+          BIN="$(bash forge-kernel/test/build_curve_kind_ab_probe.sh | sed -n 's/^BIN=//p')"
+          "$BIN"
       - name: OCCT ledger gate — closure, PHANTOM and TKOffset symbols
+        # --max-symbols tracks the ratchet above: 539 -> 532 (T-146, the six
+        # Geom_*::get_type_descriptor symbols plus Standard_Transient::IsKind).
+        # Both ceilings govern the SAME artifact, so leaving this one at 539 would
+        # have kept seven symbols of slack in the gate that exists to remove it.
+        #
         # ★ --max-symbols 539 -> 514, T-147, same measurement as the step above and
         #   on the same artifact. --max-tkoffset stays 29: the census shows TKOffset
         #   unmoved (the 25 that left are 14 TKBRep + 11 TKG3d and nothing else), and
         #   lowering a ceiling no work earned is how a later honest change gets
         #   blamed for a red gate.
+        #   After the merge it tracks the ratchet above at the MEASURED merged
+        #   number. --max-tkoffset stays 29 on both sides: neither change moved
+        #   TKOffset, and lowering a ceiling no work earned is how a later honest
+        #   change gets blamed for a red gate.
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 514
+            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 507
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Physics validation gates (known-answer, against textbook closed forms)
