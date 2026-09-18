@@ -62,6 +62,15 @@ Box boundsOf(const TopoDS_Shape& s, std::string& why) {
     return b;
 }
 
+// Is a point inside a bounding box, slackened by `pad` on every side?
+// `pad` is the classifier's own tolerance: a point that fails this is further from the
+// solid than any tolerance in play, so IN and ON are both impossible.
+inline bool inBox(const Box& b, double x, double y, double z, double pad) {
+    return x >= b.lo[0] - pad && x <= b.hi[0] + pad &&
+           y >= b.lo[1] - pad && y <= b.hi[1] + pad &&
+           z >= b.lo[2] - pad && z <= b.hi[2] + pad;
+}
+
 // Move (and optionally scale) a shape to the origin per the alignment convention.
 bool normalise(const TopoDS_Shape& in, const Box& b, IoUAlign align,
                TopoDS_Shape& out, std::string& why) {
@@ -140,7 +149,7 @@ struct CellDigest {
     // FNV-1a 64. Order-DEPENDENT on purpose: a permutation of the same cells is
     // a different grid and must not hash the same.
     void report(long gridN, long inA, long inB, long both, long either,
-                long errs, long performCalls) const {
+                long errs, long performCalls, long culled) const {
         if (!on) return;
         std::uint64_t h = 0xcbf29ce484222325ULL;
         for (std::size_t i = 0; i < cells.size(); ++i) {
@@ -150,9 +159,9 @@ struct CellDigest {
         std::fprintf(stderr,
                      "VOXELIOU_CELL_DIGEST gridN=%ld cells=%ld digest=%016llx "
                      "inA=%ld inB=%ld intersection=%ld union=%ld errs=%ld "
-                     "classifierCalls=%ld\n",
+                     "classifierCalls=%ld culled=%ld\n",
                      gridN, n, static_cast<unsigned long long>(h), inA, inB, both,
-                     either, errs, performCalls);
+                     either, errs, performCalls, culled);
     }
 };
 
@@ -322,7 +331,7 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     // that share a 64-byte line would ping that line between cores on every cell —
     // false sharing on the counters can cost more than the classification they count.
     struct Tally {
-        long inA = 0, inB = 0, both = 0, either = 0, errs = 0, calls = 0;
+        long inA = 0, inB = 0, both = 0, either = 0, errs = 0, calls = 0, culled = 0;
     };
     struct alignas(64) PaddedTally { Tally t; };
     std::vector<PaddedTally> tallies(static_cast<std::size_t>(workers));
@@ -347,18 +356,36 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
             // "bit-identical" would then be a claim about luck.
             const double x = lo[0] + (i + 0.5) * step[0];
             const double y = lo[1] + (j + 0.5) * step[1];
-            const gp_Pnt p(x, y, lo[2] + (k + 0.5) * step[2]);
+            const double z = lo[2] + (k + 0.5) * step[2];
+            const gp_Pnt p(x, y, z);
             bool a = false, b = false;
-            try {
-                ++t.calls;
-                ca.Perform(p, tol);
-                a = (ca.State() == TopAbs_IN || ca.State() == TopAbs_ON);
-            } catch (...) { ++t.errs; }
-            try {
-                ++t.calls;
-                cb.Perform(p, tol);
-                b = (cb.State() == TopAbs_IN || cb.State() == TopAbs_ON);
-            } catch (...) { ++t.errs; }
+            // CULL BY BOUNDING BOX BEFORE ASKING THE CLASSIFIER.
+            //
+            // This is exact, not a heuristic. Bnd_Box as BRepBndLib fills it already
+            // contains the shape inflated by its own face tolerances, and the test is
+            // slackened by another `tol` — the same tolerance the classifier is given —
+            // so a point that fails it is further from the solid than any tolerance in
+            // play and cannot come back IN or ON. The classifier would answer OUT; we
+            // answer OUT without paying for it.
+            //
+            // It matters because the grid spans the UNION of the two bounding boxes:
+            // whenever the candidate and the reference differ in size or placement —
+            // which is every interesting row — a large part of that union is empty for
+            // at least one of them, and the serial code classified all of it anyway.
+            if (inBox(ba, x, y, z, tol)) {
+                try {
+                    ++t.calls;
+                    ca.Perform(p, tol);
+                    a = (ca.State() == TopAbs_IN || ca.State() == TopAbs_ON);
+                } catch (...) { ++t.errs; }
+            } else { ++t.culled; }
+            if (inBox(bb, x, y, z, tol)) {
+                try {
+                    ++t.calls;
+                    cb.Perform(p, tol);
+                    b = (cb.State() == TopAbs_IN || cb.State() == TopAbs_ON);
+                } catch (...) { ++t.errs; }
+            } else { ++t.culled; }
             if (a) ++t.inA;
             if (b) ++t.inB;
             if (a && b) ++t.both;
@@ -372,13 +399,13 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     // Merged in WORKER ORDER. These are integers, so the sum is exact whatever order
     // it is taken in — but fixing the order costs nothing and removes the question.
     long inA = 0, inB = 0, both = 0, either = 0, errs = 0;
-    long performCalls = 0;
+    long performCalls = 0, culled = 0;
     for (int w = 0; w < workers; ++w) {
         const Tally& t = tallies[static_cast<std::size_t>(w)].t;
         inA += t.inA; inB += t.inB; both += t.both; either += t.either;
-        errs += t.errs; performCalls += t.calls;
+        errs += t.errs; performCalls += t.calls; culled += t.culled;
     }
-    digest.report(gridN, inA, inB, both, either, errs, performCalls);
+    digest.report(gridN, inA, inB, both, either, errs, performCalls, culled);
 
     // Both empty means neither solid occupied a single cell — a real failure to
     // measure, not an IoU of zero, and the caller must be able to tell them apart.
