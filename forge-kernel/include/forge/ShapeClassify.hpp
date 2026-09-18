@@ -120,6 +120,37 @@ public:
 //
 // Thread-safe. The per-handle import cache is mutex-guarded and the imported
 // topology is kept alive for the duration of each call.
+// ── THREAD-SAFETY PRECONDITION — READ THIS BEFORE CALLING FROM A WORKER ─────
+// classifyPoint() makes SEPARATE ShapeRegistry lookups (kindOf, then get). A
+// concurrent ShapeRegistry::release() dropping the last reference BETWEEN them
+// is a use-after-free. The `keepAlive` shared_ptr documented above protects the
+// cached imported TOPOLOGY; it does not protect the registry ENTRY.
+//
+// THAT RACE IS NOT REACHABLE TODAY, and this is the evidence rather than an
+// assurance — measured on this tree, not assumed:
+//   * classifyPoint() has NO production caller. Every call site is a gate
+//     (point_classify_ab_gate, multi_solid_import_gate). The four consumers it
+//     was built for still call BRepClass3d_SolidClassifier directly.
+//   * The kernel's threaded regions are Tessellate.cpp (worker pool),
+//     VoxelIoU.cpp (parallelForTiles, added by T-162) and the one-thread timeout
+//     watchdogs in BooleanTol.cpp / Features.cpp / Booleans.cpp. NONE of the five
+//     calls classifyPoint(), and NONE calls ShapeRegistry::release().
+//   * release() is reached only from the node binding entry point
+//     (src/binding.cpp), the RAII ShapeHandle destructor (src/ShapeHandle.cpp)
+//     and two temporary-cleanup sites (ShapeQuery.cpp, ClassASurfacing.cpp) —
+//     all on their caller's own thread.
+//
+// SO THE PRECONDITION IS: no other thread may release `h` for the duration of
+// this call. Single-threaded use, or a caller that owns a reference across the
+// call, both satisfy it.
+//
+// ★ IF YOU ARE MIGRATING A CONSUMER ONTO THIS SEAM, OR THREADING ONE THAT IS
+//   ALREADY ON IT, THAT PRECONDITION STOPS HOLDING and the fix is a single
+//   registry operation that validates, leases and returns the kind, with the
+//   lease held until this function exits. It was deliberately NOT added while
+//   unreachable, because it is new public API on a type most of the kernel
+//   includes; the cost of adding it later is this paragraph, and the cost of
+//   adding it early was paid by every translation unit.
 PointClass classifyPoint(ShapeHandle h, double x, double y, double z,
                          double onTol = 1e-9);
 
