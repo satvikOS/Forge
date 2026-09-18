@@ -46,6 +46,7 @@
 #include <Geom_BezierSurface.hxx>
 #include <Geom_SurfaceOfRevolution.hxx>
 #include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <Precision.hxx>               // T-147 fix: Precision::IsInfinite (header-inline)
 #include <Geom_OffsetSurface.hxx>
 #include <Geom_CylindricalSurface.hxx>   // K6a: offset-of-quadric exact native import
 #include <Geom_SphericalSurface.hxx>
@@ -121,6 +122,16 @@ struct FaceSurf {
     bool reversed = false;     // flip native normal so it points OUT of the solid
     bool angular = false;      // u is an angle (cylinder/cone/sphere) -> unwrap
     bool sphere = false;       // v maps as native_v = pi/2 - occt_v
+    // gp_Ax3 CARRIES A HANDEDNESS AND THE NATIVE FRAME DOES NOT (T-147 fix).
+    // brep::Surface::binormal() is ALWAYS axis x refDir, i.e. right-handed; a
+    // gp_Ax3 with Direct() == false has YDirection = XDirection ^ Direction,
+    // the NEGATIVE of that. Copying Location/Direction/XDirection alone
+    // therefore imports the MIRROR of the OCCT surface, and the mirror agrees
+    // with the original only where the flipped parameter is 0 or pi. Recorded
+    // here so the (u,v) map the property bridge publishes can say so; the
+    // three fields above are untouched, so nothing else that reads a FaceSurf
+    // changes behaviour.
+    bool leftFrame = false;    // the OCCT gp_Ax3 is LEFT-handed (Direct() == false)
     // Surface-of-REVOLUTION path (kind == Nurbs, revolution == true): the native
     // NURBS carries the EXACT rational-quadratic tensor form of the revolution, but its
     // U-parameter is the B-spline knot param (0..revNSeg), NOT OCCT's uniform revolution
@@ -344,6 +355,41 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
     if (ext.IsNull()) { why = "null extrusion surface"; return false; }
     Handle(Geom_Curve) basis = ext->BasisCurve();
     if (basis.IsNull()) { why = "extrusion has null basis curve"; return false; }
+
+    const gp_Dir D = ext->Direction();
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);   // v-window = extrusion-length range
+
+    // ── AN UNBOUNDED BASIS CURVE HAS NO DOMAIN TO BUILD A B-SPLINE OVER ──────
+    // Every prismatic wall OCCT rebuilds as an extrusion (a filleted box's sides
+    // are the everyday case) carries a Geom_Line basis, and a Geom_Line reports
+    // its range as [-Precision::Infinite(), +Precision::Infinite()] = [-2e100,
+    // 2e100]. Converted AS IS, that yields a degree-1 B-spline whose two poles
+    // sit at u = +-2e100: the de Boor fraction (u + 2e100) / 4e100 rounds to
+    // EXACTLY 0.5 for every finite u, so the surface collapses to the line's
+    // midpoint and reports a point that is up to half the face's u-span away
+    // from the one OCCT names at the same (u, v). MEASURED on the desktop
+    // default part (an 80 x 50 x 20 plate, bored, r3 vertical fillets): every
+    // one of its six extrusion walls answered a single frozen point, g0 gaps of
+    // 22 mm and 37 mm on the wall/cap joins and ~1e83 where a wall met a fillet.
+    //
+    // The face's OWN u-window is the domain that exists. Trimming the basis to
+    // it is EXACT and parameter-preserving (Geom_TrimmedCurve::Value(u) IS
+    // basis->Value(u), and curveToBSpline unwraps the trim and keeps the
+    // OUTERMOST [f,l] as the knot range), so the (u,v) map this bridge promises
+    // to be the IDENTITY stays the identity. A BOUNDED basis is untouched: its
+    // own range is already a domain, and re-trimming it would move poles the
+    // solid importer's measured volumes are read off.
+    if (Precision::IsInfinite(basis->FirstParameter()) ||
+        Precision::IsInfinite(basis->LastParameter())) {
+        if (Precision::IsInfinite(u0) || Precision::IsInfinite(u1) || !(u1 > u0)) {
+            why = "extrusion basis curve is unbounded and the face has no finite "
+                  "u-window to trim it to";
+            return false;
+        }
+        basis = new Geom_TrimmedCurve(basis, u0, u1);
+    }
+
     Handle(Geom_BSplineCurve) cb;
 #if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
     try { cb = forge::occtconv::curveToBSpline(basis); }
@@ -353,10 +399,6 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
     catch (const Standard_Failure&) { cb.Nullify(); }
 #endif
     if (cb.IsNull()) { why = "extrusion basis curve -> B-spline failed"; return false; }
-
-    const gp_Dir D = ext->Direction();
-    double u0, u1, v0, v1;
-    BRepTools::UVBounds(face, u0, u1, v0, v1);   // v-window = extrusion-length range
 
     const int nU = cb->NbPoles();
     if (nU < 2) { why = "extrusion basis pole count < 2"; return false; }
@@ -386,7 +428,39 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
         return false;
     }
     // 1:1 extract (handles a periodic U basis via the de-periodise+clamp path).
-    return readBSplineSurface(bs, out, why);
+    if (!readBSplineSurface(bs, out, why)) return false;
+
+    // ---- RUNTIME round-trip self-check: native(u,v) == OCCT's ext->Value(u,v) ----
+    // The SAME net readRevolutionSurface has carried since T-151, and the reason
+    // it is here now: this function returned `true` for six faces whose geometry
+    // was off by tens of millimetres, and nothing downstream could tell. The
+    // (u,v) map this bridge publishes is the IDENTITY for an extrusion, so the
+    // check is direct — no remap to get wrong. Any mismatch DEFERS with a named
+    // reason; it never facet-fakes and never silently ships the wrong point.
+    {
+        int okCount = 0;
+        double scale = 1.0;
+        for (int i = 0; i <= 4; ++i)
+            for (int jj = 0; jj <= 4; ++jj) {
+                const double uu = u0 + (u1 - u0) * ((double)i  + 0.5) / 5.5;   // interior
+                const double vv = v0 + (v1 - v0) * ((double)jj + 0.5) / 5.5;
+                gp_Pnt occ = ext->Value(uu, vv);
+                nb::SurfaceSample ss = nb::evaluatePoint(out, uu, vv);
+                if (!ss.ok) continue;                       // singular sample — skip
+                const Vec3 o{occ.X(), occ.Y(), occ.Z()};
+                const double mag = nb::vlen(o); if (mag > scale) scale = mag;
+                const double dst = nb::vlen(nb::vsub(o, ss.point));
+                if (dst > 1e-6 * std::max(1.0, scale)) {
+                    why = "extrusion native/OCCT round-trip mismatch (the basis curve "
+                          "reparameterised, or its domain does not carry the face's "
+                          "u-window — deferred, not facet-faked)";
+                    return false;
+                }
+                ++okCount;
+            }
+        if (okCount < 4) { why = "extrusion self-check validated no samples (defer)"; return false; }
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +663,7 @@ bool readOffsetSurface(const Handle(Geom_OffsetSurface)& off,
         out.axis   = nb::vnorm(toV3(a.Direction()));
         out.refDir = toV3(a.XDirection());
         out.origin = nb::vadd(toV3(a.Location()), nb::vscale(out.axis, d));
+        out.leftFrame = !a.Direct();
         return true;
     }
     if (Handle(Geom_CylindricalSurface) cyl = Handle(Geom_CylindricalSurface)::DownCast(base)) {
@@ -600,7 +675,7 @@ bool readOffsetSurface(const Handle(Geom_OffsetSurface)& off,
         out.origin = toV3(a.Location());
         out.axis   = toV3(a.Direction());
         out.refDir = toV3(a.XDirection());
-        out.r1 = r; out.angular = true;
+        out.r1 = r; out.angular = true; out.leftFrame = !a.Direct();
         return true;
     }
     if (Handle(Geom_SphericalSurface) sph = Handle(Geom_SphericalSurface)::DownCast(base)) {
@@ -612,7 +687,7 @@ bool readOffsetSurface(const Handle(Geom_OffsetSurface)& off,
         out.origin = toV3(a.Location());
         out.axis   = toV3(a.Direction());
         out.refDir = toV3(a.XDirection());
-        out.r1 = r; out.angular = true; out.sphere = true;
+        out.r1 = r; out.angular = true; out.sphere = true; out.leftFrame = !a.Direct();
         return true;
     }
     if (Handle(Geom_ToroidalSurface) tor = Handle(Geom_ToroidalSurface)::DownCast(base)) {
@@ -625,6 +700,7 @@ bool readOffsetSurface(const Handle(Geom_OffsetSurface)& off,
         out.axis   = toV3(a.Direction());
         out.refDir = toV3(a.XDirection());
         out.r1 = t.MajorRadius(); out.r2 = minor; out.angular = true;
+        out.leftFrame = !a.Direct();
         return true;
     }
     why = "offset of non-elementary base (cone / free-form: no exact rational offset — deferred)";
@@ -644,6 +720,7 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         out.origin = toV3(ax.Location());
         out.axis   = toV3(ax.Direction());     // plane normal
         out.refDir = toV3(ax.XDirection());
+        out.leftFrame = !ax.Direct();
         break;
     }
     case GeomAbs_Cylinder: {
@@ -655,6 +732,7 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         out.refDir = toV3(ax.XDirection());
         out.r1 = cy.Radius();
         out.angular = true;
+        out.leftFrame = !ax.Direct();
         break;
     }
     case GeomAbs_Cone: {
@@ -672,6 +750,7 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         out.r2 = semi;                          // stash semi-angle (re-used below)
         out.param = 0.0;
         out.angular = true;
+        out.leftFrame = !ax.Direct();
         break;
     }
     case GeomAbs_Sphere: {
@@ -684,6 +763,7 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         out.r1 = sp.Radius();
         out.angular = true;
         out.sphere  = true;
+        out.leftFrame = !ax.Direct();
         break;
     }
     case GeomAbs_Torus: {
@@ -704,6 +784,7 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         out.r1 = to.MajorRadius();             // major R (ring centre radius)
         out.r2 = to.MinorRadius();             // minor r (tube radius)
         out.angular = true;
+        out.leftFrame = !ax.Direct();
         break;
     }
     case GeomAbs_SurfaceOfExtrusion: {
@@ -2402,7 +2483,6 @@ SurfaceImportResult offsetFaceSurface(const TopoDS_Face& face) {
     b.r1     = Rref + vmin * sn;
     b.r2     = Rref + vmax * sn;
     b.param  = span * cs;
-    b.reversed = false;                   // the map below is orientation-preserving
 
     res.surface.form = props::PropSurface::Form::Offset;
     // Signed along the BASE's own normal, which is the convention BOTH
@@ -2410,6 +2490,12 @@ SurfaceImportResult offsetFaceSurface(const TopoDS_Face& face) {
     res.surface.offsetDistance = off->Offset();
     res.vScale = 1.0 / span;
     res.vShift = -vmin / span;
+    // The cone base's frame can be LEFT-handed too — same mirror, same cure as
+    // in importOcctFaceSurface (the angle is what multiplies YDirection). Set
+    // `reversed` from the finished map rather than asserting it is false, so
+    // the two paths cannot drift apart.
+    if (!ax.Direct()) res.uScale = -res.uScale;
+    b.reversed = (res.uScale * res.vScale) < 0.0;
     res.ok = true;
     return res;
 }
@@ -2482,6 +2568,39 @@ SurfaceImportResult importOcctFaceSurface(const TopoDS_Face& face) {
         res.vShift = 0.5 * kPi;
     }
     // Plane / Cylinder / Torus / Nurbs(B-spline, Bezier, extrusion): IDENTITY.
+
+    // ── A LEFT-HANDED gp_Ax3 IS A MIRRORED FRAME, AND THE MAP MUST SAY SO ────
+    // OCCT evaluates every elementary quadric against Position().YDirection(),
+    // which is Direction ^ XDirection only when the frame is RIGHT-handed; when
+    // Direct() is false it is the negative of that, and the native frame's
+    // binormal (always axis x refDir) is then the mirror. The mirror is exactly
+    // a sign flip of the parameter that multiplies Y:
+    //     Plane    P = Loc + u*X + v*Y             -> v flips
+    //     Cylinder / Cone / Sphere / Torus
+    //              P = ... (cos u * X + sin u * Y) -> u flips (the ANGLE)
+    // so one more (scale, shift) negation carries it exactly, and `reversed`
+    // below picks the normal flip up for free because (uScale*vScale) changes
+    // sign with it.
+    //
+    // MEASURED, not hypothesised: on an 80 x 50 x 20 prism with r3 fillets on
+    // its four vertical edges, OCCT built TWO of the four blend cylinders on a
+    // left-handed frame. Without this the bridge answered the DIAMETRICALLY
+    // OPPOSITE point on those two — a 6 mm (== 2r) position gap on a join that
+    // is exactly closed, on half the fillets of an everyday part.
+    //
+    // ONLY THE PROPERTY BRIDGE READS THIS. readSurface's own output fields are
+    // byte-identical, so importOcctSolid's tessellation/volume path is
+    // unchanged by this commit; whether that path needs the same correction is
+    // a separate question with its own A/B gates, and is not answered here.
+    if (fs.leftFrame) {
+        if (fs.kind == nb::SurfaceKind::Plane) {
+            res.vScale = -res.vScale;
+            res.vShift = -res.vShift;
+        } else {
+            res.uScale = -res.uScale;
+            res.uShift = -res.uShift;
+        }
+    }
 
     res.surface.form = props::PropSurface::Form::Native;
     nb::Surface& s = res.surface.base;

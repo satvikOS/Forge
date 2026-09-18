@@ -29,10 +29,16 @@
 
 #include "forge/ClassASurfacing.hpp"
 #include "forge/Nurbs.hpp"
+#include "forge/ShapeQuery.hpp"
 #include "forge/ShapeRegistry.hpp"
+#include "forge/ft/FeatureTree.hpp"
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_Line.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <gp_Ax3.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -186,6 +192,163 @@ int main() {
         near("coplanar join: g1_max_deg == 0", rep.g1_max_deg, 0.0, 1e-7);
         near("coplanar join: g2_max_pct == 0", rep.g2_max_pct, 0.0, 1e-6);
         ok("coplanar join reports G3 continuity", rep.g3_continuity);
+    }
+
+    // ========================= CROSS-FACE CONTINUITY =========================
+    // WHY THIS EXISTS, in the words of the failure that bought it.
+    //
+    // The coplanar join above, and the 19-kind capability probe beside it, both
+    // measure ONE surface at a time. A bridge can be exact per-surface and still
+    // be wrong AT A SEAM, because a seam is where the (u,v) MAP, the face's own
+    // parameter window and the frame's HANDEDNESS all have to agree — and none
+    // of those is visible from inside a single face. T-147 shipped with two such
+    // defects and 19/19 green:
+    //
+    //   1. AN UNBOUNDED BASIS CURVE. A prismatic wall is a
+    //      Geom_SurfaceOfLinearExtrusion whose basis Geom_Line reports the range
+    //      [-2e100, 2e100]. Built over that range the native tensor B-spline
+    //      collapses to the line's midpoint, so the wall answered ONE frozen
+    //      point and its joins read a 22 mm / 37 mm gap (half the face's u-span)
+    //      on a solid that is exactly closed.
+    //   2. A LEFT-HANDED gp_Ax3. brep::Surface's binormal is always
+    //      axis x refDir; OCCT's YDirection is its negative when Direct() is
+    //      false, so the imported quadric was the MIRROR and answered the
+    //      DIAMETRICALLY OPPOSITE point — a 2r gap. OCCT built two of the four
+    //      blend cylinders of an ordinary filleted prism that way.
+    //
+    // Both are asserted below on fixtures whose right answer is arithmetic on
+    // the fixture's own definition, and each fixture PROVES IT IS THE THING IT
+    // CLAIMS TO BE (the basis really is unbounded; the frame really is
+    // left-handed) before the measurement is allowed to count.
+    {
+        std::printf("-- continuityCheck ACROSS FACES: an extrusion wall on an "
+                    "UNBOUNDED basis --\n");
+        // The wall: P(u,v) = (-40 + u, -25, v) over the SAME window the desktop
+        // default part's 80 mm wall has, u in [3, 77], v in [0, 20]. Its basis is
+        // a Geom_Line, so its parameter range is OCCT's infinity and there is no
+        // domain to build a B-spline over except the face's own u-window.
+        Handle(Geom_Line) basis = new Geom_Line(gp_Pnt(-40, -25, 0), gp_Dir(1, 0, 0));
+        ok("the wall's basis curve really is UNBOUNDED (else this proves nothing)",
+           Precision::IsInfinite(basis->FirstParameter()) &&
+               Precision::IsInfinite(basis->LastParameter()),
+           "range = [" + std::to_string(basis->FirstParameter()) + ", " +
+               std::to_string(basis->LastParameter()) + "]");
+        Handle(Geom_SurfaceOfLinearExtrusion) wall =
+            new Geom_SurfaceOfLinearExtrusion(basis, gp_Dir(0, 0, 1));
+        BRepBuilderAPI_MakeFace mkWall(wall, 3.0, 77.0, 0.0, 20.0, Precision::Confusion());
+        // The cap it meets at z = 20, and the shared edge between them: the top
+        // of the wall, from u = 3 to u = 77.
+        Handle(Geom_Plane) cap = new Geom_Plane(gp_Pnt(0, 0, 20), gp_Dir(0, 0, 1));
+        BRepBuilderAPI_MakeFace mkCap(cap, -60.0, 60.0, -40.0, 40.0, Precision::Confusion());
+        BRepBuilderAPI_MakeEdge mkTop(gp_Pnt(-37, -25, 20), gp_Pnt(37, -25, 20));
+        // A DEFER IS A FAILURE AND MUST READ LIKE ONE. The bridge has no OCCT
+        // fallback by design, so an unsupported face makes continuityCheck THROW;
+        // letting that escape would abort the process and report which assertion
+        // failed to nobody. Caught here so the verdict is a named FAIL line.
+        forge::classa::ContinuityReport rep;
+        try {
+            rep = forge::classa::continuityCheck(reg(mkWall.Face()), reg(mkCap.Face()),
+                                                 reg(mkTop.Edge()), 16);
+        } catch (const std::exception& e) {
+            ok("the wall/cap join could be measured at all", false, e.what());
+        }
+        ok("samples were accepted", rep.samples > 0,
+           "samples=" + std::to_string(rep.samples));
+        // Both faces contain the edge EXACTLY, so the gap is zero by construction
+        // and the wall stands square to the cap. 37 mm -- half the u-span -- is
+        // the number the unbounded-basis defect produced here.
+        near("wall/cap join: g0_max_mm == 0 (no gap on an exact meeting)",
+             rep.g0_max_mm, 0.0, 1e-9);
+        near("wall/cap join: g1_max_deg == 90 (a wall meets its cap square)",
+             rep.g1_max_deg, 90.0, 1e-6);
+    }
+    {
+        std::printf("-- continuityCheck ACROSS FACES: a LEFT-HANDED cylinder "
+                    "TANGENT to its wall --\n");
+        // A blend cylinder r = 3 about +Z at the origin, on a deliberately
+        // LEFT-handed frame, and the plane y = 3 it touches along x = 0, y = 3.
+        // Tangency is the whole point: the two normals agree there, so g1 == 0 --
+        // the "no crease where a fillet meets its wall" property, which is exactly
+        // what a mirrored frame destroys.
+        const double r = 3.0;
+        gp_Ax3 frame(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+        frame.YReverse();                       // <- the mirror, made on purpose
+        ok("the blend's frame really IS left-handed (else this proves nothing)",
+           !frame.Direct(), "gp_Ax3::Direct() == false");
+        Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(frame, r);
+        BRepBuilderAPI_MakeFace mkCyl(cyl, 3.14159265358979, 2.0 * 3.14159265358979,
+                                      0.0, 10.0, Precision::Confusion());
+        Handle(Geom_Plane) wall = new Geom_Plane(gp_Pnt(0, r, 0), gp_Dir(0, 1, 0));
+        BRepBuilderAPI_MakeFace mkWall(wall, -8.0, 8.0, -8.0, 18.0, Precision::Confusion());
+        BRepBuilderAPI_MakeEdge mkTan(gp_Pnt(0, r, 0), gp_Pnt(0, r, 10));
+        forge::classa::ContinuityReport rep;
+        try {
+            rep = forge::classa::continuityCheck(reg(mkCyl.Face()), reg(mkWall.Face()),
+                                                 reg(mkTan.Edge()), 16);
+        } catch (const std::exception& e) {
+            ok("the tangent join could be measured at all", false, e.what());
+        }
+        ok("samples were accepted", rep.samples > 0,
+           "samples=" + std::to_string(rep.samples));
+        // The mirrored frame answered the point 2r across the axis: 6.000 mm.
+        near("tangent join: g0_max_mm == 0 (the blend touches the wall)",
+             rep.g0_max_mm, 0.0, 1e-9);
+        near("tangent join: g1_max_deg == 0 (tangent means NO crease)",
+             rep.g1_max_deg, 0.0, 1e-6);
+    }
+    {
+        std::printf("-- continuityCheck over EVERY join of a real composed part --\n");
+        // The desktop application's own default part, built here through the same
+        // kernel IR the app seeds: an 80 x 50 x 20 plate, a 12 mm through bore, r3
+        // on the vertical corners. Its walls are surfaces of linear extrusion and
+        // its blends are B-splines, so the join inventory below is the composition
+        // the two fixtures above cover one at a time. The desktop quality gate
+        // asserts the same three counts; asserting them HERE means a kernel-side
+        // regression is caught in the kernel job, not only in the app's.
+        forge::ft::CompileResult cr = forge::ft::compileText(
+            "%1 = RECT(80, 50)\n"
+            "%2 = EXTRUDE(%1, 20)\n"
+            "%3 = CYL(6, 40, 0, 0, -10)\n"
+            "%4 = CUT(%2, %3)\n"
+            "%5 = FILLET(%4, 3, VERTICAL)\n", "");
+        ok("the composed part builds", cr.ok, cr.error);
+        if (cr.ok) {
+            std::size_t joins = 0, measured = 0, apart = 0, tangent = 0, square = 0;
+            double worstG0 = 0.0;
+            for (const forge::EdgeJoin& j : forge::shapeEdgeJoins(cr.handle)) {
+                if (j.seam) continue;           // a face meeting ITSELF is not a join
+                ++joins;
+                try {
+                    const forge::classa::ContinuityReport rep =
+                        forge::classa::continuityCheck(j.faceA, j.faceB, j.edge, 16);
+                    if (rep.samples == 0) continue;
+                    ++measured;
+                    if (rep.g0_max_mm > worstG0) worstG0 = rep.g0_max_mm;
+                    if (rep.g0_max_mm >= 1.0e-3)      ++apart;
+                    else if (rep.g1_max_deg < 1.0)    ++tangent;
+                    else if (rep.g1_max_deg > 80.0)   ++square;
+                } catch (const std::exception& e) {
+                    ok("every join could be measured", false, e.what());
+                }
+            }
+            // THE DENOMINATOR, printed rather than trusted: an empty join set would
+            // otherwise satisfy "apart == 0" silently.
+            std::printf("     joins=%zu measured=%zu apart=%zu tangent=%zu square=%zu "
+                        "worst g0=%.4g mm\n",
+                        joins, measured, apart, tangent, square, worstG0);
+            ok("the part has the joins a filleted bored plate has",
+               joins >= 24, "joins=" + std::to_string(joins));
+            ok("every join produced a measurement",
+               measured == joins,
+               std::to_string(measured) + " of " + std::to_string(joins));
+            ok("no join on a sound solid leaves a gap",
+               apart == 0, "apart=" + std::to_string(apart) +
+                   ", worst g0=" + std::to_string(worstG0) + " mm");
+            ok("the fillets meet their walls with no crease",
+               tangent >= 4, "tangent=" + std::to_string(tangent));
+            ok("the plate's own corners meet at a right angle",
+               square >= 4, "square=" + std::to_string(square));
+        }
     }
 
     std::printf("\n=== RESULT %d passed, %d failed\n", g_pass, g_fail);
