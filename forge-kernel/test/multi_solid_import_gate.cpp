@@ -373,9 +373,37 @@ int main(int argc, char** argv) {
     std::printf("LOSS = FAR material probes (OCCT: IN at 1%% of the bbox diagonal) that come\n"
                 "       back OUTSIDE.  before = first-solid-only (the OLD importer's `src`);\n"
                 "       after  = whatever importOcctSolid returns now.  Bar: ok=true => 0.\n");
+    // ── THE NON-THROWING CONTRACT, ON THE ERROR PATH ────────────────────────
+    // OcctImport.hpp promises "Never throws ... returns ok=false with a reason so
+    // the caller can defer", and 13 of the 15 call sites use exactly that to fall
+    // through to OCCT. T-152 added a wrapper that explores `shape` on the refusal
+    // path, so the null input — which the body rejects on its first line — now
+    // passes through code the old version never reached. Asserted here rather
+    // than reasoned about, because a contract change on an error path is the
+    // defect class this whole gate exists for.
+    int failures = 0, measured = 0;
+    {
+        bool threw = false, ok = true;
+        std::string reason;
+        try {
+            const forge::ImportResult r = forge::importOcctSolid(TopoDS_Shape{});
+            ok = r.ok;
+            reason = r.reason;
+        } catch (...) { threw = true; }
+        const bool pass = (!threw && !ok && !reason.empty());
+        std::printf("  %-22s threw=%d ok=%d reason=\"%s\"  %s\n",
+                    "null_shape (contract)", (int)threw, (int)ok, reason.c_str(),
+                    pass ? "PASS" : "FAIL");
+        if (!pass) {
+            std::printf("      ^ importOcctSolid(null) must return ok=false with a reason "
+                        "and NEVER throw — the callers' deferral path depends on it\n");
+            ++failures;
+        }
+        ++measured;
+    }
+
     std::printf("--- built-in fixtures (probes=%d) ---\n", probes);
 
-    int failures = 0, measured = 0;
     for (const Fixture& f : builtinFixtures()) {
         PartResult r = measure(f.name, f.shape, probes, f.expectSolids, true);
         report(r);

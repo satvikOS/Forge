@@ -821,7 +821,27 @@ static ImportResult importOcctSolidBody(const TopoDS_Shape& shape);
 ImportResult importOcctSolid(const TopoDS_Shape& shape) {
     g_importCallCount.fetch_add(1, std::memory_order_relaxed);
     ImportResult res = importOcctSolidBody(shape);
-    if (!res.ok) {
+    // `!shape.IsNull()` is belt-and-braces, and the braces were MEASURED rather
+    // than assumed. The body rejects a null shape on its first line, so without
+    // this guard a null input would reach the explorer below. TopExp_Explorer.hxx
+    // documents no raise condition and Init is exported, so the header cannot
+    // answer it; a probe on this OCCT can:
+    //
+    //     TopoDS_Shape nul;                       // IsNull() == 1
+    //     TopExp_Explorer se(nul, TopAbs_SOLID);  -> no throw, More() == 0
+    //     TopExp_Explorer().Init(nul, TopAbs_SOLID) -> no throw, More() == 0
+    //
+    // and that null result is evidence rather than silence because three controls
+    // in the same catch shape DID fire (an explicit throw, gp_Dir(0,0,0), and an
+    // out-of-range NCollection_Array1) — so OCCT's raise mechanism is live in this
+    // build and the detector was not simply blind.
+    //
+    // The guard stays anyway. It costs one predictable branch on an error path,
+    // it does not depend on that measurement holding for every OCCT version this
+    // ships against, and the header's promise it protects — "Never throws ...
+    // returns ok=false with a reason so the caller can defer" — is what thirteen
+    // of the fifteen call sites use to fall through to OCCT.
+    if (!res.ok && !shape.IsNull()) {
         std::size_t n = 0;
         for (TopExp_Explorer se(shape, TopAbs_SOLID); se.More(); se.Next()) ++n;
         static const std::string kPfx = "multi-solid shape (";
