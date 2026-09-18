@@ -861,13 +861,13 @@ static ImportResult importOcctSolidBody(const TopoDS_Shape& shape) {
     // For a shape with exactly ONE solid this is byte-identical to the old path:
     // the same face set, the same adjacency map, one shell. For a shape with NO
     // TopoDS_Solid it is also unchanged — the shape's own faces, one shell.
+    // (The solid COUNT is not needed here: the public wrapper above re-derives it
+    // and is what puts it into the reason string, so that every refusal path in
+    // this body carries it rather than only the ones edited by hand.)
     std::vector<TopoDS_Shape> srcs;
     for (TopExp_Explorer se(shape, TopAbs_SOLID); se.More(); se.Next())
         srcs.push_back(se.Current());
-    const std::size_t solidCount = srcs.size();
     if (srcs.empty()) srcs.push_back(shape);
-
-    (void)solidCount;   // the refusal wording is applied by the public wrapper below
 
     std::vector<TopoDS_Face> faces;
     std::vector<std::size_t> shellStartFace;   // faces[shellStartFace[k]] begins shell k
