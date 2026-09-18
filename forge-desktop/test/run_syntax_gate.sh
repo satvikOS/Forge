@@ -214,6 +214,16 @@ CHECKED=(
   #    builds and RUNS them against the real library.
   forge-desktop/src/ExpressionHost.cpp
   forge-desktop/test/parameters_gate.cpp
+  # -- ADDED 2026-09-18 (T-169). The calculator host and its value gate: the
+  #    first native-app path to a forge-kernel engineering calculator. Neither
+  #    names an OCCT type -- CalculatorHost.hpp includes forge/ui/CalculatorSchema.hpp
+  #    and forge/ui/EngineeringCalculators.hpp, both kernel-free -- and neither
+  #    needs an SDK. MEASURED with this gate's own INC and FLAGS: each returns
+  #    rc=0 under -fsyntax-only with no OCCT on the include path. The census at
+  #    the bottom of this file is what forced these two lines to be written:
+  #    it went RED at 52 present / 50 classified.
+  forge-desktop/src/CalculatorHost.cpp
+  forge-desktop/test/calculator_value_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
