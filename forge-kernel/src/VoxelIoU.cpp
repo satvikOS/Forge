@@ -11,6 +11,7 @@
 // measurement tool that cannot say why it declined is not a measurement tool.
 
 #include "forge/VoxelIoU.hpp"
+#include "forge/ParallelFor.hpp"
 #include "forge/ShapeRegistry.hpp"
 
 #include <algorithm>
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <vector>
 
 #include <BRepBndLib.hxx>
@@ -224,55 +226,157 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
         step[k] = (hi[k] - lo[k]) / static_cast<double>(gridN);
     }
 
-    BRepClass3d_SolidClassifier ca, cb;
-    try {
-        ca.Load(sa);
-    } catch (const std::exception& e) {
-        out.failure = std::string("cannot classify candidate: ") + e.what();
-        return false;
-    } catch (...) {
-        out.failure = "cannot classify candidate (non-standard exception)";
-        return false;
+    // ------------------------------------------------------------- the workers
+    // ONE CLASSIFIER PAIR PER WORKER. BRepClass3d_SolidClassifier::Perform MUTATES
+    // the classifier — State() reads back what the last Perform left there — so a
+    // single shared classifier cannot be asked a question from two threads at once.
+    // The shapes are shared and read-only; the query objects are not shared at all.
+    //
+    // EVERY Load HAPPENS HERE, on the calling thread, before any worker starts. Load
+    // is where a classifier walks the shape and builds its face bounding-box tree,
+    // which is also where the shape's geometry is first read. Doing all of them
+    // serially keeps that first read out of the concurrent phase, so the parallel
+    // section only ever re-reads geometry that has already been touched once.
+    // HOW MANY WORKERS, AND WHY NOT ALL OF THEM
+    //
+    // MEASURED on this 14-core box (10 P + 4 E, OCCT 7.9.3), wall clock in seconds for
+    // one forge_verify row, FORGE_VOXEL_THREADS sweeping the worker count:
+    //
+    //   workers                 1     2     3     4     5     6     8
+    //   box10 vs box10  g64   3.20  2.83  2.92  3.15  3.45  5.86  6.98
+    //   tri-cyl part    g64   9.33  5.59  4.51  3.78  3.45  4.49  5.11
+    //   cadgenbench     g16   1.59  1.02  0.86  0.77  0.72  0.84  0.88
+    //
+    // It gets WORSE past five, on every fixture, and on the simplest one it is already
+    // losing at five. That is not the E-cores: ten workers (ten P-cores) is slower than
+    // four. The limit is in-process state shared inside OCCT — the classifier calls
+    // TopExp::MapShapesAndAncestors per point, and those containers allocate through one
+    // process-wide NCollection_BaseAllocator handle whose atomics every worker touches.
+    //
+    // The control that proves it: TEN SEPARATE PROCESSES, one worker each, doing the
+    // whole tri-cyl row, finish in 10.41 s against 9.34 s for one process — 9.0x the
+    // throughput. The machine parallelises; OCCT's classifier, in one address space,
+    // does not. So the DEFAULT is capped at FOUR — the largest count that never lost on
+    // any fixture measured. FORGE_VOXEL_THREADS overrides the cap, not just the default,
+    // so a sweep past four still measures what it asked for.
+    const int workers = parallelWorkerCount(0, 4);
+
+    // A PRIVATE DEEP COPY OF EACH SOLID PER WORKER.
+    //
+    // Loading N classifiers from ONE TopoDS_Shape leaves every worker walking the same
+    // TShape and the same TopLoc nodes, and those carry atomic reference counts: the
+    // explorer inside Perform copies them millions of times, so fourteen cores end up
+    // fighting over a handful of cache lines. MEASURED on box10 at four workers:
+    // 3.99 s sharing one shape, 3.15 s with a copy each — 21% for a copy that costs
+    // nothing measurable even on the heaviest pair in the corpus (2162 faces:
+    // 17.25 s at one worker, 17.33 s at fourteen, all of it the STEP import).
+    //
+    // BRepBuilderAPI_Transform with an identity gp_Trsf and Copy=true is the deep copy:
+    // Copy=true forces the BRepTools_Modifier path, and an identity gp_Trsf leaves every
+    // coordinate bit-untouched. It also introduces NO new OCCT symbol — this file
+    // already calls exactly that constructor to normalise the alignment. Worker 0 uses
+    // the original, so a single-worker run copies nothing at all.
+    std::vector<TopoDS_Shape> sac(static_cast<std::size_t>(workers));
+    std::vector<TopoDS_Shape> sbc(static_cast<std::size_t>(workers));
+    {
+        const gp_Trsf identity;
+        for (int w = 0; w < workers; ++w) {
+            sac[static_cast<std::size_t>(w)] =
+                (w == 0) ? sa : BRepBuilderAPI_Transform(sa, identity, true).Shape();
+            sbc[static_cast<std::size_t>(w)] =
+                (w == 0) ? sb : BRepBuilderAPI_Transform(sb, identity, true).Shape();
+        }
     }
-    try {
-        cb.Load(sb);
-    } catch (const std::exception& e) {
-        out.failure = std::string("cannot classify reference: ") + e.what();
-        return false;
-    } catch (...) {
-        out.failure = "cannot classify reference (non-standard exception)";
-        return false;
+    std::vector<std::unique_ptr<BRepClass3d_SolidClassifier>> cas(
+        static_cast<std::size_t>(workers));
+    std::vector<std::unique_ptr<BRepClass3d_SolidClassifier>> cbs(
+        static_cast<std::size_t>(workers));
+    for (int w = 0; w < workers; ++w) {
+        try {
+            cas[static_cast<std::size_t>(w)].reset(new BRepClass3d_SolidClassifier());
+            cas[static_cast<std::size_t>(w)]->Load(sac[static_cast<std::size_t>(w)]);
+        } catch (const std::exception& e) {
+            out.failure = std::string("cannot classify candidate: ") + e.what();
+            return false;
+        } catch (...) {
+            out.failure = "cannot classify candidate (non-standard exception)";
+            return false;
+        }
+        try {
+            cbs[static_cast<std::size_t>(w)].reset(new BRepClass3d_SolidClassifier());
+            cbs[static_cast<std::size_t>(w)]->Load(sbc[static_cast<std::size_t>(w)]);
+        } catch (const std::exception& e) {
+            out.failure = std::string("cannot classify reference: ") + e.what();
+            return false;
+        } catch (...) {
+            out.failure = "cannot classify reference (non-standard exception)";
+            return false;
+        }
     }
 
     const double tol = 1e-7;
-    long inA = 0, inB = 0, both = 0, either = 0, errs = 0;
-    long performCalls = 0;
     CellDigest digest;
     digest.arm(gridN);
-    for (int i = 0; i < gridN; ++i) {
-        const double x = lo[0] + (i + 0.5) * step[0];
-        for (int j = 0; j < gridN; ++j) {
+
+    // Per-worker tallies, padded to a cache line. Two workers incrementing two longs
+    // that share a 64-byte line would ping that line between cores on every cell —
+    // false sharing on the counters can cost more than the classification they count.
+    struct Tally {
+        long inA = 0, inB = 0, both = 0, either = 0, errs = 0, calls = 0;
+    };
+    struct alignas(64) PaddedTally { Tally t; };
+    std::vector<PaddedTally> tallies(static_cast<std::size_t>(workers));
+
+    const long cells = static_cast<long>(gridN) * gridN * gridN;
+    parallelForTiles(cells, 0, workers, [&](long begin, long end, int w) {
+        Tally& t = tallies[static_cast<std::size_t>(w)].t;
+        BRepClass3d_SolidClassifier& ca = *cas[static_cast<std::size_t>(w)];
+        BRepClass3d_SolidClassifier& cb = *cbs[static_cast<std::size_t>(w)];
+        const long plane = static_cast<long>(gridN) * gridN;
+        for (long idx = begin; idx < end; ++idx) {
+            // idx is the canonical serial-loop position (i*gridN + j)*gridN + k, so a
+            // tile is a contiguous run of the SAME cells the serial loop visited in
+            // the same order — only the order the tiles are retired in changes.
+            const long i = idx / plane;
+            const long rem = idx - i * plane;
+            const long j = rem / gridN;
+            const long k = rem - j * gridN;
+            // Written term for term as the serial loop wrote it. The point must be the
+            // same DOUBLE, not merely the same value to within rounding: a cell centre
+            // that differs in the last bit can land on the other side of a face, and
+            // "bit-identical" would then be a claim about luck.
+            const double x = lo[0] + (i + 0.5) * step[0];
             const double y = lo[1] + (j + 0.5) * step[1];
-            for (int k = 0; k < gridN; ++k) {
-                const gp_Pnt p(x, y, lo[2] + (k + 0.5) * step[2]);
-                bool a = false, b = false;
-                try {
-                    ++performCalls;
-                    ca.Perform(p, tol);
-                    a = (ca.State() == TopAbs_IN || ca.State() == TopAbs_ON);
-                } catch (...) { ++errs; }
-                try {
-                    ++performCalls;
-                    cb.Perform(p, tol);
-                    b = (cb.State() == TopAbs_IN || cb.State() == TopAbs_ON);
-                } catch (...) { ++errs; }
-                if (a) ++inA;
-                if (b) ++inB;
-                if (a && b) ++both;
-                if (a || b) ++either;
-                digest.set((static_cast<long>(i) * gridN + j) * gridN + k, a, b);
-            }
+            const gp_Pnt p(x, y, lo[2] + (k + 0.5) * step[2]);
+            bool a = false, b = false;
+            try {
+                ++t.calls;
+                ca.Perform(p, tol);
+                a = (ca.State() == TopAbs_IN || ca.State() == TopAbs_ON);
+            } catch (...) { ++t.errs; }
+            try {
+                ++t.calls;
+                cb.Perform(p, tol);
+                b = (cb.State() == TopAbs_IN || cb.State() == TopAbs_ON);
+            } catch (...) { ++t.errs; }
+            if (a) ++t.inA;
+            if (b) ++t.inB;
+            if (a && b) ++t.both;
+            if (a || b) ++t.either;
+            // Distinct bytes of a preallocated buffer: each cell is its own memory
+            // location, so no two workers ever write the same one.
+            digest.set(idx, a, b);
         }
+    });
+
+    // Merged in WORKER ORDER. These are integers, so the sum is exact whatever order
+    // it is taken in — but fixing the order costs nothing and removes the question.
+    long inA = 0, inB = 0, both = 0, either = 0, errs = 0;
+    long performCalls = 0;
+    for (int w = 0; w < workers; ++w) {
+        const Tally& t = tallies[static_cast<std::size_t>(w)].t;
+        inA += t.inA; inB += t.inB; both += t.both; either += t.either;
+        errs += t.errs; performCalls += t.calls;
     }
     digest.report(gridN, inA, inB, both, either, errs, performCalls);
 
