@@ -1986,6 +1986,7 @@ set(FORGE_KERNEL_SOURCES
                                   # GeomLProp_/BRepLProp_ cluster has to be deleted
                                   # from, so its 33 owners can converge on one call.
     src/ShapeHandle.cpp
+    src/ShapeClassify.cpp        # T-145 — the ONE handle -> in/out seam (native pointInSolid; no OCCT classifier)
     src/NativeShapeAccess.cpp
     src/ShapeQuery.cpp
     src/Transform.cpp

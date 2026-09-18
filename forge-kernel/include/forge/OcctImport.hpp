@@ -100,9 +100,38 @@ struct ImportResult {
     std::shared_ptr<native::brep::TopologyBuilder> owner;
 };
 
-// Import the FIRST solid found in `shape` (or, if the shape carries no TopoDS_Solid,
-// the shape's faces directly) into a native analytic B-rep Solid. Never throws on
-// an unsupported face — returns ok=false with a reason so the caller can defer.
+// Import EVERY TopoDS_Solid in `shape` into ONE native analytic B-rep Solid — one
+// native Shell per source body. Never throws on an unsupported face (nor on a null
+// shape) — returns ok=false with a reason so the caller can defer.
+//
+// SHELL COUNT, exactly:
+//   * shape carries N >= 1 TopoDS_Solid  ->  solid->shells.size() == N, in
+//     exploration order, shells[k] holding the faces of the k-th solid.
+//   * shape carries NO TopoDS_Solid      ->  the shape's own faces are imported
+//     as ONE fallback shell, so shells.size() == 1, NOT 0. (This is the
+//     face-soup path a bare shell/compound of faces takes.)
+//
+// Each shell must be a closed 2-manifold ON ITS OWN, and no edge may be shared
+// BETWEEN two shells — the vertex weld is global, so two bodies with coincident
+// geometry would otherwise produce one edge with four coedges. Either violation
+// is an honest ok=false, never a partial import.
+//
+// ── T-152: ok=true IS A CLAIM ABOUT THE WHOLE SHAPE ─────────────────────────
+// This used to import the FIRST solid only and return ok=true anyway. That is
+// what this comment said it did, in these words, and it did not help: the
+// callers read ok=true as "the whole shape is now native" and quietly lost
+// solids 2..N. MEASURED on the gold corpus before the fix (the loss is of
+// material, counted as deep-interior probes coming back OUTSIDE):
+//
+//     ho1     2 solids   96.0% lost, ok=true
+//     ho1005  3 solids   98.7% lost, ok=true
+//     ho1191  1 solid     0.0% lost, ok=true
+//
+// There is now no ok=true partial import. Either every solid is imported, or the
+// call REFUSES and `reason` begins "multi-solid shape (N solids): " — so a caller
+// that only logs the reason still has the count in front of it.
+// test/multi_solid_import_gate.cpp is the guard; it fails if any part reports
+// ok=true with any material loss at all.
 ImportResult importOcctSolid(const TopoDS_Shape& shape);
 
 // ---------------------------------------------------------------------------

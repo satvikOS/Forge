@@ -309,6 +309,19 @@ EulerCounts TopologyBuilder::counts() const {
 // isClosedTwoManifold — structural validity beyond the bare V-E+F count.
 // ---------------------------------------------------------------------------
 bool TopologyBuilder::isClosedTwoManifold() const {
+    // 0. AN EMPTY TOPOLOGY IS NOT A CLOSED 2-MANIFOLD.
+    //    Every check below is a loop over a container that returns false on a
+    //    violation, so with nothing to iterate all three are VACUOUSLY satisfied
+    //    and this predicate answered TRUE for a builder holding nothing at all.
+    //    A predicate that says yes to nothing is a trap for every caller, not
+    //    just the one that found it: each existing caller treats false as
+    //    "refuse, never emit a wrong shape" (UnifyFaces x5, LoftSweep,
+    //    HelicalSweep, OcctImport), so answering false here is the safe
+    //    direction for all of them and changes none of their behaviour on a
+    //    populated builder.
+    if (faces_.empty() || edges_.empty() || coedges_.empty() || loops_.empty())
+        return false;
+
     // 1. Every edge has exactly two coedges, mutually mated with opposite sense.
     for (const auto& e : edges_) {
         if (e->coedgeA == nullptr || e->coedgeB == nullptr) return false;
