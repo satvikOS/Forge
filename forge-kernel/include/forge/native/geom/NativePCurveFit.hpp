@@ -170,7 +170,30 @@ struct Ax3 {
 };
 
 // A 2-D B-spline curve: poles, DISTINCT knots and their multiplicities.
-// `valid()` is a structural check, not a null test on a handle.
+//
+// ★ `valid()` VALIDATES, it does not merely count. A knot vector is UNTRUSTED
+//   INPUT the moment it comes from a parsed file, and the first version of this
+//   carrier checked only "multiplicity >= 1" and the expanded length. MEASURED on
+//   that version: a NaN knot returned `valid() == true` and `value()` returned
+//   (nan, nan) — NON-FINITE COORDINATES from a curve calling itself valid — and a
+//   DECREASING knot vector returned a plausible, wrong (10, 0).
+//
+//   That is the defect class T-153 tracks: 30 runtime `assert()` sites under
+//   `src/native` guarding degenerate weights and cusps from parsed STEP. Under
+//   NDEBUG an assert is not a guard — the arithmetic runs on +-inf/NaN; without
+//   NDEBUG it aborts. Neither is a refusal, so this REFUSES BY RETURN VALUE, which
+//   behaves identically in every build.
+//
+//   THE CONTRACT — non-periodic and CLAMPED, which is all this carrier represents:
+//     * degree >= 1, and at least degree + 1 poles, every pole FINITE;
+//     * `knots` are DISTINCT, hence STRICTLY INCREASING, and every one FINITE;
+//     * the first and last multiplicity are EXACTLY degree + 1 (clamped);
+//     * interior multiplicities lie in [1, degree] — degree + 1 inside would split
+//       the curve in two, which this carrier does not represent;
+//     * the multiplicities sum to nPoles + degree + 1.
+//   `value()` applies the SAME guard and returns Pnt2d{} on refusal, so a caller
+//   that skipped `valid()` cannot reach the basis functions with a vector
+//   `valid()` would have refused.
 struct BSpline2d {
     int                 degree = 0;
     std::vector<Pnt2d>  poles;

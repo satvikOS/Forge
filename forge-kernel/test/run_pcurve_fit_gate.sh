@@ -224,27 +224,55 @@ if [ "${1:-}" = "--mutations" ]; then
   # section's semi-major axis is r/|c| and the mutant makes it r, which is the
   # CIRCLE — so `the section lies on both surfaces` must go red. A gate wired in
   # green and never shown to fail is a gate nobody has tested.
-  if [ -d "$OCCT/include/opencascade" ]; then
+  # geo_mutate <label> <sed expr> — mutate the ENGINE source on a copy, rebuild the
+  # geometry gate against it, and require the gate to turn red. A mutation that
+  # changes nothing is reported as a STALE ANCHOR rather than counted as caught:
+  # the sed silently matching nothing is how this kind of proof rots.
+  geo_mutate() {
+    local label="$1" expr="$2" dir
     n=$((n + 1))
-    mkdir -p "$WORK/geo"
-    sed 's|const double A = radius / std::fabs(c);|const double A = radius;|' \
-      "$ROOT/src/native/geom/NativePCurveFit.cpp" > "$WORK/geo/NativePCurveFit.cpp"
-    if cmp -s "$WORK/geo/NativePCurveFit.cpp" "$ROOT/src/native/geom/NativePCurveFit.cpp"; then
-      bad "the geometry mutation changed NOTHING — stale anchor, it cannot prove anything"
+    dir="$WORK/geo$n"; mkdir -p "$dir"
+    sed "$expr" "$ROOT/src/native/geom/NativePCurveFit.cpp" > "$dir/NativePCurveFit.cpp"
+    if cmp -s "$dir/NativePCurveFit.cpp" "$ROOT/src/native/geom/NativePCurveFit.cpp"; then
+      bad "geometry mutation '$label' changed NOTHING — stale anchor, it cannot prove anything"
+      return
+    fi
     # shellcheck disable=SC2086
-    elif ! $CXX -std=c++20 -O1 -DFORGE_NATIVE_BREP $INC \
-            "$ROOT/test/pcurve_geometry_gate.cpp" "$WORK/geo/NativePCurveFit.cpp" \
+    if ! $CXX -std=c++20 -O1 -DFORGE_NATIVE_BREP $INC \
+            "$ROOT/test/pcurve_geometry_gate.cpp" "$dir/NativePCurveFit.cpp" \
             "$ROOT/src/PCurveFitOcctBridge.cpp" \
             -L"$OCCT/lib" -Wl,-rpath,"$OCCT/lib" -lTKernel -lTKMath -lTKG2d -lTKG3d \
-            -o "$WORK/pgeom_mut" > "$WORK/pgeom_mut_build.log" 2>&1; then
-      say "  caught: plane/cylinder section semi-major r/|c| -> r (did not compile)"
-      caught=$((caught + 1))
-    elif "$WORK/pgeom_mut" > "$WORK/pgeom_mut.log" 2>&1; then
-      bad "mutation 'section semi-major r/|c| -> r' was NOT caught by the geometry gate"
-    else
-      say "  caught: plane/cylinder section semi-major r/|c| -> r"
-      caught=$((caught + 1))
+            -o "$dir/pgeom_mut" > "$dir/build.log" 2>&1; then
+      say "  caught: $label (did not compile)"; caught=$((caught + 1)); return
     fi
+    if "$dir/pgeom_mut" > "$dir/run.log" 2>&1; then
+      bad "mutation '$label' was NOT caught by the geometry gate"
+    else
+      say "  caught: $label"; caught=$((caught + 1))
+    fi
+  }
+
+  if [ -d "$OCCT/include/opencascade" ]; then
+    # The ellipse itself: the section's semi-major axis is r/|c| and the mutant
+    # makes it r, which is the CIRCLE — so "the section lies on both surfaces"
+    # must go red.
+    geo_mutate "plane/cylinder section semi-major r/|c| -> r" \
+               's|const double A = radius / std::fabs(c);|const double A = radius;|'
+
+    # ★ AND THE KNOT VALIDATION, one mutation per rule, because a single "revert it
+    # all" mutation would go red on the first rule and prove nothing about the rest.
+    # These are the checks CodeRabbit's Major asked for, and each is the exact line
+    # whose absence was MEASURED to return valid()==true over malformed input.
+    geo_mutate "knot validation: the FINITENESS check removed (NaN/inf knots accepted)" \
+               's|if (!std::isfinite(kn\[i\])) return false;|;|'
+    geo_mutate "knot validation: the ORDERING check removed (decreasing knots accepted)" \
+               's|if (i > 0 \&\& !(kn\[i\] > kn\[i - 1\])) return false;|;|'
+    geo_mutate "knot validation: the CLAMPED-endpoint multiplicity check removed" \
+               's|if (endpoint) { if (mu\[i\] != degree + 1) return false; }|if (endpoint) { }|'
+    geo_mutate "knot validation: the INTERIOR multiplicity cap removed" \
+               's|else          { if (mu\[i\] < 1 \|\| mu\[i\] > degree) return false; }|else { if (mu[i] < 1) return false; }|'
+    geo_mutate "pole validation: the non-finite POLE check removed" \
+               's|if (!std::isfinite(p.x) \|\| !std::isfinite(p.y)) return false;|;|'
   fi
 
   say "negative controls: $caught of $n caught"

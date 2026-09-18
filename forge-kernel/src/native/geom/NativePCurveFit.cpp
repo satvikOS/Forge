@@ -62,18 +62,66 @@ inline double dist2d(const Pnt2d& a, const Pnt2d& b) {
 }
 
 // Expand (distinct knots, multiplicities) into the full knot vector the basis
-// routines take. Returns false when the expansion is not a legal clamped vector
-// for `degree` and `nPoles`.
+// routines take, VALIDATING the non-periodic clamped contract first.
+//
+// ★ THIS USED TO CHECK ONLY MULTIPLICITY >= 1 AND THE EXPANDED SIZE, and that is
+//   an assumption, not validation. MEASURED on the unguarded version, every one of
+//   these returned `valid() == true`:
+//
+//     NaN knot                        value() = (nan, nan)   ← NON-FINITE COORDINATES
+//     infinite knot                   value() = (nan, nan)
+//     DECREASING knots {1.0, 0.0}     value() = (10, 0)      ← plausible, and wrong
+//     duplicated knots (zero span)    value() = (0, 0)
+//     interior multiplicity 3 > deg 2 value() = (0, 0)
+//     endpoint multiplicity != deg+1  value() = (3.17, 3.33) ← not on a clamped curve
+//
+//   A knot vector is UNTRUSTED INPUT the moment it comes from a parsed file, and a
+//   carrier that answers "valid" over a NaN is the same defect class as T-153's 30
+//   runtime assert() sites under src/native: under NDEBUG the assert vanishes and
+//   the arithmetic runs on ±inf/NaN, without NDEBUG it aborts, and neither is a
+//   refusal. So this REFUSES — a return value, not an assertion, so it holds
+//   identically in every build. That is the whole point of the class.
+//
+// THE CONTRACT, which is what `BSpline2d` declares and the only thing it declares:
+//   * degree >= 1, and at least degree + 1 poles;
+//   * `knots` are DISTINCT, so STRICTLY INCREASING, and every one FINITE;
+//   * CLAMPED: the first and last multiplicity are exactly degree + 1;
+//   * interior multiplicities are in [1, degree] — degree + 1 in the interior
+//     would split the curve into two, which this carrier does not represent;
+//   * the expansion is exactly nPoles + degree + 1 long.
 bool expandKnots(const std::vector<double>& kn, const std::vector<int>& mu,
                  int degree, int nPoles, std::vector<double>& U) {
-    if (kn.size() < 2 || kn.size() != mu.size() || degree < 1 || nPoles < degree + 1)
-        return false;
     U.clear();
-    for (std::size_t i = 0; i < kn.size(); ++i) {
-        if (mu[i] < 1) return false;
-        for (int r = 0; r < mu[i]; ++r) U.push_back(kn[i]);
+    const std::size_t n = kn.size();
+    if (n < 2 || n != mu.size() || degree < 1 || nPoles < degree + 1) return false;
+
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!std::isfinite(kn[i])) return false;                 // NaN / +-inf
+        if (i > 0 && !(kn[i] > kn[i - 1])) return false;         // strictly increasing
+        const bool endpoint = (i == 0 || i == n - 1);
+        if (endpoint) { if (mu[i] != degree + 1) return false; }  // clamped
+        else          { if (mu[i] < 1 || mu[i] > degree) return false; }
     }
-    return U.size() == static_cast<std::size_t>(nPoles + degree + 1);
+
+    // Sum first, so a hostile multiplicity cannot make this allocate wildly before
+    // the size check rejects it.
+    long long total = 0;
+    for (std::size_t i = 0; i < n; ++i) total += mu[i];
+    if (total != static_cast<long long>(nPoles) + degree + 1) return false;
+
+    U.reserve(static_cast<std::size_t>(total));
+    for (std::size_t i = 0; i < n; ++i)
+        for (int r = 0; r < mu[i]; ++r) U.push_back(kn[i]);
+    return true;
+}
+
+// The poles are untrusted for exactly the same reason the knots are: a non-finite
+// pole reaches the output through a perfectly well-formed basis. Checked wherever
+// the knots are.
+bool polesFinite(const std::vector<Pnt2d>& poles) {
+    for (const Pnt2d& p : poles)
+        if (!std::isfinite(p.x) || !std::isfinite(p.y)) return false;
+    return true;
 }
 
 // de Boor via the shared basis functions. `U` is the EXPANDED knot vector.
@@ -157,19 +205,21 @@ inline double wrapPi(double x) {
 // ---------------------------------------------------------------------------
 
 bool BSpline2d::valid() const {
-    if (degree < 1) return false;
-    if (poles.size() < 2) return false;
-    if (knots.size() < 2 || knots.size() != mults.size()) return false;
     std::vector<double> U;
-    return expandKnots(knots, mults, degree, static_cast<int>(poles.size()), U);
+    return expandKnots(knots, mults, degree, static_cast<int>(poles.size()), U)
+        && polesFinite(poles);
 }
 
 double BSpline2d::first() const { return knots.empty() ? 0.0 : knots.front(); }
 double BSpline2d::last()  const { return knots.empty() ? 0.0 : knots.back(); }
 
 Pnt2d BSpline2d::value(double t) const {
+    // The SAME guard as valid(), not a cheaper one: a caller that skipped valid()
+    // must not be able to reach the basis with a knot vector valid() would refuse.
     std::vector<double> U;
     if (!expandKnots(knots, mults, degree, static_cast<int>(poles.size()), U)) return Pnt2d{};
+    if (!polesFinite(poles)) return Pnt2d{};
+    if (!std::isfinite(t)) return Pnt2d{};
     return evalAt(poles, U, degree, t);
 }
 

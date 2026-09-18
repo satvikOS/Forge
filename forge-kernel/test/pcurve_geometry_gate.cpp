@@ -23,7 +23,10 @@
 
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <Geom_Curve.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -182,6 +185,71 @@ int main() {
     const PCurveFit badRange = cylinderPCurve(cs.curve, 1.0, 1.0, cyl, R, 1e-7);
     ok(badRange.curve.IsNull() && badRange.defer == "the parameter range is empty",
        "an empty parameter range is refused by name");
+  }
+
+  // ── 5. ★ A KNOT VECTOR IS UNTRUSTED INPUT ────────────────────────────────
+  // BSpline2d is the OCCT-free carrier T-154 introduced, and its fields arrive
+  // from whatever built them — including, once a pcurve is read back from a STEP
+  // file, a parser. The first version validated only "multiplicity >= 1" and the
+  // expanded length, which is an assumption, not validation. MEASURED on that
+  // version, every case below returned valid() == true, and the first two returned
+  // NON-FINITE COORDINATES from a curve that called itself valid:
+  //
+  //     NaN knot -> (nan, nan)      decreasing knots -> (10, 0), plausible and wrong
+  //     inf knot -> (nan, nan)      endpoint mult != degree+1 -> a point not on a
+  //                                 clamped curve at all
+  //
+  // This is T-153's defect class in a new carrier: 30 runtime assert() sites under
+  // src/native guard degenerate rational weights and cusps from parsed STEP, and
+  // under NDEBUG an assert is not a guard at all — the arithmetic simply runs on
+  // ±inf/NaN. So the carrier REFUSES, by return value, identically in every build.
+  //
+  // ★ THE TWO CONTROLS ARE LOAD-BEARING: without a well-formed curve that must be
+  //   ACCEPTED, a validator that refuses everything would pass this block.
+  {
+    const double qNaN = std::numeric_limits<double>::quiet_NaN();
+    const double qInf = std::numeric_limits<double>::infinity();
+    using forge::pcurvefit::BSpline2d;
+    using forge::pcurvefit::Pnt2d;
+
+    auto mk = [](int deg, std::vector<Pnt2d> poles,
+                 std::vector<double> kn, std::vector<int> mu) {
+      BSpline2d c; c.degree = deg; c.poles = std::move(poles);
+      c.knots = std::move(kn); c.mults = std::move(mu); return c;
+    };
+    auto refuses = [&](const BSpline2d& c, const std::string& what) {
+      ok(!c.valid(), "REFUSED: " + what);
+      const Pnt2d p = c.value(0.5);
+      ok(std::isfinite(p.x) && std::isfinite(p.y),
+         "and value() stays finite for " + what);
+    };
+
+    // CONTROL 1 — a well-formed clamped degree-1 curve must be ACCEPTED.
+    const BSpline2d ctl1 = mk(1, {{0,0},{10,0}}, {0.0, 1.0}, {2,2});
+    ok(ctl1.valid(), "control: a well-formed clamped degree-1 curve is ACCEPTED");
+    ok(std::fabs(ctl1.value(0.5).x - 5.0) < 1e-12,
+       "control: and it evaluates correctly (midpoint x == 5)");
+
+    // CONTROL 2 — a well-formed degree-2 curve with a legal interior knot.
+    const BSpline2d ctl2 = mk(2, {{0,0},{3,4},{7,4},{10,0}}, {0.0,0.5,1.0}, {3,1,3});
+    ok(ctl2.valid(), "control: a clamped degree-2 curve with a legal interior knot is ACCEPTED");
+
+    refuses(mk(1, {{0,0},{10,0}}, {qNaN, 1.0}, {2,2}),            "a NaN knot");
+    refuses(mk(1, {{0,0},{10,0}}, {0.0, qInf}, {2,2}),            "an infinite knot");
+    refuses(mk(1, {{0,0},{10,0}}, {1.0, 0.0}, {2,2}),             "a DECREASING knot vector");
+    refuses(mk(1, {{0,0},{10,0}}, {0.0, 0.0}, {2,2}),             "a duplicated 'distinct' knot (zero span)");
+    // ★ THIS CASE ISOLATES ONE RULE, and the first version did not. It was written
+    //   as mults {2,3,2}, whose ENDPOINTS are also wrong (2 != degree+1 == 3), so it
+    //   was refused by the clamped-endpoint rule and removing the interior cap
+    //   changed nothing — the mutation 'INTERIOR multiplicity cap removed' was NOT
+    //   caught and said so. Endpoints are now legal (3 == degree+1) and ONLY the
+    //   interior multiplicity violates: 6 poles, sum of mults 9 == 6 + 2 + 1.
+    refuses(mk(2, {{0,0},{2,4},{5,5},{8,4},{9,2},{10,0}}, {0.0,0.5,1.0}, {3,3,3}),
+            "an interior multiplicity above the degree (endpoints legal)");
+    refuses(mk(2, {{0,0},{3,4},{7,4},{10,0}}, {0.0,0.25,0.75,1.0}, {2,1,1,3}),
+            "an endpoint multiplicity that is not degree+1 (unclamped)");
+    refuses(mk(1, {{0,0},{qNaN,0}}, {0.0, 1.0}, {2,2}),           "a NaN POLE");
+    refuses(mk(1, {{0,0},{10,0}}, {0.0, 1.0}, {2,1}),             "a multiplicity sum that does not match the poles");
   }
 
   std::printf("[pcurve-geom] %d checks, %d failed\n", g_checks, g_fail);
