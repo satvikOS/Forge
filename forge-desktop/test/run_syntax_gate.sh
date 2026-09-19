@@ -82,6 +82,7 @@ cd "$ROOT" || { echo "[syntax] cannot enter repo root $ROOT"; exit 1; }
 
 CXX="${CXX:-clang++}"
 command -v "$CXX" >/dev/null 2>&1 || { echo "[syntax] no $CXX on PATH"; exit 1; }
+. "$ROOT/tools/gates/forge_cxx_cache.sh"
 
 MUTATE=0
 PROVE=0
@@ -313,10 +314,18 @@ fi
 OCCT_SKIP_PROBE=""
 
 WORK=""
+SYNWORK=""
 cleanup() {
   if [ -n "$WORK" ] && [ -d "$WORK" ]; then
     rm -rf "$WORK"
     [ -d "$WORK" ] && echo "[syntax] WARNING: kept $WORK -- rm -rf did not remove it"
+  fi
+  # The parallel type-check's result directory is removed by the SAME trap. A
+  # second `trap ... EXIT` would REPLACE this one, and the mutation scratch tree
+  # above would then leak on every mutated run.
+  if [ -n "$SYNWORK" ] && [ -d "$SYNWORK" ]; then
+    rm -rf "$SYNWORK"
+    [ -d "$SYNWORK" ] && echo "[syntax] WARNING: kept $SYNWORK -- rm -rf did not remove it"
   fi
 }
 trap cleanup EXIT
@@ -359,23 +368,56 @@ if [ "$MUTATE" -ne 0 ]; then
   echo "[syntax] MUTATION $MUTATE ACTIVE (in a copy at $WORK)"
 fi
 
+# ── ★ THE TYPE-CHECKS ARE INDEPENDENT, SO THEY RUN IN PARALLEL (T-160) ──────
+# -fsyntax-only writes no object and no binary: each translation unit's result
+# depends on nothing but its own text and the include path, and NOTHING here is
+# carried from one unit to the next. MEASURED on merged head 29070823 this step
+# was 290 s of the forge::ui job's 2,858 s (10.1%), spent running 12 independent
+# ~5 s parses one after another, five times over (the clean run plus four
+# mutation re-invocations of this same script).
+#
+# Order is preserved by collecting each result to its own file and reading them
+# back in the declared order, so the log is byte-for-byte the shape it was. The
+# per-unit .err file is also a fix: the serial version wrote every unit's errors
+# to ONE shared path, which parallel runs would have raced.
+SYNWORK="$(mktemp -d "${TMPDIR:-/tmp}/forge_syntax_par.XXXXXX")" || {
+  echo "[syntax] cannot create a work directory for the parallel type-check"; exit 1; }
+FCC_JOBS="$(fcc_jobs)"
+
+syntax_one() {   # syntax_one <index> <file>
+  local i="$1" f="$2"
+  # shellcheck disable=SC2086
+  if $CXX $FLAGS $INC "$f" 2>"$SYNWORK/$i.err"; then : > "$SYNWORK/$i.ok"; fi
+}
+
 BAD=0
 OK=0
+IDX=0
+echo "[syntax] type-checking ${#CHECKED[@]} translation units, JOBS=$FCC_JOBS"
+for f in "${CHECKED[@]}"; do
+  if [ ! -f "$f" ]; then IDX=$((IDX + 1)); continue; fi
+  fcc_cap_launch syntax_one "$IDX" "$f"
+  IDX=$((IDX + 1))
+done
+fcc_cap_drain
+
+IDX=0
 for f in "${CHECKED[@]}"; do
   if [ ! -f "$f" ]; then
     echo "[syntax] RED: $f is not there -- a check that cannot run is not a check that passed"
     BAD=$((BAD + 1))
+    IDX=$((IDX + 1))
     continue
   fi
-  # shellcheck disable=SC2086
-  if $CXX $FLAGS $INC "$f" 2>"${TMPDIR:-/tmp}/forge_syntax.err"; then
+  if [ -f "$SYNWORK/$IDX.ok" ]; then
     echo "[syntax]   OK   $f"
     OK=$((OK + 1))
   else
     echo "[syntax]   FAIL $f"
-    head -20 "${TMPDIR:-/tmp}/forge_syntax.err" | sed 's/^/[syntax]        /'
+    head -20 "$SYNWORK/$IDX.err" 2>/dev/null | sed 's/^/[syntax]        /'
     BAD=$((BAD + 1))
   fi
+  IDX=$((IDX + 1))
 done
 
 if [ "$BAD" -ne 0 ]; then
@@ -409,17 +451,30 @@ fi
 # too) simply keep failing, so they cannot produce a false alarm.
 PROBE_LIST=("${SKIPPED[@]}")
 [ -n "$OCCT_SKIP_PROBE" ] && PROBE_LIST+=("$OCCT_SKIP_PROBE")
+# Same reasoning as the loop above: each probe is an independent -fsyntax-only.
+probe_one() {   # probe_one <index> <file>
+  # shellcheck disable=SC2086
+  if $CXX $FLAGS $INC "$2" 2>/dev/null; then : > "$SYNWORK/probe.$1.stale"; fi
+}
 STALE=()
 ATTEMPTED=0
+PIDX=0
+PROBED=()
 for s in "${PROBE_LIST[@]}"; do
   case "$s" in *OCCT*) ;; *) continue ;; esac
   p="${s%% *}"
   [ -f "$p" ] || continue
   ATTEMPTED=$((ATTEMPTED + 1))
-  # shellcheck disable=SC2086
-  if $CXX $FLAGS $INC "$p" 2>/dev/null; then
-    STALE+=("$p")
-  fi
+  PROBED+=("$p")
+  fcc_cap_launch probe_one "$PIDX" "$p"
+  PIDX=$((PIDX + 1))
+done
+fcc_cap_drain
+PIDX=0
+for p in "${PROBED[@]:-}"; do
+  [ -n "$p" ] || continue
+  [ -f "$SYNWORK/probe.$PIDX.stale" ] && STALE+=("$p")
+  PIDX=$((PIDX + 1))
 done
 if [ "${#STALE[@]}" -ne 0 ]; then
   echo "[syntax] RED, AND THIS IS GOOD NEWS: ${#STALE[@]} of $ATTEMPTED OCCT-skipped"

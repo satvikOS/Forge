@@ -83,6 +83,30 @@ else
   bad "C: ONLY matching no gate exited $crc — $(printf '%s' "$cout" | tail -1)"
 fi
 
+# ── D. the compile cache the mutation proofs now depend on ───────────────────
+# This step is the one place in either slow CI job whose whole job is "gate the
+# gate infrastructure", so the compile cache belongs here.
+#
+# tools/gates/forge_cxx_cache.sh lets four mutation proofs -- the prose gate, the
+# panel ratchet, the model-tree gate and the desktop crash-isolation gate --
+# reuse the objects a mutation did not change. That is the whole speedup, and it
+# is the whole risk: A MUTATION PROOF THAT DOES NOT REBUILD RUNS THE UNMUTATED
+# BINARY AND PASSES. run_step_unit_decline_gate.sh has already done exactly that
+# here, on a second-boundary mtime race, and printed "mutation stayed GREEN --
+# the gate does not test the defect" about itself.
+#
+# The selftest is nine cases over a three-file fixture, about five seconds. It
+# proves a source edit, a header edit and a flag change each reach the binary,
+# that identical bytes at different paths do not collide, and -- deterministically
+# rather than by racing the clock -- that a source stamped OLDER than its own
+# cached object is still recompiled.
+if bash "$ROOT/tools/gates/forge_cxx_cache_selftest.sh" > "$T/fcc.out" 2>&1; then
+  ok "D: the gate compile cache cannot serve a stale object ($(sed -n 's/^\[fcc-selftest\] //p' "$T/fcc.out"))"
+else
+  bad "D: the gate compile cache selftest FAILED — the four mutation proofs that use it are not proving what they claim"
+  sed -n '1,40p' "$T/fcc.out" | sed 's/^/        /'
+fi
+
 echo
 echo "[ui-contract] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

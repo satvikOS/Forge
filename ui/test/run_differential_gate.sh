@@ -42,13 +42,25 @@ FAILURES=0
 fail() { echo "[differential] FAIL — $1"; FAILURES=$((FAILURES + 1)); }
 
 # ── 1. build ─────────────────────────────────────────────────────────────────
+# ── ★ ONE clang++ INVOCATION NAMING 47 UNITS IS A SERIAL COMPILE ────────────
+# MEASURED on merged head 29070823 this step was 78 s of the forge::ui job's
+# 2,858 s, and all nine of its mutations are switches inside the binary
+# (--mutate N), so the whole 78 s is ONE build. Compiling the units in parallel
+# under forge-nproc changes nothing about what is compiled or with what flags.
+. "$ROOT/tools/gates/forge_cxx_cache.sh"
+FCC_CXX="$CXX"
 # shellcheck disable=SC2086
-if ! $CXX $FLAGS $INC ui/src/*.cpp ui/test/differential_gate_test.cpp -o "$BIN" \
-     2>"$WORK/build.err"; then
+FCC_CFLAGS=($FLAGS $INC)
+FCC_LDFLAGS=()
+FCC_SRCS=(ui/src/*.cpp ui/test/differential_gate_test.cpp)
+FCC_CACHE="$WORK/objcache"
+FCC_JOBS="$(fcc_jobs)"
+if ! fcc_build "$BIN" "$WORK/build.err"; then
   echo "[differential] the gate did not BUILD. A gate that cannot build cannot fail."
   tail -30 "$WORK/build.err"
   exit 3
 fi
+echo "[differential] built with JOBS=$FCC_JOBS: compiled $FCC_COMPILED unit(s), reused $FCC_REUSED"
 
 # ── 2. the pin in this script must equal the pin in the header ───────────────
 # Asked of the BINARY, so there is exactly one definition of "how many mutations
