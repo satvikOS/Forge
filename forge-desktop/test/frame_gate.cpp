@@ -108,6 +108,7 @@
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
 #include "forge/ui/Parameters.hpp"      // parameterCommandIds -- the SECOND family wirePartCommands registers
+#include "forge/ui/EngineeringCalculators.hpp"  // calculatorCommandIds -- the THIRD family
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/ToolCatalog.hpp"
@@ -367,10 +368,20 @@ int main(int argc, char** argv) {
   // registerParameterCommands() and returns their sum. Reading only
   // partCommandIds() gave `got 104 want 100` the moment the parameter family
   // landed: the assertion was one family short, not the lists wrong.
+  //
+  // THREE FAMILIES NOW, NOT TWO (T-169). wirePartCommands() also registers the
+  // engineering calculators, and the same trap applies a second time: reading
+  // two of the three lists would say `got 107 want 104` and the honest reading
+  // would again be that the ASSERTION is one family short. Each list is paired
+  // with its own register function, so the SUM is what balances.
   checkEq(shell.registry().size(),
           shellCommands + forge::ui::partCommandIds().size()
-                        + forge::ui::parameterCommandIds().size(),
-          "Part and Parameter commands joined the shell's one registry");
+                        + forge::ui::parameterCommandIds().size()
+                        + forge::ui::calculatorCommandIds().size(),
+          "Part, Parameter and calculator commands joined the shell's one registry");
+  for (const std::string& id : forge::ui::calculatorCommandIds()) {
+    check(shell.registry().contains(id), "registry holds a calculator command", id);
+  }
   for (const std::string& id : forge::ui::partCommandIds()) {
     check(shell.registry().contains(id), "registry holds a Part command", id);
   }

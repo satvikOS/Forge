@@ -115,6 +115,16 @@ DESKTOP_LINK=(
   #    with an undefined-symbol dump. It links headlessly: no SDL, no GL, no
   #    Vulkan, and the file-exchange gate has always linked it.
   forge-desktop/src/FileExchangeHost.cpp
+  # -- 2026-09-18 (T-169): the calculator host. NOT a judgement call -- a LINKED
+  #    TU references its symbol. ForgeFrame.cpp is in this list and line 486 is
+  #    `calculators_.bind(kernelCalculatorEvaluator())`, and that function is
+  #    defined here and nowhere else, so omitting this file is an undefined
+  #    symbol at link time, not an unreached code path. It links headlessly for
+  #    the same reasons FileExchangeHost.cpp does: no SDL, no GL, no Vulkan --
+  #    CalculatorHost.hpp reaches only forge/ui/CalculatorSchema.hpp and
+  #    forge/ui/EngineeringCalculators.hpp, and the kernel calculators it calls
+  #    are in the libforge_kernel_core.dylib this gate already links.
+  forge-desktop/src/CalculatorHost.cpp
 )
 # Deliberately NOT linked, each for a reason a reader can check:
 #   main.cpp, kernel_worker_main.cpp  -- each defines main(); click_gate.cpp owns it here

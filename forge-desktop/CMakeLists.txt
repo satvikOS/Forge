@@ -246,6 +246,14 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/CamHost.cpp"
+    # The seam to the kernel's engineering calculators (T-169). Same split as
+    # StudyHost.cpp below: forge::ui does the bookkeeping and includes no kernel
+    # header, this file makes the call. Its struct-member assignments are
+    # GENERATED into src/CalculatorKernelBridge.hpp from the kernel headers that
+    # declare them, so nothing here transcribes a field name. Listed in BOTH this
+    # library and its sanitizer twin: ForgeFrame.cpp calls into it, so a list that
+    # carries one and not the other fails to link rather than quietly differing.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CalculatorHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
@@ -880,6 +888,14 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/CamHost.cpp"
+    # The seam to the kernel's engineering calculators (T-169). Same split as
+    # StudyHost.cpp below: forge::ui does the bookkeeping and includes no kernel
+    # header, this file makes the call. Its struct-member assignments are
+    # GENERATED into src/CalculatorKernelBridge.hpp from the kernel headers that
+    # declare them, so nothing here transcribes a field name. Listed in BOTH this
+    # library and its sanitizer twin: ForgeFrame.cpp calls into it, so a list that
+    # carries one and not the other fails to link rather than quietly differing.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CalculatorHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"

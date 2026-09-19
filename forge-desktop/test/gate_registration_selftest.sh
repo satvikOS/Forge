@@ -41,13 +41,19 @@ run_gate forge_desktop_beta_gate 1
 RD
   : > "$d/forge-desktop/test/alpha_gate.cpp"
   : > "$d/forge-desktop/test/beta_gate.cpp"
-  # the ad-hoc pair the real check hardcodes
+  # EVERY ad-hoc pair the real check hardcodes. This list is not decoration: a
+  # pair added to AD_HOC and not stubbed here makes the GREEN CONTROL red, and
+  # the message points at a stale list rather than at this file -- which is how
+  # a self-test built to prove a check can fail starts failing for its own
+  # reasons instead.
   : > "$d/forge-desktop/test/differential_solid_gate.cpp"
   : > "$d/forge-desktop/test/appcast_check.cpp"
   : > "$d/forge-desktop/test/run_differential_solid_gate.sh"
   : > "$d/forge-desktop/test/appcast_selftest.sh"
   : > "$d/forge-desktop/test/parameters_gate.cpp"
   : > "$d/forge-desktop/test/run_parameters_gate.sh"
+  : > "$d/forge-desktop/test/calculator_value_gate.cpp"
+  : > "$d/forge-desktop/test/run_calculator_gate.sh"
   cat > "$d/.github/workflows/ci.yml" <<'WF'
 jobs:
   x:
@@ -55,6 +61,7 @@ jobs:
       - run: bash forge-desktop/test/run_differential_solid_gate.sh
       - run: bash forge-desktop/test/appcast_selftest.sh
       - run: bash forge-desktop/test/run_parameters_gate.sh
+      - run: bash forge-desktop/test/run_calculator_gate.sh
 WF
 
   case "$defect" in

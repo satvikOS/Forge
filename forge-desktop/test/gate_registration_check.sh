@@ -84,6 +84,12 @@ AD_HOC=(
   # Built against the LGPL shared library libforge_expr, which its runner builds
   # from third_party/freecad-derived -- no OCCT, no SDK, so it runs on ubuntu.
   "parameters_gate.cpp|run_parameters_gate.sh"
+  # T-169. Both arms -- the dispatched command and the kernel called directly --
+  # link only forge::ui and three calculator translation units whose whole
+  # include list is <cmath> and <stdexcept>. No OCCT, no dylib, no SDK, so the
+  # runner compiles it in seconds on ubuntu and CMake would buy nothing but a
+  # full kernel build for a 94-value comparison.
+  "calculator_value_gate.cpp|run_calculator_gate.sh"
 )
 
 FAIL=0

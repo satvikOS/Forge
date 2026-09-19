@@ -489,6 +489,7 @@ jobs:
           fi
           echo "no conflict markers in the tree"
           python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
+          python3 implementation/sacrosanct/tools/gen_calculator_schema.py --check
       - name: op-constraint bridge (drift check + 9 mutations)
         # The bridge is the vocabulary made ENFORCEABLE: it accepts or refuses a
         # proposed op plan against the user-invocable ops. run_ui.sh above already
@@ -548,6 +549,31 @@ jobs:
         # of ordinary words naming the program's own machinery. 8 puts that exact
         # defect back.
         run: bash ui/test/run_user_prose_gate.sh --mutations
+      - name: the engineering calculators are reachable (value match + 7 mutations)
+        # T-169. MEASURED before this landed: forge-kernel compiles 147 engineering
+        # calculators whose inputs are plain numbers, every one of them is linked
+        # into the library the application loads, and the application reached NONE
+        # of them -- the C++ app included 20 kernel headers and not one was a
+        # calculator, while 28 of those calculators had a test and every one of
+        # those tests ran through the Node addon. JavaScript was the only caller
+        # the C++ kernel's engineering had.
+        #
+        # run_ui.sh above already runs ui/test/engineering_calculator_test.cpp (it
+        # globs ui/test/*_test.cpp), so the headless half of the clean pass is
+        # covered. This step is the two halves it cannot give:
+        #
+        #   * THE VALUE MATCH. run_ui.sh links no kernel -- that is what lets the
+        #     whole UI suite run headless -- so it cannot check that dispatching
+        #     sim.flow_circular_pipe returns what forge::circpipe::analyse returns.
+        #     94 values over 3 calculators x 3 cases, compared against the kernel
+        #     called directly by a hand-written arm, so the two sides are not both
+        #     products of the same generator.
+        #   * THE PROOF. Seven mutations cut one real link each: the registration,
+        #     the generated bridge's output order, the derivation, two label
+        #     defects, the kernel seam, and -- the one that matters most -- the
+        #     gate's own second-derivation parser, emptied, because every field
+        #     check in the headless gate is an application of it.
+        run: bash forge-desktop/test/run_calculator_gate.sh --mutations
       - name: how many docked tabs still show nothing (prove the pin can fail)
         # THE MEASUREMENT, on the merge base of the change that added this: the
         # eight default workspaces define 50 distinct panels and 27 of them drew

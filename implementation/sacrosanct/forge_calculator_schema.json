@@ -1,0 +1,374 @@
+{
+  "schema": "forge.ui.calculator_schema/1",
+  "version": "1.0.0",
+  "counts": {
+    "calculators": 3,
+    "inputs": 14,
+    "outputs": 21,
+    "presentation_entries": 35
+  },
+  "calculators": [
+    {
+      "id": "flow_circular_pipe",
+      "commandId": "sim.flow_circular_pipe",
+      "label": "Partly Full Pipe Flow",
+      "summary": "How much water a round pipe carries when it is not running full, from its bore, its slope and how deep the water is.",
+      "namespace": "forge::circpipe",
+      "kernelEntryPoint": "forge::circpipe::analyse",
+      "header": "forge-kernel/include/forge/CircularPipeFlow.hpp",
+      "implementation": "forge-kernel/src/CircularPipeFlow.cpp",
+      "inputs": [
+        {
+          "name": "pipeDiameterM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "D",
+          "label": "Pipe bore",
+          "unit": "m"
+        },
+        {
+          "name": "waterDepthM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "d (≤ D)",
+          "label": "Water depth",
+          "unit": "m"
+        },
+        {
+          "name": "manningN",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "n  (SI: 0.013 concrete, 0.024 corrugated metal)",
+          "label": "Manning roughness coefficient",
+          "unit": ""
+        },
+        {
+          "name": "slope",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "S = ΔH / L",
+          "label": "Slope of the pipe",
+          "unit": "m/m"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "depthRatio",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "d / D",
+          "label": "Depth against the bore",
+          "unit": ""
+        },
+        {
+          "name": "centralAngleRad",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "θ",
+          "label": "Angle the water surface subtends",
+          "unit": "rad"
+        },
+        {
+          "name": "flowAreaM2",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "A",
+          "label": "Area carrying water",
+          "unit": "m2"
+        },
+        {
+          "name": "wettedPerimeterM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "P",
+          "label": "Wetted perimeter",
+          "unit": "m"
+        },
+        {
+          "name": "hydraulicRadiusM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "R",
+          "label": "Hydraulic radius",
+          "unit": "m"
+        },
+        {
+          "name": "velocityMs",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "V",
+          "label": "Velocity",
+          "unit": "m/s"
+        },
+        {
+          "name": "dischargeM3S",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "Q",
+          "label": "Volume flow",
+          "unit": "m3/s"
+        },
+        {
+          "name": "dischargeLs",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "Q × 1000",
+          "label": "Volume flow",
+          "unit": "L/s"
+        },
+        {
+          "name": "areaRatio",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "A / A_full",
+          "label": "Area against a full pipe",
+          "unit": ""
+        },
+        {
+          "name": "velocityRatio",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "V / V_full",
+          "label": "Velocity against a full pipe",
+          "unit": ""
+        },
+        {
+          "name": "dischargeRatio",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "Q / Q_full",
+          "label": "Flow against a full pipe",
+          "unit": ""
+        }
+      ]
+    },
+    {
+      "id": "flow_pitot_tube",
+      "commandId": "sim.flow_pitot_tube",
+      "label": "Pitot Tube Velocity",
+      "summary": "How fast a stream is moving, from the pressure a Pitot tube reads in it, and the flow that carries through a duct of known area.",
+      "namespace": "forge::pitot",
+      "kernelEntryPoint": "forge::pitot::analyse",
+      "header": "forge-kernel/include/forge/PitotTube.hpp",
+      "implementation": "forge-kernel/src/PitotTube.cpp",
+      "inputs": [
+        {
+          "name": "dynamicPressurePa",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "Δp",
+          "label": "Pressure the probe reads",
+          "unit": "Pa"
+        },
+        {
+          "name": "densityKgM3",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "ρ",
+          "label": "Density of the fluid",
+          "unit": "kg/m3"
+        },
+        {
+          "name": "pitotCoefficient",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "C (1.0 ideal)",
+          "label": "Probe coefficient",
+          "unit": ""
+        },
+        {
+          "name": "flowAreaM2",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "A — set 0 to skip Q/ṁ",
+          "label": "Area of the duct",
+          "unit": "m2"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "velocityMs",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "",
+          "label": "Velocity",
+          "unit": "m/s"
+        },
+        {
+          "name": "velocityHeadM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "Δp / (ρ·g)",
+          "label": "Velocity head",
+          "unit": "m"
+        },
+        {
+          "name": "volumeFlowM3S",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "0 when A = 0",
+          "label": "Volume flow",
+          "unit": "m3/s"
+        },
+        {
+          "name": "massFlowKgS",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "0 when A = 0",
+          "label": "Mass flow",
+          "unit": "kg/s"
+        }
+      ]
+    },
+    {
+      "id": "pump_suction_margin",
+      "commandId": "sim.pump_suction_margin",
+      "label": "Pump Suction Margin",
+      "summary": "Whether a pump has enough suction pressure to run without the liquid boiling at its inlet.",
+      "namespace": "forge::pumpnpsh",
+      "kernelEntryPoint": "forge::pumpnpsh::analyse",
+      "header": "forge-kernel/include/forge/PumpNpsh.hpp",
+      "implementation": "forge-kernel/src/PumpNpsh.cpp",
+      "inputs": [
+        {
+          "name": "atmosphericPressurePa",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "p_atm",
+          "label": "Pressure above the liquid",
+          "unit": "Pa"
+        },
+        {
+          "name": "vapourPressurePa",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "p_v",
+          "label": "Pressure at which it boils",
+          "unit": "Pa"
+        },
+        {
+          "name": "densityKgM3",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "ρ",
+          "label": "Density of the liquid",
+          "unit": "kg/m3"
+        },
+        {
+          "name": "staticSuctionHeadM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "z_s (signed; flooded > 0)",
+          "label": "Height of the liquid above the pump",
+          "unit": "m"
+        },
+        {
+          "name": "frictionHeadM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "h_f (always ≥ 0)",
+          "label": "Head lost in the suction pipe",
+          "unit": "m"
+        },
+        {
+          "name": "requiredNpshM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "NPSH_R (pump curve, ≥ 0)",
+          "label": "Suction head the pump needs",
+          "unit": "m"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pressureHeadM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "(p_atm − p_v) / (ρ·g)",
+          "label": "Head from the pressure above the liquid",
+          "unit": "m"
+        },
+        {
+          "name": "availableNpshM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "NPSH_A",
+          "label": "Suction head available",
+          "unit": "m"
+        },
+        {
+          "name": "marginM",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "NPSH_A − NPSH_R",
+          "label": "Margin over what the pump needs",
+          "unit": "m"
+        },
+        {
+          "name": "marginPct",
+          "cppType": "double",
+          "kind": "Number",
+          "doc": "100·(NPSH_A−NPSH_R)/NPSH_R",
+          "label": "Margin over what the pump needs",
+          "unit": "%"
+        },
+        {
+          "name": "cavitating",
+          "cppType": "bool",
+          "kind": "Flag",
+          "doc": "",
+          "label": "The liquid would boil at the inlet",
+          "unit": ""
+        },
+        {
+          "name": "marginalPerHi",
+          "cppType": "bool",
+          "kind": "Flag",
+          "doc": "",
+          "label": "The margin is under the recommended minimum",
+          "unit": ""
+        }
+      ]
+    }
+  ],
+  "provenance": {
+    "generator": "implementation/sacrosanct/tools/gen_calculator_schema.py",
+    "sources": [
+      {
+        "path": "implementation/sacrosanct/tools/gen_calculator_schema.py",
+        "sha256": "9cec47029f45907f22f1ecf3296940709c6df8c7254f5b31f06fade08ceedeb4",
+        "bytes": 25198
+      },
+      {
+        "path": "forge-kernel/include/forge/CircularPipeFlow.hpp",
+        "sha256": "eada02dc50a4f26675a09919a0f8e12c8fd625f1300da3ce549120678d92ff11",
+        "bytes": 1927
+      },
+      {
+        "path": "forge-kernel/src/CircularPipeFlow.cpp",
+        "sha256": "b2db8ea8c343e1181a6a14961a9d9bf57f66ae03837f8a6f1fe6d4bf06750ec1",
+        "bytes": 2131
+      },
+      {
+        "path": "forge-kernel/include/forge/PitotTube.hpp",
+        "sha256": "da0cb26c17ad6eb4b6dd421be438512ce76276707d41fb4d0137431801cfa361",
+        "bytes": 1661
+      },
+      {
+        "path": "forge-kernel/src/PitotTube.cpp",
+        "sha256": "d1016fbf596f70b5d869c8543ddbb24d3605251e2b096aa32ba79cb23aaad0b8",
+        "bytes": 1127
+      },
+      {
+        "path": "forge-kernel/include/forge/PumpNpsh.hpp",
+        "sha256": "1ebb0d2227ada5dc0369654c1632286087a6a8438edb1fd4184069dfb2874388",
+        "bytes": 1899
+      },
+      {
+        "path": "forge-kernel/src/PumpNpsh.cpp",
+        "sha256": "b6c495679e5da5f101f6ffa8bb3a9d62b648bf24faacfa6792574356de98540f",
+        "bytes": 1765
+      }
+    ]
+  }
+}

@@ -30,6 +30,7 @@
 // AS A MODEL. It is answered in the translation unit that owns the content sniff
 // the kernel itself performs, so the Open and the rebuild cannot disagree about
 // what a STEP file is. The header declares no kernel type.
+#include "CalculatorHost.hpp"
 #include "FileExchangeHost.hpp"
 #include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
@@ -470,6 +471,20 @@ std::size_t ForgeFrame::wirePartCommands() {
   added += forge::ui::registerParameterCommands(
       shell_.registry(), partDoc_, partUndo_,
       [this]() -> const forge::ui::ExpressionEngine* { return exprEngine_; });
+  // ── THE ENGINEERING CALCULATIONS (T-169) ────────────────────────────────
+  // MEASURED before these two lines existed: the kernel this application links
+  // compiles 147 engineering calculators whose inputs are plain numbers, and
+  // the app reached NONE of them -- every one of the 28 that had a test was
+  // tested through the Node addon, so JavaScript was the only caller the C++
+  // kernel's engineering had. A calculator becomes reachable when a command id
+  // resolves to it in this registry, which is what these two lines do.
+  //
+  // The evaluator is installed FIRST: a bench with no seam refuses every
+  // calculation, and a command that can only refuse is worse than one that does
+  // not exist, because the failure then looks like a defect in the calculation
+  // rather than in the wiring.
+  calculators_.bind(kernelCalculatorEvaluator());
+  added += forge::ui::registerCalculatorCommands(shell_.registry(), calculators_);
   partWired_ = true;
   // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
   // act on this document, and the status strip's counters are read from it.
@@ -2408,6 +2423,10 @@ bool ForgeFrame::wantsParameterSheet(const std::string& id) const {
 void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string>& parameters,
                             const forge::ui::CommandParams* seed) {
   const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
+  // Null for every command that is not an engineering calculation, which is all
+  // of them but three -- so the branches below are additive and the sheet the
+  // Part commands raise is byte-identical to the one they raised before.
+  const forge::ui::CalculatorSchema* calcSchema = forge::ui::calculatorForCommand(id);
   promptCommand_ = id;
   promptOpen_ = true;
   promptFocus_ = false;
@@ -2419,11 +2438,27 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
   for (const std::string& name : parameters) {
     PromptField field;
     field.name = name;
+    // The default is the name itself, so every command that carries no schema
+    // label draws exactly the string this sheet has always drawn.
+    field.label = name;
     field.type = forge::ui::ParamType::Text;
     if (d != nullptr) {
       for (const forge::ui::ParamSpec& p : d->schema) {
         if (p.name != name) continue;
         field.type = p.type;
+        break;
+      }
+    }
+    // ── A CALCULATION'S BOXES ARE NAMED BY ITS OWN SCHEMA ─────────────────
+    // Read from the GENERATED schema, which is derived from the kernel header
+    // that declares the input -- so the label beside the box and the member the
+    // number is written into cannot name two different quantities.
+    if (calcSchema != nullptr) {
+      for (std::size_t fi = 0; fi < calcSchema->inputCount; ++fi) {
+        const forge::ui::CalculatorFieldSchema& cf = calcSchema->inputs[fi];
+        if (name != cf.name) continue;
+        field.label = cf.label;
+        field.unit = cf.unit;
         break;
       }
     }
@@ -2525,11 +2560,16 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
   // it is on screen in front of the user is how people learn to stop reading the
   // status line. So the empty boxes are named, and when there are none the line
   // says what is actually true.
+  // ★ THE LABEL, NOT THE NAME. This line goes into the activity log, which the
+  //   Console panel draws and the prose gate scans: naming the empty boxes by
+  //   their machine keys would put a kernel member name in a sentence a person
+  //   reads. For every command that has no schema label the two are equal, so
+  //   this line says exactly what it said before.
   std::string blank;
   for (const PromptField& f : promptFields_) {
     if (f.value[0] != '\0') continue;
     if (!blank.empty()) blank += ", ";
-    blank += f.name;
+    blank += f.label;
   }
   if (blank.empty()) {
     note(label + " — set the values and press Run");
@@ -2916,7 +2956,13 @@ bool ForgeFrame::submitPrompt() {
   // to make it go. The counter distinguishes a NEW sheet from the old one; the
   // string could not.
   const bool reRaised = promptOpens_ != opensBefore && promptOpen_ && promptCommand_ == id;
-  if (!reRaised) cancelPrompt();
+  // ── A CALCULATION'S SHEET STAYS UP, BECAUSE IT NOW HOLDS THE ANSWER ────
+  // Every other command on this path changes the document, so closing the box
+  // hands the user back the part they just changed. A calculation changes
+  // nothing: closing it would take the numbers off screen the instant they
+  // arrived, and the user would have to retype all of them to see them again.
+  const bool holdsAnAnswer = ran && forge::ui::calculatorForCommand(id) != nullptr;
+  if (!reRaised && !holdsAnAnswer) cancelPrompt();
   return ran;
 }
 
@@ -11597,8 +11643,13 @@ void ForgeFrame::drawParameterPrompt() {
   if (!promptOpen_) return;
   const forge::ui::CommandDescriptor* d = shell_.registry().find(promptCommand_);
   const std::string label = (d != nullptr && !d->label.empty()) ? d->label : promptCommand_;
+  // Null unless this sheet is standing on an engineering calculation. A
+  // calculation's boxes carry a name and a unit rather than a bare word, and its
+  // answer is read in the same window, so it gets a wider one.
+  const forge::ui::CalculatorSchema* calc = forge::ui::calculatorForCommand(promptCommand_);
   const ImGuiIO& io = ImGui::GetIO();
-  const float w = std::min(520.0f * dpiScale_, io.DisplaySize.x * 0.6f);
+  const float w =
+      std::min((calc != nullptr ? 640.0f : 520.0f) * dpiScale_, io.DisplaySize.x * 0.75f);
   ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - w) * 0.5f, io.DisplaySize.y * 0.28f),
                           ImGuiCond_Appearing);
   ImGui::SetNextWindowSize(ImVec2(w, 0));
@@ -11608,6 +11659,14 @@ void ForgeFrame::drawParameterPrompt() {
                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
                        ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextColored(rgb(242, 158, 38), "%s", label.c_str());
+    // WHAT THIS CALCULATION ANSWERS, in the schema's own sentence. A person who
+    // opened Pump Suction Margin from a ribbon they were exploring should not
+    // have to run it to find out what it is for.
+    if (calc != nullptr) {
+      ImGui::PushStyleColor(ImGuiCol_Text, rgb(130, 137, 148));
+      ImGui::TextWrapped("%s", calc->summary);
+      ImGui::PopStyleColor();
+    }
     ImGui::Separator();
     // WHAT THE USER IS LOOKING AT, and it is no longer one thing. This window
     // used to open only when nothing could fill a box, so it said so. It is now
@@ -11638,8 +11697,16 @@ void ForgeFrame::drawParameterPrompt() {
     for (std::size_t i = 0; i < promptFields_.size(); ++i) {
       PromptField& f = promptFields_[i];
       ImGui::PushID(static_cast<int>(i));
-      ImGui::TextUnformatted(f.name.c_str());
-      ImGui::SameLine(150.0f * dpiScale_);
+      ImGui::TextUnformatted(f.label.c_str());
+      // The unit beside the name, dimmed, so nobody has to guess whether a
+      // pressure wants pascals or bar. Empty for a dimensionless quantity and
+      // for every command that carries no schema, which is why this is a
+      // conditional and not a second row.
+      if (!f.unit.empty()) {
+        ImGui::SameLine(0.0f, 6.0f);
+        ImGui::TextColored(rgb(130, 137, 148), "%s", f.unit.c_str());
+      }
+      ImGui::SameLine((calc != nullptr ? 330.0f : 150.0f) * dpiScale_);
       ImGui::SetNextItemWidth(-1);
       if (!promptFocus_ && i == 0) {
         ImGui::SetKeyboardFocusHere();
@@ -11672,6 +11739,44 @@ void ForgeFrame::drawParameterPrompt() {
     if (ImGui::Button("Cancel")) open = false;
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) open = false;
     if (submitted) pendingPromptSubmit_ = true;
+
+    // ── THE ANSWER, IN THE SAME WINDOW THE NUMBERS WERE TYPED IN ──────────
+    // A calculation is not a mutation: nothing in the document changed, so
+    // there is no part on screen for the user to look at afterwards and no
+    // other surface the answer belongs on. The sheet therefore stays up
+    // holding it (submitPrompt() keeps it), a value can be edited and Run
+    // pressed again, and the readout moves. Every row is named and given its
+    // unit by the SAME generated schema that named the box above it, so a
+    // reading and an input can never disagree about what a quantity is called.
+    if (calc != nullptr) {
+      const forge::ui::CalculatorOutcome& answer = calculators_.lastOutcome();
+      if (answer.calculatorId == calc->id) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (!answer.computed) {
+          ImGui::PushStyleColor(ImGuiCol_Text, rgb(214, 108, 92));
+          ImGui::TextWrapped("%s", answer.refusal.c_str());
+          ImGui::PopStyleColor();
+        } else {
+          for (const forge::ui::CalculatorReading& reading : answer.readings) {
+            ImGui::TextUnformatted(reading.label.c_str());
+            ImGui::SameLine(330.0f * dpiScale_);
+            if (reading.isFlag) {
+              // A yes/no answer is the one a person acts on, so it is coloured
+              // like one rather than printed as 1 and 0.
+              ImGui::TextColored(reading.flag ? rgb(214, 108, 92) : rgb(126, 184, 126),
+                                 "%s", reading.flag ? "yes" : "no");
+            } else {
+              ImGui::Text("%.6g", reading.value);
+              if (!reading.unit.empty()) {
+                ImGui::SameLine(0.0f, 6.0f);
+                ImGui::TextColored(rgb(130, 137, 148), "%s", reading.unit.c_str());
+              }
+            }
+          }
+        }
+      }
+    }
   }
   ImGui::End();
   ImGui::PopStyleVar();
