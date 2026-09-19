@@ -32,15 +32,38 @@ echo "[licences] $APP"
 need LGPL-2.1.txt              "OCCT (dynamic) AND planegcs (STATIC, in libforge_kernel_core)"
 need SDL2-zlib.txt             "SDL2, dylib in Contents/Frameworks"
 need MoltenVK-Apache-2.0.txt   "MoltenVK, staged by the packager"
-need INCOMPLETE.md             "names what is still owed -- Dear ImGui's MIT text"
+need INCOMPLETE.md             "names what is still owed"
 
-# The INCOMPLETE record must keep NAMING the gap. If someone deletes the mention
-# without vendoring the text, the bundle silently stops disclosing it.
-if [ -s "$LIC/INCOMPLETE.md" ] && ! grep -qi 'dear imgui' "$LIC/INCOMPLETE.md"; then
-  echo "  MISSING INCOMPLETE.md no longer names Dear ImGui -- either vendor its"
-  echo "          LICENSE.txt and add it above, or keep disclosing that it is absent"
-  MISSING=$((MISSING + 1))
-fi
+# ── STATICALLY LINKED INTO forge_desktop ─────────────────────────────────────
+# Dear ImGui does not ship alone. It compiles two fonts into the binary as byte
+# arrays, each under its OWN MIT notice with a copyright holder who is not Omar
+# Cornut, and it vendors stb. imconfig.h:53-55 leaves IMGUI_DISABLE_DEFAULT_FONT,
+# _BITMAP and _VECTOR all commented out, so both fonts are in the shipped binary.
+need DearImGui-MIT.txt         "Dear ImGui v1.92.9, STATIC in forge_desktop"
+need ProggyClean-MIT.txt       "ProggyClean.ttf, embedded bitmap font (~9 KB of the binary)"
+need ProggyForever-MIT.txt     "ProggyForever-Regular-minimal.ttf, embedded vector font (~14 KB)"
+need stb-MIT-or-Unlicense.txt  "stb rectpack/textedit/truetype, vendored inside imgui"
+
+# PRESENCE IS NOT DISCLOSURE. A file that exists, is non-empty and says nothing
+# passes every check above. Each text must actually carry the copyright line of
+# the holder it is there to disclose -- the strings below were read out of the
+# vendored SOURCE (imgui.cpp:30, imgui_draw.cpp:6358, imgui_draw.cpp:6548,
+# imstb_truetype.h) and independently out of each upstream LICENSE file, and
+# they agreed. If a future bump changes a year, this goes red and the record
+# gets re-derived rather than drifting.
+holder() {
+  local f="$1" pat="$2"
+  [ -s "$LIC/$f" ] || return 0          # already counted by need()
+  if ! grep -qF "$pat" "$LIC/$f"; then
+    printf '  MISSING %-28s does not carry: %s\n' "$f" "$pat"
+    MISSING=$((MISSING + 1))
+  fi
+}
+holder DearImGui-MIT.txt        "Copyright (c) 2014-2026 Omar Cornut"
+holder ProggyClean-MIT.txt      "Copyright (c) 2004, 2005 Tristan Grimmer"
+holder ProggyForever-MIT.txt    "Copyright (c) 2026 Disco Hello"
+holder ProggyForever-MIT.txt    "Copyright (c) 2019,2023 Tristan Grimmer"
+holder stb-MIT-or-Unlicense.txt "Copyright (c) 2017 Sean Barrett"
 
 # ── the FreeCAD-derived shared libraries ─────────────────────────────────────
 # Every Frameworks dylib that third_party/freecad-derived/manifest.json names must
