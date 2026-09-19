@@ -719,7 +719,17 @@ wrong turn taken here. Each was verified rather than assumed.
    should have looked there first. The macOS figure I still do not have, which is
    why the click-gate projection in section 5 is given as a floor with its assumption
    named, rather than as a number.
-6. **My local *after* arm ran at `JOBS=2`, not the runner's 4.** Guardian held ORANGE
+6. **I shipped a macOS-only `sed -i ''` into a script that runs on ubuntu, and CI
+   caught it before I did.** The new cache selftest is wired into
+   `run_ui_contract_test.sh`, which runs in the **ubuntu** `ui` job, and I wrote its
+   five mutations in the BSD spelling that every macOS-only gate around it uses. GNU
+   sed reads the `''` as the script and the expression as a filename: the file would
+   not have been edited, and every case would have reported "THE MUTATION DID NOT
+   REACH THE BINARY" — a red gate blaming the cache for a defect in the test. It
+   fails loud rather than silently, which is the right direction, but I wrote it
+   because I had been reading macOS-only gates for an hour and stopped noticing which
+   runner each script lands on. Replaced with a portable `subst()`.
+7. **My local *after* arm ran at `JOBS=2`, not the runner's 4.** Guardian held ORANGE
    with `build_jobs_max: 2` for the whole session. I did not override it, so the
    local measurements understate the parallel component and the projections are
    conservative — but it does mean the local arms are **not** a like-for-like model
