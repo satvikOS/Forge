@@ -67,7 +67,9 @@ jobs:
     # hang, not to express a budget.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
 
       - name: Prove the registration check itself can fail (10 cases, ~1.6 s)
         # FIRST, before the check whose result we intend to believe. This drives
@@ -97,11 +99,48 @@ jobs:
       - name: FreeCAD-derived libraries are shared, dynamically linked and carry their LGPL notices
         run: bash tools/gates/freecad_derived_lgpl_gate.sh
 
+      # ── EVERY ACTION IS PINNED TO A COMMIT, EVERY CHECKOUT DROPS ITS TOKEN ──
+      # A `uses: actions/checkout@v4` resolves through a MUTABLE tag: whoever can
+      # move that tag chooses the code that runs here, with the repository
+      # checked out and a credential left in .git/config for every child process
+      # to read -- including a 40-minute CMake build of third-party code
+      # (CWE-829). Before this, 24 of the 26 references in this repository were
+      # mutable tags and 2 of 18 checkouts dropped their credential.
+      #
+      # Selftest first, as everywhere else in this job: seven injected defects --
+      # a tag, a commit with no version comment, an abbreviated commit, a
+      # checkout that keeps its credential, persist-credentials declared TRUE, a
+      # LIVE true beside a COMMENTED false, and a third-party action on a branch
+      # -- plus a green control on the real workflows. Both steps are bash +
+      # grep against a temp copy, no build.
+      - name: Prove the action-pinning gate can fail (7 defects + control)
+        run: bash tools/gates/actions_pinned_selftest.sh
+      - name: Every action is pinned to a commit and every checkout drops its credential
+        run: bash tools/gates/actions_pinned_gate.sh
+
+      # ── THE COMPOSITION CENSUS CHECKS ITS OWN LEXER ─────────────────────────
+      # tools/kernel/native_engine_composition.py decides, per Native* engine,
+      # whether OCCT PRODUCES the answer or merely carries it -- and the report
+      # built on it (forge-kernel/reports/NATIVE_ENGINE_COMPOSITION.md) is only
+      # worth as much as its comment/string/include stripping. Four of the twelve
+      # review findings against that tool were the stripper: a `//` containing
+      # `/*` opened a phantom block comment that deleted code, an `#include`
+      # counted as a use, the include step shifted every later offset, and the
+      # offset check said "byte" while measuring characters.
+      #
+      # --selftest carries those five properties as fixtures. It is python3 only,
+      # runs in milliseconds, and is here because a self-test nobody executes is
+      # the same as no self-test.
+      - name: The Native* composition census can still read C++ (5 lexical properties)
+        run: python3 tools/kernel/native_engine_composition.py --selftest
+
   kernel_gate_registration:
     name: every forge-kernel gate is executed, not merely built
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
 
       # Prove the ratchet can fail BEFORE trusting the run below. A registration
       # check that cannot go red is decoration. Seven cases, no build, ~35 s.

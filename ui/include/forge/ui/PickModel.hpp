@@ -227,6 +227,102 @@ struct ScenePick {
 // they can see a face.
 ScenePick pickScene(const PickScene& scene, const PickRequest& request);
 
+// ── FROM A PICK TO A FEATURE ARGUMENT ───────────────────────────────────────
+// Everything above turns a ray into an IDENTITY. Everything below turns the same
+// ray into the GEOMETRY a feature command has to write into its statement, which
+// is the half the application was discarding: `HOLE(%N, 9, 0, 0, 0)` for a click
+// on any face, on any body, anywhere.
+//
+// It lives here, in headless forge::ui, for the reason the pick itself does: it
+// is arithmetic, and arithmetic a cheap gate cannot run is arithmetic nobody has
+// a number for.
+
+// Which way round the closed surface is wound. measureMesh() decides it from the
+// signed volume of the triangle soup, and it is only meaningful when the mesh is
+// watertight -- so a caller that cannot establish it says Unknown and is given no
+// normal, rather than a normal that may point into the material.
+enum class MeshWinding : std::uint8_t { Unknown = 0, Outward, Inward };
+
+// The winding of `mesh`, from measureMesh(). O(triangles): a caller picking every
+// frame should compute this ONCE per rebuild and keep it, which is what the
+// viewport does.
+MeshWinding meshWinding(const MeasureMesh& mesh);
+
+// The OUTWARD unit normal of one face -- outward as in "away from the material".
+//
+// The direction comes from the area-weighted average of the face's triangle
+// normals (measureFace), which is a winding-derived quantity: it points out only
+// if the soup is wound out. `winding` supplies that fact, measured rather than
+// assumed, and the vector is negated when the soup is wound in. On Unknown, on a
+// face that is not in the mesh, or on a degenerate face whose triangle normals
+// cancel, this returns false and leaves `out` untouched -- a hole drilled along a
+// guessed axis is a hole in the wrong place, and there is no safe default.
+//
+// Area weighting matters for a CURVED face: on the wall of a bore the triangle
+// normals span the full 360 degrees and cancel, so the answer is correctly
+// refused rather than being some arbitrary tangent. FaceMeasure::planar is the
+// caller's warning that the face had a single direction to give.
+bool faceOutwardNormal(const MeasureMesh& mesh, std::uint32_t faceId, MeshWinding winding,
+                       double out[3]);
+
+// ── the kernel's own edge classification, re-derived ────────────────────────
+// This is forge::ft selectEdges()'s arithmetic, transcribed from
+// forge-kernel/src/ft/FeatureTreeCompiler.cpp so that the UI can tell a user
+// BEFORE they run a command whether the kernel has a word for the edges they
+// picked. The kernel takes the chord between the FIRST and LAST point of the
+// edge's polyline -- that is, between the edge's two ENDS -- and the two tests are
+//
+//     vertical    len > 1e-9  and  | |dz|/len - 1 | < 1e-2
+//     horizontal  len < 1e-9  (a closed rim, whose chord is a point)  or
+//                 |dz|/len < 1e-2
+//
+// with the same constants. The chord here is taken between MeshEdge::endA and
+// endB, which deriveEdges recovers from the chain's vertex degrees -- NOT between
+// the first and last entries of MeshEdge::points, which is a segment soup and not
+// a walk (the first version of this function read the soup, and a two-segment
+// upright edge measured as flat).
+//
+// WHERE THE TWO SIDES CAN STILL DISAGREE, stated rather than hidden, because
+// a class the UI counts differently from the kernel makes a keyword act on edges
+// nobody picked:
+//   * the kernel tessellates the B-rep at deflection 0.25 and this reads the
+//     viewport's mesh, which only moves an edge within 1e-2 of a class boundary;
+//   * one chain here can be SEVERAL kernel edges when two faces meet along a run
+//     of edges joined end to end. Straight runs keep one class; a closed loop of
+//     several arcs in a VERTICAL plane is one horizontal chain here and several
+//     arcs of arbitrary class there;
+//   * a SEAM (a face meeting itself) is not an edge here at all -- see
+//     EdgeModel.hpp -- and is one there. On the shipped worker a vertical bore
+//     seam changed nothing: BOX+HOLE+FILLET(VERTICAL) and FILLET(VERTICAL)+HOLE
+//     measured the same 95355.243414183948.
+EdgeAxisClass classifyEdgeAxis(const MeshEdge& edge) noexcept;
+
+// How many edges of `set` fall in `cls`. This is the number that decides whether a
+// keyword may be emitted at all: VERTICAL means EVERY vertical edge, so it is
+// only what the user asked for when they picked every one of them.
+std::uint32_t edgesInAxisClass(const EdgeSet& set, EdgeAxisClass cls) noexcept;
+
+// The evidence a FACE pick hands to a command: the point on the face where the
+// ray struck, plus that face's outward normal when one can be established.
+// `hitPoint` is the intersection the caller's own ray test already produced.
+PickEvidence faceEvidence(const MeasureMesh& mesh, std::uint32_t faceId, MeshWinding winding,
+                          const double hitPoint[3]);
+
+// The evidence an EDGE pick hands to a command: the edge's kernel class and the
+// size of that class on this body, plus -- when a ray is supplied -- the closest
+// point ON THE EDGE POLYLINE to it (not the closest point on the ray, which is
+// what EdgePick::along gives and which is up to the pick tolerance away from the
+// model).
+//
+// THE RAY IS OPTIONAL BECAUSE NOT EVERY EDGE PICK IS A RAY. Choosing an edge from
+// the Measure panel's list is just as much the user naming that edge, and it has
+// no ray to offer. The class and the census do not need one, and they are what the
+// dress-up commands read; passing no ray leaves `point` at the origin rather than
+// inventing a position, which is why no command reads an edge's point.
+// An index outside the set returns an invalid record.
+PickEvidence edgeEvidence(const EdgeSet& set, std::size_t index, const double* origin = nullptr,
+                          const double* direction = nullptr);
+
 }  // namespace forge::ui
 
 #endif  // FORGE_UI_PICKMODEL_HPP
