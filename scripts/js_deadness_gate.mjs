@@ -8,6 +8,8 @@
  *
  *   node scripts/js_deadness_gate.mjs --set <listfile> [paths...]
  *   node scripts/js_deadness_gate.mjs --selftest
+ *   node scripts/js_deadness_gate.mjs --only=C5 <path>      (T-171, isolation)
+ *   node scripts/js_deadness_gate.mjs --without=C5 <path>   (T-171, isolation)
  *
  * --set <listfile>  the proposed deletion set. A file whose ONLY importers are
  *                   themselves inside the set is still dead (a dead cluster
@@ -43,11 +45,17 @@
  * Measured 2026-09-18: 1 certified, 0 refused, rc=0, while all 12 live
  * controls were refused. The gate discriminates in both directions.
  *
- * STILL OPEN: --audit proves each check fires and abstains across the twelve
- * controls, but those controls were chosen as positives. A check with a subtly
- * wrong predicate could still fire and abstain in the right proportions. That
- * wants negative controls chosen adversarially per check, which this file does
- * not have.
+ * T-171 CLOSES THAT: scripts/js_deadness_controls.mjs builds, per check, a
+ * synthetic input that THAT CHECK AND ONLY THAT CHECK refuses, then disables
+ * the check and watches the verdict flip to CERTIFIED. Run it with:
+ *
+ *   node scripts/js_deadness_controls.mjs            # isolation table
+ *   node scripts/js_deadness_controls.mjs --mutate   # + source-level mutants
+ *
+ * --only=/--without= exist FOR THAT HARNESS and are deliberately crippled: a
+ * run with any check disabled prints a banner, never writes GATE_OUT, and
+ * exits 4 when it would otherwise have certified something. A disabled-check
+ * run can therefore never be mistaken for, or laundered into, a certification.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -74,7 +82,13 @@ if (si !== -1) {
 }
 
 // ---- the Rollup census of the shipped bundle (C2) ----
-const CENSUS = path.join(ROOT, 'scripts', 'js_live_bundle.txt')
+// GATE_CENSUS exists so a negative control for C2 can name a file the real
+// census does not contain, WITHOUT editing the shipped census. Every run says
+// which census it read, so a run against a substituted one is never mistakable
+// for a production run in a transcript.
+const DEFAULT_CENSUS = path.join(ROOT, 'scripts', 'js_live_bundle.txt')
+const CENSUS = process.env.GATE_CENSUS ? path.resolve(process.env.GATE_CENSUS) : DEFAULT_CENSUS
+if (CENSUS !== DEFAULT_CENSUS) console.log(`gate: *** SUBSTITUTED CENSUS *** ${CENSUS}`)
 let bundle = new Set()
 if (fs.existsSync(CENSUS)) {
   bundle = new Set(fs.readFileSync(CENSUS, 'utf8').split('\n').filter(Boolean))
@@ -148,10 +162,39 @@ for (const [f, t] of texts) {
 
 const ALL_CHECKS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6']
 
+// ---- T-171 isolation seam --------------------------------------------------
+// A check can be switched off from the command line so a negative control can
+// be shown to flip. This is the disable-and-watch-it-flip experiment, and it
+// is the ONLY way to prove a control is refused BY THE CHECK IT NAMES rather
+// than carried by a broader neighbour -- the defect that let all six checks be
+// deleted with the selftest still 11/11 green.
+//
+// A seam that can weaken a real run is a liability, so this one cannot: with
+// any check disabled the gate prints a banner, refuses to write GATE_OUT, and
+// exits 4 rather than 0 even when nothing was refused. "Certified" is a word
+// this mode is not allowed to reach.
+function parseCheckList(flag) {
+  const a = argv.find(x => x.startsWith(flag + '='))
+  if (!a) return null
+  const v = a.slice(flag.length + 1).split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+  const bad = v.filter(x => !ALL_CHECKS.includes(x))
+  if (bad.length) { console.error(`gate: FATAL — unknown check(s) ${bad.join(',')}`); process.exit(3) }
+  return v
+}
+const ONLY = parseCheckList('--only')
+const WITHOUT = parseCheckList('--without')
+let ENABLED = new Set(ALL_CHECKS)
+if (ONLY) ENABLED = new Set(ONLY)
+if (WITHOUT) for (const c of WITHOUT) ENABLED.delete(c)
+const CRIPPLED = ENABLED.size !== ALL_CHECKS.length
+if (CRIPPLED) {
+  console.log(`gate: *** CHECKS DISABLED (${[...ENABLED].join(',') || 'none'}) — THIS RUN CANNOT CERTIFY ANYTHING ***`)
+}
+
 // `enabled` exists so each check can be run IN ISOLATION. A positive control
 // that refuses because some OTHER check happened to fire is not exercising the
 // check it is named for -- see --audit.
-function check(file, enabled = new Set(ALL_CHECKS)) {
+function check(file, enabled = ENABLED) {
   const fails = []
   const warns = []
   if (!JSSET.has(file)) return { file, fails: ['NOT_TRACKED: not a tracked js-family file'], warns }
@@ -306,6 +349,11 @@ for (const f of list) {
     certified.push(f)
     if (process.env.GATE_VERBOSE) console.log(`certified ${f}`)
   }
+}
+if (CRIPPLED) {
+  console.log(`\ngate: ${list.length} examined  |  ${certified.length} NOT-REFUSED (not certified: checks disabled)  |  ${refused} REFUSED`)
+  if (process.env.GATE_OUT) console.log('gate: GATE_OUT suppressed — a crippled run may not produce a deletion list')
+  process.exit(refused ? 1 : 4)
 }
 console.log(`\ngate: ${list.length} examined  |  ${certified.length} certified deletable  |  ${refused} REFUSED`)
 if (process.env.GATE_OUT) fs.writeFileSync(process.env.GATE_OUT, certified.join('\n') + '\n')
