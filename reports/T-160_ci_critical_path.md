@@ -2,12 +2,18 @@
 
 ## Result, up front
 
-| | before (measured on CI) | after (projected) |
+| | before (measured on CI) | after |
 |---|---:|---:|
-| `forge::ui workstation gates` | **47.6 min** | **~11.1 min** |
-| `OCCT kernel smoke` | **52.9 min** | **~37.7 min** |
-| sum of all 17 jobs (runner-pool pressure) | 168.7 job-min | ~117 job-min |
+| `forge::ui workstation gates` | **47.63 min** (2,858 s) | **6.65 min** (399 s) — ★ MEASURED ON CI, green |
+| `OCCT kernel smoke` | **52.92 min** (3,175 s) | ~37.7 min — projected (see section 5) |
+| sum of all 17 jobs (runner-pool pressure) | 168.7 job-min | ~127 job-min |
 | workflow wall clock, one PR | 59.2 min | ~44 min |
+
+**The `forge::ui` job is no longer a projection.** This branch's own CI run
+(job `105810680781`, `00:57:18Z -> 01:03:59Z`, **all steps success**) measured it at
+**399 s**. That is **7.2x**, and it beat the projection in this report (~11.1 min)
+by a wide margin — because the local *after* arm ran at `JOBS=2` where the runner
+has 4, exactly the conservatism flagged in section 0.
 
 Locally, both arms measured end to end on the same box: the `ui` job's nine steps
 go **854.0 s -> 180.8 s** (21.2% of before) and the two changed kernel steps go
@@ -261,7 +267,38 @@ The `ui_contract` row **includes the new 5-second cache selftest**; it still fal
 from 14.0 s to 2.5 s because the `ONLY=` short-circuit removed a whole redundant
 build.
 
-**CI projection for the `forge::ui` job — a projection, not a measurement:**
+### ★ `forge::ui` job — MEASURED ON CI, this branch
+
+Job `105810680781` on `869d581f`, every step `success`. Same job, same workflow
+file, same runner image as the before profile in section 1 — so these two columns
+are directly comparable.
+
+| step | before (s) | **after (s)** | ratio |
+|---|---:|---:|---:|
+| checkout | 7 | 7 | 1.00 |
+| forge::ui gates (`run_ui.sh`) | 127 | 92 | 0.72 † |
+| run_ui.sh self-protection contracts | 64 | **2** | **0.03** |
+| Archie op vocabulary | 1 | 0 | — |
+| op-constraint bridge (+ 9 mutations) | 86 | **34** | 0.40 |
+| two-path differential t1 (+ 9 mutations) | 78 | **30** | 0.38 |
+| what a USER reads (13 mutations) | 1,203 | **56** | **0.047** |
+| docked-tab pin (5 + control) | 585 | **43** | **0.074** |
+| model/sketch tabs (4 mutations) | 416 | **42** | **0.101** |
+| forge-desktop TYPE-CHECKS (4 mutations) | 290 | **93** | 0.32 |
+| setup + post + complete | 1 | 0 | — |
+| **total** | **2,858 (47.63 min)** | **399 (6.65 min)** | **0.140** |
+
+**-2,459 s = -41.0 minutes, measured.**
+
+† `run_ui.sh` is the one row whose *code path* did not change (the `ONLY=` guard
+only fires on a filter that matches nothing). Its 127 -> 92 s is **runner variance,
+not this change** — it should be read as "no regression", and the honest saving is
+therefore about **2,424 s** rather than 2,459 s.
+
+The three biggest steps in the job fell by **21.5x, 13.6x and 9.9x** respectively,
+and all four mutation sweeps reported every mutation red — the job is green.
+
+**The projection this report made before the run, for comparison:**
 
 | step | CI before (s) | × local ratio | CI after (projected, s) |
 |---|---:|---:|---:|
@@ -276,8 +313,11 @@ build.
 | fixed overhead | 9 | 1.0 | 9 |
 | **total** | **2,858 (47.6 min)** | | **≈ 664 s (≈ 11.1 min)** |
 
-≈ **−36 minutes**, and conservative in the compile term because the CI runner has
-`JOBS=4` where the local *after* arm had 2.
+The projection was **1.7x too pessimistic** (664 s projected, 399 s measured), and
+for the stated reason: the local *after* arm ran at `JOBS=2` under an ORANGE
+Guardian while the runner has 4, so every parallel term was understated. Recorded
+here rather than deleted, because a projection that is only shown when it was right
+is not a method.
 
 ### `OCCT kernel smoke` job — local, the two steps that were changed
 
