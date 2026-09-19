@@ -66,6 +66,7 @@ echo "[click-gate] kernel core: $LIB"
 export ASAN_OPTIONS="${ASAN_OPTIONS:-abort_on_error=0:exitcode=1}"
 
 CXX="${CXX:-clang++}"
+. "$ROOT/tools/gates/forge_cxx_cache.sh"
 OCCT_PREFIX="${OCCT_PREFIX:-$( (brew --prefix opencascade 2>/dev/null) || echo /usr/local )}"
 EIGEN_PREFIX="${EIGEN_PREFIX:-$( (brew --prefix eigen 2>/dev/null) || echo /usr/local )}"
 IMGUI_DIR="$ROOT/forge-desktop/third_party/imgui"
@@ -80,12 +81,26 @@ ASAN=(-fsanitize=address -fno-omit-frame-pointer -g)
 
 echo "[click-gate] compiling Dear ImGui core (no imgui_impl_vulkan: it is the only"
 echo "             file in it that needs a Vulkan header, and a headless frame has no swapchain)"
+# ── ★ FOUR INDEPENDENT OBJECTS, COMPILED IN PARALLEL (T-160) ───────────────
+# Nothing links here; each -c writes its own object from its own source. The
+# ImGui pass was 12 s of this step's 270 s, MEASURED on merged head 29070823.
+FCC_JOBS="$(fcc_jobs)"
 IMGUI_OBJS=()
+imgui_one() {
+  "$CXX" -std=c++20 -O1 "${ASAN[@]}" -c "$IMGUI_DIR/$1.cpp" -I "$IMGUI_DIR" \
+      -o "$WORK/$1.o" 2>"$WORK/$1.o.err" || : > "$WORK/imgui.fail"
+}
+rm -f "$WORK/imgui.fail"
 for f in imgui imgui_draw imgui_tables imgui_widgets; do
-  "$CXX" -std=c++20 -O1 "${ASAN[@]}" -c "$IMGUI_DIR/$f.cpp" -I "$IMGUI_DIR" \
-      -o "$WORK/$f.o" || { echo "[click-gate] ImGui did not BUILD. RED."; exit 3; }
+  fcc_cap_launch imgui_one "$f"
   IMGUI_OBJS+=("$WORK/$f.o")
 done
+fcc_cap_drain
+if [ -f "$WORK/imgui.fail" ]; then
+  echo "[click-gate] ImGui did not BUILD. RED."
+  cat "$WORK"/*.o.err 2>/dev/null | tail -30
+  exit 3
+fi
 
 # The desktop sources this gate links. ui/src/*.cpp is a GLOB, so forge::ui picks
 # up new files by itself; this list is EXPLICIT because a headless ASAN frame
@@ -184,19 +199,26 @@ fi
 # kernel library; naming them makes the DIRECT references resolve.
 echo "[click-gate] compiling forge::ui + the desktop frame builder + the gate"
 echo "[click-gate] desktop TUs linked: ${#DESKTOP_LINK[@]}, deliberately skipped: ${#DESKTOP_SKIP[@]}"
-# shellcheck disable=SC2086
-"$CXX" -std=c++20 -O1 -Wall -Wextra -Werror "${ASAN[@]}" \
-  -DFORGE_NATIVE_BREP=1 \
-  -I ui/include -I forge-kernel/include -I forge-desktop/src -I "$IMGUI_DIR" \
-  -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
-  ui/src/*.cpp \
-  "${DESKTOP_LINK[@]}" \
-  forge-desktop/test/click_gate.cpp \
-  "${IMGUI_OBJS[@]}" \
-  "$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase \
-  -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib" \
-  -o "$BIN" 2> "$WORK/link.err"
+# ── ★ ONE clang++ INVOCATION NAMING ~57 UNITS IS A SERIAL COMPILE (T-160) ──
+# MEASURED on merged head 29070823: this step was 270 s of the OCCT kernel smoke
+# job's 3,175 s, and 138 s of that was this single invocation -- the driver
+# compiles the units one after another whatever the runner has. Every one of the
+# gate's twelve mutations is a switch INSIDE the binary (--mutate N), so there is
+# exactly one build here and nothing about the mutation proof depends on how the
+# units reach the linker. Same sources, same flags, same link order.
+FCC_CXX="$CXX"
+FCC_CFLAGS=(-std=c++20 -O1 -Wall -Wextra -Werror "${ASAN[@]}"
+            -DFORGE_NATIVE_BREP=1
+            -I ui/include -I forge-kernel/include -I forge-desktop/src -I "$IMGUI_DIR"
+            -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3")
+FCC_SRCS=(ui/src/*.cpp "${DESKTOP_LINK[@]}" forge-desktop/test/click_gate.cpp)
+FCC_LDFLAGS=("${IMGUI_OBJS[@]}"
+             "$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase
+             -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib")
+FCC_CACHE="$WORK/objcache"
+fcc_build "$BIN" "$WORK/link.err"
 rc=$?
+echo "[click-gate] JOBS=$FCC_JOBS: compiled $FCC_COMPILED unit(s), reused $FCC_REUSED"
 cat "$WORK/link.err"
 if [ $rc -ne 0 ]; then
   echo "[click-gate] the gate did not BUILD (rc=$rc). RED."

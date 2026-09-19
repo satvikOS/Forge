@@ -55,6 +55,7 @@ cd "$ROOT" || { echo "[prose] cannot enter repo root $ROOT"; exit 1; }
 
 CXX="${CXX:-clang++}"
 command -v "$CXX" >/dev/null 2>&1 || { echo "[prose] no $CXX on PATH"; exit 1; }
+. "$ROOT/tools/gates/forge_cxx_cache.sh"
 
 WORK="$(mktemp -d /tmp/forge_prose.XXXXXX)"
 cleanup() {
@@ -63,17 +64,40 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Build and run the gate against a given tree. Prints nothing on success.
+# ── ★ ONE TREE, AT A CONSTANT PATH, RESTORED BETWEEN MUTATIONS ──────────────
+# This used to copy the tree to $WORK/m<n> per mutation, which put the mutation
+# number into -I and into -DFORGE_UI_REPO_ROOT. Those are compile flags, so no
+# two of the fourteen builds shared a single object, and the gate paid for
+# 14 x 47 = 658 translation units to prove thirteen mutations -- 1,203 s of the
+# forge::ui job's 2,858 s (42.1%), MEASURED on merged head 29070823.
+#
+# With ONE tree at a fixed path every build has identical flags, so the object
+# cache in tools/gates/forge_cxx_cache.sh can reuse the 46 sources a mutation
+# did not touch. It is keyed on file CONTENT, never on a timestamp -- read that
+# file's header for why that distinction is the whole safety argument.
+#
+# The price of a shared path is that a mutation must be UNDONE. fcc_reset_tree
+# rebuilds the tree from the pristine copy and then PROVES the two are identical
+# (diff -rq), so an incomplete restore is a red gate rather than a mutation
+# riding silently into the next round.
+PRISTINE="$WORK/pristine"
+TREE="$WORK/tree"
+CACHE="$WORK/objcache"
+
+# Build and run the gate against the tree. Prints nothing on success.
 #   0 = the gate passed, 1 = the gate FAILED (what a mutation must produce),
 #   2 = it did not build (never a pass and never a proof).
 run_against() {
   local tree="$1" tag="$2"
   local bin="$WORK/gate_$tag"
-  if ! $CXX -std=c++20 -O2 -Wall -Wextra -Werror \
-       "-DFORGE_UI_REPO_ROOT=\"$tree\"" \
-       -I "$tree/ui/include" -I "$tree/ui/test" \
-       "$tree/ui/test/user_facing_text_test.cpp" "$tree"/ui/src/*.cpp \
-       -o "$bin" >"$WORK/$tag.build" 2>&1; then
+  FCC_CXX="$CXX"
+  FCC_CFLAGS=(-std=c++20 -O2 -Wall -Wextra -Werror
+              "-DFORGE_UI_REPO_ROOT=\"$tree\""
+              -I "$tree/ui/include" -I "$tree/ui/test")
+  FCC_LDFLAGS=()
+  FCC_SRCS=("$tree/ui/test/user_facing_text_test.cpp" "$tree"/ui/src/*.cpp)
+  FCC_CACHE="$CACHE"
+  if ! fcc_build "$bin" "$WORK/$tag.build"; then
     return 2
   fi
   if "$bin" >"$WORK/$tag.out" 2>&1; then return 0; fi
@@ -90,10 +114,14 @@ copy_tree() {
 
 # ── the clean run comes FIRST ───────────────────────────────────────────────
 # Mutations under a gate that is red anyway prove nothing at all.
-CLEAN="$WORK/clean"
-copy_tree "$CLEAN"
-run_against "$CLEAN" clean
+copy_tree "$PRISTINE"
+fcc_reset_tree "$PRISTINE" "$TREE" || { echo "[prose] RED: could not stage the tree"; exit 1; }
+FCC_JOBS="$(fcc_jobs)"
+echo "[prose] CXX=$CXX JOBS=$FCC_JOBS  one tree at a constant path, objects cached on content"
+run_against "$TREE" clean
 CLEAN_RC=$?
+echo "[prose] clean build: compiled $FCC_COMPILED translation unit(s), reused $FCC_REUSED"
+fcc_report_epoch
 if [ "$CLEAN_RC" -eq 2 ]; then
   echo "[prose] RED: the gate does not BUILD"; cat "$WORK/clean.build"; exit 1
 fi
@@ -116,8 +144,10 @@ PLATFORM="forge-desktop/src/PlatformSDL2.cpp"
 REG="ui/src/CommandRegistry.cpp"
 
 mutate() {
-  local n="$1" tree="$WORK/m$1"
-  copy_tree "$tree"
+  local n="$1" tree="$TREE"
+  # Restore first, and PROVE the restore worked. A mutation applied on top of the
+  # previous one is not the mutation this loop reports.
+  fcc_reset_tree "$PRISTINE" "$TREE" || return 3
   case "$n" in
     1) # the placeholder paragraph, back where it was
        python3 - "$tree/$FRAME" <<'PY'
@@ -304,6 +334,11 @@ PY
        ;;
     *) echo "[prose] no such mutation: $n"; return 2 ;;
   esac
+  # ★ A mutation that wrote nothing proves nothing. Each python block above
+  # asserts its own anchor, but an assert that fires leaves the tree PRISTINE and
+  # the gate would then be green for the most misleading reason available. Check
+  # the WRITE, not the return code.
+  fcc_assert_mutated "$PRISTINE" "$TREE" || return 4
   run_against "$tree" "m$n"
   return $?
 }
@@ -313,8 +348,12 @@ for m in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
   mutate "$m"
   rc=$?
   case "$rc" in
-    1) echo "[prose] mutation $m: RED (as required)" ;;
+    1) echo "[prose] mutation $m: RED (as required) [compiled $FCC_COMPILED, reused $FCC_REUSED]" ;;
     0) echo "[prose] mutation $m STAYED GREEN -- the check it targets is unfalsifiable"
+       BAD=$((BAD + 1)) ;;
+    3) echo "[prose] mutation $m: THE TREE COULD NOT BE RESTORED -- no proof was made"
+       BAD=$((BAD + 1)) ;;
+    4) echo "[prose] mutation $m CHANGED NOTHING -- its anchor is gone; fix the mutation"
        BAD=$((BAD + 1)) ;;
     *) echo "[prose] mutation $m DID NOT BUILD -- that is not a proof; fix the mutation"
        sed -n '1,15p' "$WORK/m$m.build" 2>/dev/null
