@@ -3344,6 +3344,30 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         native_vs_occt_validator
         native_vs_occt_validator_ext
         step_read_occt_projection_gate
+        # T-158: the native analytic STEP writer used to emit EVERY NURBS surface
+        # as B_SPLINE_SURFACE_WITH_KNOTS -- the NON-rational entity, which has no
+        # field for a control weight. A rational surface written that way is a
+        # DIFFERENT surface: the exact rational quarter circle (weights
+        # 1, sqrt(2)/2, 1) comes back with mid-parameter radius 3*sqrt(2)/4 * R,
+        # so a 1.5 mm feature returns as 1.5909903 mm. MEASURED over the 126
+        # in-tree STEP parts: 4701 of 4701 rational surfaces lost every weight,
+        # worst deviation 46.036966282 mm.
+        #
+        # It is an AB GATE and not a test/native/brep/ unit test on purpose: the
+        # oracle MUST be a second implementation. StepAnalytic::read does not
+        # reconstruct B-spline surfaces at all, so write->our-reader->compare
+        # would compare the writer with itself and stay green on a shared
+        # misunderstanding. This gate reads the file back with OCCT 7.9.3's
+        # STEPControl_Reader, and test/native/run_native.sh compiles its
+        # directory with NO OCCT on the line.
+        #
+        # Mutation-proved (transcripts in reports/T158_STEP_RATIONAL_WEIGHTS.md):
+        # weights forced to 1.0 -> RED 12/20; silent revert to the non-rational
+        # entity -> RED 10/20; weight grid transposed -> RED 13/20; restored ->
+        # GREEN 20/20. It carries an aggregate bar AND a per-surface assertion
+        # because neither alone catches all three, plus a sensitivity control
+        # that must FIRE so a widened tolerance cannot make it vacuous.
+        step_rational_roundtrip_gate
     )
 
     foreach(_g IN LISTS FORGE_AB_GATES)

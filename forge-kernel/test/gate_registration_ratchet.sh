@@ -127,12 +127,28 @@ build_kernel_correctness_gate"
 # The remaining TWO, sarc_ring_gate and step_read_occt_projection_gate, are
 # reachable through CMake registration ONLY and so are pinned in ALLOW_CMAKE too;
 # they are the gates for which "registered" and "run" are furthest apart.
+# ★ step_rational_roundtrip_gate JOINED BOTH LISTS ON 2026-09-18 (T-158), and the
+#   ratchet is what forced the entry to be written instead of the hole being
+#   discovered later. It is the SAME structural reason as every other entry -- an
+#   OCCT A/B oracle registered in FORGE_AB_GATES, reachable only through ctest,
+#   which no workflow invokes. It is NOT an uncovered fix: the T-158 weight defect
+#   is ALSO gated by forge-kernel/test/native/brep/step_rational_weights_test.cpp,
+#   which test/native/run_native.sh picks up BY CONSTRUCTION (it globs that
+#   directory) and which the `native C++ kernel gate` job runs on every PR. That
+#   test asserts the emitted bytes and re-reads them with readForeignStep -- a
+#   different translation unit -- against the CLOSED FORM |P| == R, and it is
+#   mutation-proved RED on both "weights forced to 1.0" and "silent revert to the
+#   non-rational entity". What the ALLOW-listed gate adds, and the reason it must
+#   eventually be wired rather than left here, is the INDEPENDENT ORACLE: it reads
+#   the file back with OCCT 7.9.3's STEPControl_Reader, and only a second
+#   implementation can catch a misunderstanding both Forge modules share.
 ALLOW_CPP="\
 kernel_correctness_gate
 native_aabb_bridge_gate
 native_thicksolid_nesting_gate
 pipeshell_guided_gate
 sarc_ring_gate
+step_rational_roundtrip_gate
 step_read_occt_projection_gate
 thrusections_quadrature_gate
 thrusections_xlate_label_gate"
@@ -200,6 +216,7 @@ native_vs_occt_surfacefill_g2
 native_vs_occt_trimmed_face
 native_vs_occt_validator
 native_vs_occt_validator_ext
+step_rational_roundtrip_gate
 step_read_occt_projection_gate"
 
 # ══════════════════════════════════════════════════════════════════════════════

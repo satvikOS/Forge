@@ -22,8 +22,28 @@
 //   SurfaceKind::Sphere   -> SPHERICAL_SURFACE  (ax2, radius)
 //   SurfaceKind::Torus    -> TOROIDAL_SURFACE   (ax2, major_R, minor_r)
 //   SurfaceKind::Nurbs    -> B_SPLINE_SURFACE_WITH_KNOTS when the NurbsSurface is
-//                            populated; otherwise the face is HONESTLY faceted
-//                            (the rest of the solid stays analytic).
+//                            populated and NON-rational (every control weight is
+//                            exactly 1.0); the AP242 COMPLEX rational form
+//                              ( BOUNDED_SURFACE() B_SPLINE_SURFACE(..)
+//                                B_SPLINE_SURFACE_WITH_KNOTS(..)
+//                                GEOMETRIC_REPRESENTATION_ITEM()
+//                                RATIONAL_B_SPLINE_SURFACE(((w,..),..))
+//                                REPRESENTATION_ITEM('') SURFACE() )
+//                            when ANY weight differs from 1.0; otherwise the face
+//                            is HONESTLY faceted (the rest stays analytic).
+//
+// ★ RATIONAL WEIGHTS (T-158). B_SPLINE_SURFACE_WITH_KNOTS is the NON-rational
+// STEP entity: it has no field in which a control weight can be written. Until
+// T-158 every NURBS surface took it, so every rational surface was emitted as a
+// DIFFERENT SURFACE — not a rounded one. The exact rational quadratic quarter
+// circle (weights 1, sqrt(2)/2, 1) read back with unit weights has mid-parameter
+// radius 3*sqrt(2)/4 * R: a 1.5 mm feature returns as 1.5909903. MEASURED over
+// the 126 in-tree STEP parts: 4701 of 4701 rational surfaces lost every weight,
+// worst deviation 46.036966282 mm; after the fix 4701 of 4701 keep them and the
+// worst deviation is 0.000000000 mm. The oracle is OCCT 7.9.3's STEPControl_
+// Reader -- an independent implementation -- because this codec's own read()
+// does not reconstruct B-spline surfaces at all and so cannot be its own judge.
+// Gate: test/step_rational_roundtrip_gate.cpp (kernel.ab.step_rational_roundtrip).
 //
 // LOOP MAP: a face's peripheral loop -> FACE_OUTER_BOUND; every inner (hole) loop
 // (Face::innerLoops) -> a FACE_BOUND on the same ADVANCED_FACE, so a bored / holed

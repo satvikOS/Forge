@@ -20,6 +20,13 @@
 //   #=AXIS2_PLACEMENT_3D('',#origin,#axisDir,#refDir);
 //   #=PLANE|CYLINDRICAL_SURFACE|CONICAL_SURFACE|SPHERICAL_SURFACE|
 //     TOROIDAL_SURFACE|B_SPLINE_SURFACE_WITH_KNOTS('',#ax2,...);
+//   -- a RATIONAL NURBS surface (any control weight != 1.0) instead takes the
+//      AP242 COMPLEX instance form, which is the only STEP form that can carry
+//      the weight grid (T-158):
+//   #=( BOUNDED_SURFACE() B_SPLINE_SURFACE(du,dv,(grid),.UNSPECIFIED.,.F.,.F.,.F.)
+//       B_SPLINE_SURFACE_WITH_KNOTS((mU),(mV),(kU),(kV),.UNSPECIFIED.)
+//       GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_SURFACE(((w,..),..))
+//       REPRESENTATION_ITEM('') SURFACE() );
 //   #=ADVANCED_FACE('',(#bound),#surface,.T./.F.);
 //   #=CLOSED_SHELL('',(#face,...));
 //   #=MANIFOLD_SOLID_BREP('forge_solid',#shell);
@@ -205,29 +212,97 @@ std::uint64_t emitSurface(Emitter& E, const Surface& s) {
         std::vector<int> mU, mV; std::vector<double> kU, kV;
         compact(n.knotsU, mU, kU);
         compact(n.knotsV, mV, kV);
+
+        // Is this surface RATIONAL? A NURBS is rational iff at least one control
+        // weight is not exactly 1.0. The predicate is EXACT (w != 1.0) and is the
+        // same one IgesWrite.cpp uses for its IGES-128 PROP3 "polynomial" flag, so
+        // the two Forge writers classify the identical surface identically.
+        //
+        // WHY THIS MATTERS: a rational surface written as the NON-rational
+        // B_SPLINE_SURFACE_WITH_KNOTS is a DIFFERENT SURFACE, not a rounding of
+        // the same one. The exact rational quadratic quarter-circle (weights
+        // 1, sqrt(2)/2, 1) read back with all weights 1.0 has mid-parameter radius
+        // 3*sqrt(2)/4 * R = 1.06066*R — a 1.5 mm feature comes back as 1.5909903.
+        // MEASURED over the 126 in-tree STEP parts (T-158): 4701 of 4701 rational
+        // surfaces lost every weight, worst deviation 46.036966282 mm.
+        //
+        // WHY NOT ALWAYS EMIT THE RATIONAL FORM: the complex instance carries the
+        // whole weight grid plus five extra sub-records for every surface. On a
+        // genuinely non-rational surface that is the SAME geometry with more text,
+        // so the non-rational branch below is kept byte-for-byte as it was.
+        bool rational = false;
+        for (const auto& row : n.weights) {
+            for (double w : row) if (w != 1.0) { rational = true; break; }
+            if (rational) break;
+        }
+
+        // Shared field text (identical in both forms).
+        std::string ctrlGrid;      // "((#a,#b),(#c,#d))" — the control-point grid
+        ctrlGrid += '(';
+        for (std::size_t iu = 0; iu < nU; ++iu) {
+            if (iu) ctrlGrid += ',';
+            ctrlGrid += '(';
+            for (std::size_t iv = 0; iv < nV; ++iv) {
+                if (iv) ctrlGrid += ',';
+                ctrlGrid += '#'; ctrlGrid += std::to_string(cp[iu][iv]);
+            }
+            ctrlGrid += ')';
+        }
+        ctrlGrid += ')';
+        std::string knotFields;    // "(mU),(mV),(kU),(kV),.UNSPECIFIED."
+        knotFields += '(';
+        for (std::size_t k = 0; k < mU.size(); ++k) { if (k) knotFields += ','; knotFields += std::to_string(mU[k]); }
+        knotFields += "),(";
+        for (std::size_t k = 0; k < mV.size(); ++k) { if (k) knotFields += ','; knotFields += std::to_string(mV[k]); }
+        knotFields += "),(";
+        for (std::size_t k = 0; k < kU.size(); ++k) { if (k) knotFields += ','; knotFields += stepFmt(kU[k]); }
+        knotFields += "),(";
+        for (std::size_t k = 0; k < kV.size(); ++k) { if (k) knotFields += ','; knotFields += stepFmt(kV[k]); }
+        knotFields += "),.UNSPECIFIED.";
+
         std::uint64_t id = E.alloc();
         E.appendId(id);
-        E.data += "=B_SPLINE_SURFACE_WITH_KNOTS('',";
+        if (!rational) {
+            // ---- NON-RATIONAL: the simple instance, byte-identical to before ----
+            E.data += "=B_SPLINE_SURFACE_WITH_KNOTS('',";
+            E.data += std::to_string(n.degreeU); E.data += ',';
+            E.data += std::to_string(n.degreeV); E.data += ',';
+            E.data += ctrlGrid;
+            E.data += ",.UNSPECIFIED.,.F.,.F.,.F.,";
+            E.data += knotFields;
+            E.data += ");\n";
+            return id;
+        }
+        // ---- RATIONAL: the AP242 COMPLEX instance carrying the weight grid -----
+        // ISO-10303-21 requires the sub-records of a complex instance in the
+        // alphabetical order of their type names; this is byte-for-byte the form
+        // OCCT's own AP242 exporter writes (and the form BOTH Forge STEP readers
+        // -- StepRead.cpp:1257 and StepReadOcct.cpp:583 -- already parse):
+        //   #id=( BOUNDED_SURFACE() B_SPLINE_SURFACE(du,dv,(grid),form,.F.,.F.,.F.)
+        //         B_SPLINE_SURFACE_WITH_KNOTS((mU),(mV),(kU),(kV),spec)
+        //         GEOMETRIC_REPRESENTATION_ITEM()
+        //         RATIONAL_B_SPLINE_SURFACE(((w,..),..))
+        //         REPRESENTATION_ITEM('') SURFACE() );
+        // The '' name lives on REPRESENTATION_ITEM in this form, not on
+        // B_SPLINE_SURFACE.
+        E.data += "=( BOUNDED_SURFACE() B_SPLINE_SURFACE(";
         E.data += std::to_string(n.degreeU); E.data += ',';
-        E.data += std::to_string(n.degreeV); E.data += ",(";
+        E.data += std::to_string(n.degreeV); E.data += ',';
+        E.data += ctrlGrid;
+        E.data += ",.UNSPECIFIED.,.F.,.F.,.F.) B_SPLINE_SURFACE_WITH_KNOTS(";
+        E.data += knotFields;
+        E.data += ") GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_SURFACE((";
         for (std::size_t iu = 0; iu < nU; ++iu) {
             if (iu) E.data += ',';
             E.data += '(';
             for (std::size_t iv = 0; iv < nV; ++iv) {
                 if (iv) E.data += ',';
-                E.data += '#'; E.data += std::to_string(cp[iu][iv]);
+                // stepFmt is %.17g: the weight round-trips bit-exactly.
+                E.data += stepFmt(n.weights[iu][iv]);
             }
             E.data += ')';
         }
-        E.data += "),.UNSPECIFIED.,.F.,.F.,.F.,(";
-        for (std::size_t k = 0; k < mU.size(); ++k) { if (k) E.data += ','; E.data += std::to_string(mU[k]); }
-        E.data += "),(";
-        for (std::size_t k = 0; k < mV.size(); ++k) { if (k) E.data += ','; E.data += std::to_string(mV[k]); }
-        E.data += "),(";
-        for (std::size_t k = 0; k < kU.size(); ++k) { if (k) E.data += ','; E.data += stepFmt(kU[k]); }
-        E.data += "),(";
-        for (std::size_t k = 0; k < kV.size(); ++k) { if (k) E.data += ','; E.data += stepFmt(kV[k]); }
-        E.data += "),.UNSPECIFIED.);\n";
+        E.data += ")) REPRESENTATION_ITEM('') SURFACE() );\n";
         return id;
     }
     }
@@ -778,7 +853,15 @@ bool buildSurface(const std::unordered_map<std::uint64_t, Instance>& tab,
     } else {
         // B_SPLINE_SURFACE_WITH_KNOTS and any other surface are not reconstructed
         // into a native analytic Surface in this increment — honest failure.
-        why = "unsupported analytic surface entity '" + type + "'";
+        // A COMPLEX instance ("#id=(A() B() ...);") parses with an EMPTY type, so
+        // name it rather than reporting an empty quoted string: since T-158 the
+        // writer emits the rational B-spline surface in exactly that form, and
+        // this reader still declines it (readForeignStep in StepRead.cpp is the
+        // reader that reconstructs B-spline surfaces, rational ones included).
+        why = type.empty()
+            ? std::string("unsupported COMPLEX surface instance (e.g. the rational "
+                          "B_SPLINE_SURFACE form) — use readForeignStep")
+            : "unsupported analytic surface entity '" + type + "'";
         return false;
     }
     // ADVANCED_FACE same_sense .F. means the surface normal is opposite the face
