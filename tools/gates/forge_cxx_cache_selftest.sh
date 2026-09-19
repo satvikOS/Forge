@@ -55,6 +55,18 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS + 1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL + 1)); echo "  FAIL  $1"; }
 
+# ★ PORTABLE IN-PLACE EDIT. `sed -i ''` is BSD/macOS only: GNU sed reads the ''
+# as the SCRIPT and the expression as a FILENAME, so on ubuntu it edits nothing,
+# exits 2, and every mutation case below reports "THE MUTATION DID NOT REACH THE
+# BINARY" -- a red gate blaming the cache for a defect in this file. This selftest
+# is wired into run_ui_contract_test.sh, which runs on ubuntu-latest, so it must
+# not use the macOS spelling that the macOS-only gates around it can.
+subst() {   # subst <sed-expression> <file>
+  local e="$1" f="$2" t="$2.fccsub"
+  sed "$e" "$f" > "$t" || { rm -f "$t"; return 1; }
+  mv -f "$t" "$f"
+}
+
 mkdir -p "$W/tree/inc" "$W/tree/src"
 cat > "$W/tree/inc/answer.hpp" <<'EOF'
 #pragma once
@@ -115,7 +127,7 @@ fi
 
 # ── 2. ★ a source edit MUST reach the binary ────────────────────────────────
 # This is the case the whole file exists for.
-sed -i '' 's/return 1 + headerAnswer();/return 7 + headerAnswer();/' "$W/tree/src/a.cpp"
+subst 's/return 1 + headerAnswer();/return 7 + headerAnswer();/' "$W/tree/src/a.cpp"
 rebuild bin3; r3="$RB_OUT"; c3="$FCC_COMPILED"; u3="$FCC_REUSED"
 if [ "$r3" = "117" ] && [ "$c3" -eq 1 ] && [ "$u3" -eq 2 ]; then
   ok "2: ★ editing a .cpp recompiles exactly that unit and the answer moves 111 -> 117"
@@ -124,7 +136,7 @@ else
 fi
 
 # ── 3. ★ a header edit MUST reach every unit that could see it ──────────────
-sed -i '' 's/return 10;/return 20;/' "$W/tree/inc/answer.hpp"
+subst 's/return 10;/return 20;/' "$W/tree/inc/answer.hpp"
 rebuild bin4; r4="$RB_OUT"; c4="$FCC_COMPILED"; u4="$FCC_REUSED"
 if [ "$r4" = "127" ] && [ "$c4" -eq 3 ] && [ "$u4" -eq 0 ]; then
   ok "3: ★ editing a header invalidates every object and the answer moves 117 -> 127"
@@ -149,8 +161,8 @@ else
 fi
 
 # ── 6. a revert must be a HIT that restores the ORIGINAL behaviour ──────────
-sed -i '' 's/return 20;/return 10;/' "$W/tree/inc/answer.hpp"
-sed -i '' 's/return 7 + headerAnswer();/return 1 + headerAnswer();/' "$W/tree/src/a.cpp"
+subst 's/return 20;/return 10;/' "$W/tree/inc/answer.hpp"
+subst 's/return 7 + headerAnswer();/return 1 + headerAnswer();/' "$W/tree/src/a.cpp"
 rebuild bin7; r7="$RB_OUT"; c7="$FCC_COMPILED"; u7="$FCC_REUSED"
 if [ "$r7" = "111" ]; then
   ok "6: reverting both edits restores 111 (compiled=$c7 reused=$u7) — the key is content, not history"
@@ -186,7 +198,7 @@ fi
 # i.e. OLDER than the object already in the cache. Every mtime-based decision --
 # make, cmake, ninja, a hand-rolled `[ src -nt obj ]` -- judges that object
 # current and runs unmutated code. A content-addressed one cannot.
-sed -i '' 's/return 100;/return 500;/' "$W/tree/src/b.cpp"
+subst 's/return 100;/return 500;/' "$W/tree/src/b.cpp"
 touch -t 197001020000 "$W/tree/src/b.cpp"
 rebuild bin8; r8="$RB_OUT"; c8="$FCC_COMPILED"
 if [ "$r8" = "511" ] && [ "$c8" -eq 1 ]; then
