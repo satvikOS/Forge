@@ -266,6 +266,39 @@ jobs:
             exit 1
           fi
           echo "[heal-scan] sub-quadratic on both fixtures, and the ceiling rejects when it should"
+      - name: native differential properties vs TEXTBOOK closed forms (T-147) + 6 mutations
+        # ── WHY HERE. forge/SurfaceProps is the native replacement for the
+        # GeomLProp_/BRepLProp_ family: one place in the kernel that turns a native
+        # surface or curve into differential properties, so that the 61-symbol
+        # LProp/Adaptor/GProp cluster (33 distinct owners, MEASURED on
+        # libforge_kernel_core) has ONE place to be deleted from. It is pure
+        # forge::native + forge::props -- nine translation units, no OCCT at all --
+        # so it belongs on ubuntu beside the other pure-C++ gates, not in the macOS
+        # OCCT job.
+        #
+        # ── WHY IT IS NOT CHECKED AGAINST OCCT. A facade verified against the thing
+        # it exists to delete can only ever be as right as that thing, and the gate
+        # would leave the repository on the same day OCCT does. Every expected value
+        # is a textbook closed form: sphere K=1/R^2 H=1/R, cylinder {1/R,0},
+        # torus K=cos v/(r(R+r cos v)), cone K=0 with H=-h/(2 r sqrt(dr^2+h^2)),
+        # plane 0, the ellipse/circle/rational-arc curvatures.
+        #
+        # ── WHY THE MUTATIONS. Mutants of the CODE (never the test) must each turn
+        # it red on its OWN assertion, and several are invisible to every orthogonal
+        # quadric in the gate -- the signs of M^2 and of the -2FM cross term, which
+        # only the shear-reparameterisation fixture can see, and the revolution's
+        # mixed partial S_uv, which reaches H not at all (F == 0 there) and K only
+        # as -M^2. Those are what prove the fixtures load-bearing rather than
+        # scenery. NOBUILD is never accepted as a kill, and the mutated source is
+        # proven to differ from the tree (cmp) before each rebuild.
+        #
+        # THE COUNT IS DELIBERATELY NOT WRITTEN HERE. It was "six" while T-151 took
+        # it to fourteen, and this file states elsewhere why a number copied into a
+        # second place goes stale (D-027). The authority is the script, which prints
+        # its own roster and fails if any mutant survives or dies on the wrong
+        # assertion.
+        shell: bash
+        run: bash forge-kernel/test/run_surface_props_closed_form_gate.sh
 
   scoring:
     name: ForgeCADScore self-tests (kernel-free)
@@ -322,6 +355,28 @@ jobs:
           node-version: '22'
       - name: tool-call write intent + the Electron consent ledger
         run: node --test frontend/test/tool_write_intent_gate.mjs
+      # T-168. The JS deletion gate has to keep REFUSING live files, or the
+      # 226-file deletion it certified stops being evidence of anything. The
+      # selftest points it at eleven files that are alive for six different
+      # reasons -- the Vite entry, a bundled kernel barrel, the build config,
+      # the service worker (reached only by a string in index.html), the
+      # Electron main, the Playwright config, an e2e spec, an OCCT-ratchet
+      # kernel test, a research asset -- and requires all eleven to be refused.
+      # A gate that has only ever said yes is not a gate, and this repository
+      # has shipped one before (forge_verify, which could not start).
+      # Needs no install: node, git and the checkout.
+      # --audit is NOT redundant with --selftest, and the reason is measured:
+      # every one of the eleven controls is refused by C5 as well as by the
+      # check it is named for ("sole? no" in the audit table). So --selftest
+      # stays 11/11 green even if C1, C2, C3, C4 or C6 were deleted outright --
+      # C5 would carry every case. --audit re-runs each control with ONLY its
+      # intended check enabled, which is the only form of this test that can
+      # see a single check die. Deleting the C2 body turns --audit red on
+      # exactly the three C2 controls while --selftest stays green.
+      - name: the JS deadness gate still refuses live files (T-168)
+        run: |
+          node scripts/js_deadness_gate.mjs --selftest
+          node scripts/js_deadness_gate.mjs --selftest --audit
 
   parameters:
     name: parameters and expressions (libforge_expr, LGPL, dynamic)
@@ -1104,9 +1159,104 @@ jobs:
       # closure, so demanding zero here would fail the build for a defect this
       # step exists to REPORT rather than to forbid.
       - name: OCCT ledger ratchet (CLOSURE is the number; DIRECT is gameable)
+        # ★ THE CEILINGS ARE NOW THE MEASURED VALUES, AND THE ARTIFACT IS NAMED.
+        #
+        # Until this change every ceiling here sat ABOVE the tree, so doc 11 §4.3
+        # -- "OCCT symbol demand may stay equal or decrease. It may never
+        # increase" -- was unenforced in the only direction that matters.
+        # MEASURED from this workflow's own log, run 35276299108 / job
+        # 105387654810 on 37e24fcb:
+        #
+        #   OCCT_SYMBOLS  = 539  (ceiling was 550)   → 11 symbols of slack
+        #   TKOffset syms = 29   (ceiling was 42)    → 13 symbols of slack
+        #   OCCT_DIRECT   = 8    (asserted 9)        →  1 of slack
+        #   OCCT_CLOSURE  = 14   (ceiling 14)        →  0, already tight
+        #   OCCT_PHANTOM  = 2    (ceiling 2)         →  0, already tight
+        #
+        # Eleven symbols could therefore arrive with every check green, which is
+        # how 541 → 550 happened once already.
+        #
+        # AND THE ARTIFACT IS PASSED EXPLICITLY. occt_closure_count.sh:75-81
+        # resolves its binary by a FALLBACK SEARCH, so the same command measures
+        # libforge_kernel_core.dylib locally (546 symbols, DIRECT 11) and
+        # forge-kernel.node here (539, DIRECT 8) -- two different numbers for one
+        # command. The script's own header warns about "the stale-artifact trap"
+        # and records that it happened anyway. CI builds only the addon
+        # (FORGE_BUILD_DESKTOP_FOUNDATION defaults OFF, CMakeLists.txt:77), so
+        # the addon is what this step measures and it now says so.
+        #
+        # ★ 539 -> 532 (T-146). NativeLoftPipe classified edge curves through OCCT
+        # RTTI and was the ONLY owner of six Geom_*::get_type_descriptor() symbols;
+        # BRepAdaptor_Curve::GetType() answers with a GeomAbs_CurveType enum
+        # constant, which is not a symbol. Removing the last IsKind call in the
+        # whole of forge-kernel/src took Standard_Transient::IsKind with it, so the
+        # measured delta is SEVEN, not the six that were targeted:
+        #
+        #   OCCT_SYMBOLS  539 -> 532   (TKG3d 152 -> 146, TKernel 27 -> 26)
+        #   OCCT_DIRECT     8 ->   8   unchanged
+        #   OCCT_CLOSURE   14 ->  14   unchanged
+        #   OCCT_PHANTOM    2 ->   2   unchanged
+        #
+        # DERIVED ON THIS ARTIFACT, not inferred from the dylib. The ceiling here
+        # governs forge-kernel.node, so it was measured by building the addon
+        # (-DFORGE_BUILD_NODE_ADDON=ON) twice from the same tree -- once with the
+        # parent's NativeLoftPipe.cpp and once with this change -- and diffing the
+        # two `nm -u | c++filt` sets: 7 departures, and ZERO arrivals. The dylib
+        # figure quoted above (546 / DIRECT 11) is itself now stale: the same tree
+        # builds libforge_kernel_core.dylib at 539 / DIRECT 10, which is exactly
+        # why this step names its artifact instead of letting the fallback search
+        # choose one.
+        #
+        # ★ 539 -> 514, T-147. The ceiling is lowered in the same commit that earns
+        #   it, as the note below requires. It is a CI-ARTIFACT number and it was
+        #   MEASURED ON THE CI ARTIFACT, not converted from the dylib: forge-kernel.node
+        #   was built locally at 015dd83c (FORGE_BUILD_NODE_ADDON=ON, DESKTOP_FOUNDATION
+        #   default OFF -- the same configuration this job uses) and reproduced this
+        #   job's own published numbers exactly -- OCCT_DIRECT 8, OCCT_CLOSURE 14,
+        #   OCCT_PHANTOM 2, OCCT_SYMBOLS 539 -- which is what licenses using the same
+        #   local build to set the new one. The migrated addon then measures 514, with
+        #   25 departures and ZERO arrivals; its undefined-OCCT set is byte-identical
+        #   to libforge_kernel_core.dylib's, so the two artifacts do not disagree here.
+        #   The comment two blocks down warns that this same command reads 546/DIRECT 11
+        #   on the dylib: that is no longer true of this tree. Measured today at
+        #   015dd83c with -DFORGE_BUILD_DESKTOP_FOUNDATION=ON, the dylib reads
+        #   539/DIRECT 10 -- the same symbol total as the addon, two more link records
+        #   (it names TKBO and TKG2d, which is why its PHANTOM is 0 and the addon's 2).
+        #   DIRECT 8 and CLOSURE 14 are unchanged by T-147 and are left alone.
+        #
+        #   T-151 RE-MEASURED THIS CEILING rather than inheriting it, because T-147's
+        #   -25 turned out to be part-paid in CAPABILITY (a 19-kind geometry probe
+        #   carried 19 before the migration and 14 after) and restoring the five
+        #   missing kinds could have cost symbols back. It did not: the restored
+        #   addon measures OCCT_SYMBOLS 514 again -- same 25 departures, ARRIVALS
+        #   still EMPTY, verified per-OBJECT with nm as well as on the binary. Every
+        #   OCCT accessor the five new routes name (Geom_Parabola::Parab,
+        #   Geom_Hyperbola::Hypr, Geom_TrimmedCurve::BasisCurve,
+        #   Geom_ConicalSurface::RefRadius/SemiAngle and the typeinfos their
+        #   DownCasts use) was ALREADY an undefined symbol of the pre-migration
+        #   build, named by other owners, so adding an owner cost nothing. The
+        #   pre-migration addon still FAILS this ceiling at 539 and 513 still fails
+        #   on the migrated one, so the ratchet measures this work rather than drift.
+        #
+        #   MERGE MEASUREMENT (T-151 onto T-146). These two changes removed DISJOINT
+        #   symbol sets from the same artifact -- T-146 took six Geom_*
+        #   get_type_descriptor plus Standard_Transient::IsKind out of NativeLoftPipe,
+        #   T-147/T-151 took the 25 GeomLProp_/BRepLProp_ members out of the property
+        #   call sites -- so the merged ceiling is NEITHER branch's. It was NOT
+        #   computed as 532 - 25: the addon was rebuilt FROM THE MERGED TREE and
+        #   MEASURES 507. Against the shared pre-both 539 baseline that is 32
+        #   departures and ZERO arrivals, and the 32 partition EXACTLY into T-146's
+        #   seven RTTI symbols and T-147/T-151's twenty-five LProp members -- so
+        #   neither change undid the other. That mattered here and was not assumed:
+        #   the restored conic routes DownCast Geom_Parabola/Geom_Hyperbola/
+        #   Geom_TrimmedCurve handles, and six of T-146's seven departures are
+        #   Geom_*::get_type_descriptor. If opencascade::handle::DownCast reached
+        #   the type descriptor rather than typeinfo, this merge would have handed
+        #   T-146's symbols straight back. The census says it does not.
         run: |
           bash forge-kernel/scripts/occt_closure_count.sh \
-            --assert-closure 14 --assert-direct 9
+            forge-kernel/build/Release/forge-kernel.node \
+            --assert-closure 14 --assert-direct 8 --assert-symbols 507
       # ── AND THE GATE THAT WAS WRITTEN FOR THIS AND NEVER CALLED ────────────────
       # The comment above states the hole and does not close it: PHANTOM is still
       # unguarded, and forge-kernel/scripts/tkoffset_ledger_gate.sh -- which carries
@@ -1150,11 +1300,47 @@ jobs:
         run: |
           bash forge-kernel/test/occt_lib_resolution_gate.sh \
             forge-kernel/build/Release/forge-kernel.node
+      # ── AND THE SAME NUMBER, BY NAME ─────────────────────────────────────────
+      # The two ratchets above assert TOTALS, so both go green on any seven
+      # symbols and neither can say which. That is exactly the hole a re-added
+      # STANDARD_TYPE(Geom_Circle) would fit through: displace seven symbols
+      # anywhere else and the ceiling still holds while the doc 11 §4.2 violation
+      # is back. This gate names the six Geom_* descriptors and the IsKind entry
+      # point, and reads the WHOLE library -- so it also cannot be satisfied by
+      # moving the RTTI into another translation unit.
+      - name: No OCCT curve RTTI (doc 11 §4.2, named not totalled)
+        run: |
+          bash forge-kernel/scripts/curve_kind_rtti_gate.sh \
+            forge-kernel/build/Release/forge-kernel.node
+      # The A/B behind that gate: both the RTTI and the BRepAdaptor_Curve
+      # classification, run in ONE process over line / circle / ellipse / Bezier /
+      # B-spline / trimmed / doubly-trimmed / parabola / hyperbola / offset /
+      # located / reversed / pcurve-only edges. Exit 0 iff every answer matches,
+      # and it carries its own negative control: the guardless body must DISAGREE
+      # on the pcurve-only edge, or the probe is declared blind and fails.
+      - name: Curve-kind A/B (the classification answers did not move)
+        run: |
+          BIN="$(bash forge-kernel/test/build_curve_kind_ab_probe.sh | sed -n 's/^BIN=//p')"
+          "$BIN"
       - name: OCCT ledger gate — closure, PHANTOM and TKOffset symbols
+        # --max-symbols tracks the ratchet above: 539 -> 532 (T-146, the six
+        # Geom_*::get_type_descriptor symbols plus Standard_Transient::IsKind).
+        # Both ceilings govern the SAME artifact, so leaving this one at 539 would
+        # have kept seven symbols of slack in the gate that exists to remove it.
+        #
+        # ★ --max-symbols 539 -> 514, T-147, same measurement as the step above and
+        #   on the same artifact. --max-tkoffset stays 29: the census shows TKOffset
+        #   unmoved (the 25 that left are 14 TKBRep + 11 TKG3d and nothing else), and
+        #   lowering a ceiling no work earned is how a later honest change gets
+        #   blamed for a red gate.
+        #   After the merge it tracks the ratchet above at the MEASURED merged
+        #   number. --max-tkoffset stays 29 on both sides: neither change moved
+        #   TKOffset, and lowering a ceiling no work earned is how a later honest
+        #   change gets blamed for a red gate.
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --max-closure 14 --max-phantom 2 --max-tkoffset 42
+            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 507
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Physics validation gates (known-answer, against textbook closed forms)
@@ -1243,6 +1429,43 @@ jobs:
           cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
                 -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
           cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: multi-solid import — ok=true must never mean "most of it" (T-152)
+        # THE DEFECT: src/OcctImport.cpp imported the FIRST TopoDS_Solid and returned
+        # ok=true with the rest of the shape dropped. include/forge/OcctImport.hpp said
+        # so, in those words, and it changed nothing -- every caller read ok=true as
+        # "the whole shape is now native". MEASURED on the gold corpus before the fix:
+        # ho1 (2 solids) lost 96.0% of its material to a silent Outside, ho1005 (3
+        # solids) 98.7%, and NOTHING refused.
+        #
+        # The gate's fixtures are built IN CODE from OCCT primitives, so this needs no
+        # corpus -- the 600-part gold corpus is not in CI and never will be -- and it
+        # still carries a two-solid, a three-solid and a curved multi-solid case, plus
+        # a single-solid control that catches a regression on the ordinary path.
+        #
+        # ★ IT PRINTS BOTH DIRECTIONS IN ONE RUN. "before" re-classifies the identical
+        #   probe set against the FIRST SOLID ONLY -- the exact shape the old code
+        #   selected -- using OCCT alone. So the log always shows what the old rule
+        #   would have lost beside what the importer actually loses now, and a fixture
+        #   that stopped being multi-solid FAILS rather than passing quietly.
+        #
+        # Reuses build-verify, which the step above already populates, so the marginal
+        # cost is one clang++ pass and about two seconds of probes.
+        run: BUILD=forge-kernel/build-verify bash forge-kernel/test/run_multi_solid_import_gate.sh
+      - name: the native point-classification seam is real, and imports no OCCT classifier
+        # T-145's seam (src/ShapeClassify.cpp): a ShapeRegistry handle -> importOcctSolid
+        # -> native::brep::pointInSolid, so the four TUs that call
+        # BRepClass3d_SolidClassifier have somewhere OCCT-free to go.
+        #
+        # ★ WHAT RUNS HERE IS THE STRUCTURAL HALF, AND IT IS THE HALF THAT CAN GO RED
+        #   ON A CODE CHANGE. The concordance half needs the 600-part gold corpus,
+        #   which is not in CI, so the script SKIPS it and says so. What remains is an
+        #   nm question and needs no corpus: the seam's own object file must import
+        #   ZERO BRepClass3d symbols -- otherwise "the native arm" is the OCCT
+        #   classifier wearing a new name and the whole exercise measures nothing --
+        #   and the gate TU must import more than zero, or its "arm A" is not the
+        #   incumbent. Both are assertions, both fail the job, and the first one is
+        #   exactly what a careless fallback branch inside the seam would trip.
+        run: BUILD=forge-kernel/build-verify bash forge-kernel/test/run_point_classify_ab.sh
       - name: the OCCT-free shape seam, and prove all six mutations turn it red
         # THE SINGLE HIGHEST-UNLOCK ITEM of the OCCT removal programme, gated.
         # docs/kernel/OCCT_REMOVAL_TRACKER.md says an owning OCCT-free shape
@@ -1435,6 +1658,65 @@ jobs:
           cmake --build forge-kernel/build-verify -j3 --target forge_gate_thicken_refusal_gate
           ./forge-kernel/build-verify/forge_gate_thicken_refusal_gate
 
+      - name: SURFACE PROPS vs live OCCT — the T-147 property migration moved no number
+        # ── WHY THIS RUNS HERE AND NOT BESIDE THE CLOSED-FORM GATE. The
+        # surface_props_closed_form gate (ubuntu job above) proves forge::props is
+        # RIGHT against textbook forms, deliberately without OCCT. This gate proves
+        # something different and it needs OCCT in the process: that the six
+        # property call sites T-147 migrated — ClassASurfacing's zebraStripes,
+        # curvatureComb, continuityCheck and gaussianAndMeanCurvature, plus
+        # Nurbs.cpp's evalSurface and classAAnalyse — still report the SAME NUMBERS
+        # they reported when they were built on BRepLProp_SLProps /
+        # BRepLProp_CLProps / GeomLProp_SLProps. Those sites publish a Class-A
+        # continuity report and a curvature readout, so a moved number is a changed
+        # product claim.
+        #
+        # ── WHY IT IS THE ONLY INSTRUMENT THAT COULD SAY SO. The existing Class-A
+        # coverage (push07_classa_smoke.js, classa_continuity_orientation_test.js)
+        # needs forge-kernel.node, which the app build does not produce
+        # (-DFORGE_BUILD_NODE_ADDON=OFF) and which NO workflow in this repository
+        # runs. "The numbers did not move" was therefore unmeasurable through them.
+        # This gate measures it directly and harder: not the four aggregate report
+        # fields, but EVERY quantity the LProp classes were asked for — Value, D1U,
+        # D1V, Normal, IsNormalDefined, Gaussian/Mean/Min/MaxCurvature, and the
+        # curve's Value/D1/D2/D3/Curvature/Normal — on a station grid across plane,
+        # cylinder, sphere, trimmed sphere, cone, TRIMMED cone, torus and B-spline
+        # faces, and line/circle/ellipse/placed-circle edges. 2914 comparisons.
+        #
+        # ── THE TWO THINGS IT EXISTS TO CATCH. (1) The native surface's (u,v) is
+        # NOT OCCT's for a sphere (colatitude) or a cone (normalised over the face's
+        # v-window), so the bridge carries an affine map; a wrong map shows up as a
+        # wrong POINT, which is asserted first. (2) An orientation-reversing map
+        # flips S_u x S_v, negating H and negating-and-swapping the principals; the
+        # bridge pre-sets Surface::reversed so surfaceProps' own algebra undoes it,
+        # and the sphere's signed H is the assertion that catches that being lost.
+        # Both are mutation-proved: removing the colatitude map, the orientation
+        # flip, or the cone re-anchor each turns this gate RED on its own signature.
+        # The trimmed-cone fixture exists because the UNTRIMMED cone has vmin == 0,
+        # which makes the re-anchor arithmetically inert — measured, not assumed.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_native_vs_occt_surface_props
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_native_vs_occt_surface_props
+          ./forge-kernel/build-verify/forge_gate_native_vs_occt_surface_props
+
+      - name: CLASS-A property reports END TO END — closed forms, not golden values
+        # The gate above proves the INPUTS agree with OCCT. It says nothing about
+        # whether they were wired correctly into the aggregate reports: a comb that
+        # read cp.d2 where it meant cp.d1, or a continuity report that lost the
+        # mean-curvature sign flip, would leave it perfectly green. This gate covers
+        # the arithmetic in between, at the level the user sees — zebra buckets on a
+        # sphere, kappa == 1/r and an INWARD comb tip on a circular edge, K == 1/R^2
+        # on a sphere and K == 0 on a cylinder, and g0/g1/g2 == 0 across a coplanar
+        # join. Every expectation is a closed form or a structural invariant; none is
+        # a value recorded from the implementation, because a golden file captured
+        # from the code under test only proves it still does what it did.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_native_vs_occt_classa_props_e2e
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_native_vs_occt_classa_props_e2e
+          ./forge-kernel/build-verify/forge_gate_native_vs_occt_classa_props_e2e
+
       - name: THICKEN at 3+-plate corners — correct against closed forms, or refused
         # Family I was deleted on a 600-part corpus with NO vertex where three plates
         # meet, and this job then lost THICKEN on every closed box sheet (UNFOLD(BOX)
@@ -1618,6 +1900,59 @@ jobs:
         # one on the ellipse itself (semi-major r/|c| -> r, the circle), each of
         # which must turn the gate red. Seconds, on a runner that already has OCCT.
         run: bash forge-kernel/test/run_pcurve_fit_gate.sh --mutations
+      - name: the six OCCT-free native-tree builders (T-154 — all six were UNBUILDABLE)
+        # ★ THESE SIX GATES EXIST TO PROVE `src/native` COMPILES WITH NO OCCT, AND NOT
+        #   ONE OF THEM COULD BUILD. Each exited 1 at its first step with 18 "SRC FAIL"
+        #   lines, and had done since 2026-07-21 (3aa7aed3) — roughly two months during
+        #   which the assertion they carry was not being made at all. No workflow ran
+        #   any of them, so nothing said so; two were even PINNED in
+        #   gate_registration_ratchet.sh as merely "unwired", which concealed that they
+        #   were also unbuildable. Both pins are removed in the same change as this step.
+        #
+        # THE CAUSE was one flag. Their native pass inherited -DFORGE_NATIVE_BREP from
+        # the OCCT passes that share its FLAGS variable, which switches ON the OCCT-BRIDGE
+        # half of src/native (18 of 156 sources). Their own headers say the native sweep is
+        # compiled "OCCT-free, like run_native.sh", and run_native.sh uses no such define.
+        # Measured both ways: with the guard the pass cannot COMPILE, and given an OCCT
+        # include path it then cannot LINK either, because the guarded code calls the bridge
+        # layer these scripts deliberately do not compile.
+        #
+        # ★ AND A PASS THAT COMPILES GUARDED CODE WITH THE GUARD OFF CAN BE GREEN OVER AN
+        #   EMPTY TRANSLATION UNIT. Each script therefore carries a POSITIVE CONTROL
+        #   (step 1b) asserting object count, forge:: symbol count, and the presence of
+        #   forge::pcurvefit::cylinderPCurve — the symbol T-154 made OCCT-free, which an
+        #   OCCT-free compile could not emit before. Both halves were proved able to fail:
+        #   re-adding one OCCT include to the native header turns all six red at step 1,
+        #   and re-adding the FORGE_NATIVE_BREP guard to the pcurve TU leaves the compile
+        #   SUCCEEDING (156/156 objects) while the control catches cylinderPCurve=0.
+        #
+        # COST: 95 s wall for all six on an M-series workstation, on a runner that already
+        # has OCCT and inside a job budgeted at 90 minutes.
+        #
+        # ★ THE PATHS ARE SPELLED OUT IN FULL ON PURPOSE. gate_registration_ratchet.sh
+        #   computes CI reachability by grepping the workflow text for the literal
+        #   basename "<gate>.sh"; a path built from a loop variable is invisible to it.
+        #   Written as `"forge-kernel/test/$g.sh"` this step ran all six and the ratchet
+        #   still reported two of them unwired — measured, not predicted. Do not fold
+        #   these back into a variable.
+        run: |
+          set -u
+          rc=0
+          for s in forge-kernel/test/build_occt_import_test.sh \
+                   forge-kernel/test/build_golden_corpus_measure.sh \
+                   forge-kernel/test/build_interference_ab_test.sh \
+                   forge-kernel/test/build_import_surfaces_gate.sh \
+                   forge-kernel/test/build_hlr_import_gate.sh \
+                   forge-kernel/test/build_occt_wire_activation_test.sh
+          do
+            g=$(basename "$s" .sh)
+            bash "$s" > "/tmp/t154_$g.log" 2>&1
+            r=$?
+            echo "$g rc=$r"
+            grep -m1 'native OCCT-free pass' "/tmp/t154_$g.log" || true
+            if [ "$r" -ne 0 ]; then rc=1; echo "--- last 30 lines of $g ---"; tail -30 "/tmp/t154_$g.log"; fi
+          done
+          exit $rc
       - name: corpus A/B harness builds, and its 32 controls are green
         # ★ RETRACTION, MEASURED ON THIS RUNNER. This step was added claiming that
         #   "nothing in CI compiled test/corpus_ab_coverage.cpp". THAT WAS WRONG and

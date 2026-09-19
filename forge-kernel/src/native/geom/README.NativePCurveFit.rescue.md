@@ -170,3 +170,74 @@ AUTHORITY and reads **14, zero of 14 dropped**, and nothing here changes that.
    shipped a dangling `std::string` size byte for exactly that reason.
 3. Measure the DRAFT native-vs-OCCT pass rate on the 565-part corpus again and report the
    73 parts as a paired result, not a projection.
+
+---
+
+# ★ T-154, 2026-09-18 — THE OCCT CAME OUT, AND THE GUARD WENT WITH IT
+
+This file's headline lesson —*"a build gate for guarded code must PROVE THE GUARD IS
+ON"*— was right, and it was also **the smaller half of the problem**. The larger half
+is that this translation unit had no business being guarded at all.
+
+## What was actually wrong
+
+`NativePCurveFit` was a NATIVE algorithm that RETURNED OCCT TYPES. Its header included
+**seven** OCCT headers (this file previously said the .cpp includes eight; the header's
+own seven are the ones that mattered, because a header's includes reach every includer).
+That made it a producer of OCCT types living inside `src/native` — the subtree whose
+gates assert OCCT-freedom — and it **disabled six of those gates outright**:
+
+    build_occt_import_test   build_golden_corpus_measure   build_interference_ab_test
+    build_import_surfaces_gate   build_hlr_import_gate      build_occt_wire_activation_test
+
+Each exited 1 at its first step. Measured 2026-09-18 on `c75af519`: **18 of 156** swept
+native sources failed to compile, not two — this file was the eighteenth and the most
+recent, not the cause. The six had been red since **2026-07-21** (`3aa7aed3`, the first
+OCCT-typed source under `src/native`), three weeks after the first of them was written.
+
+## The split
+
+* `include/forge/native/geom/NativePCurveFit.hpp` + `src/native/geom/NativePCurveFit.cpp`
+  — **no OCCT include, and NO `#ifdef FORGE_NATIVE_BREP`.** The guard existed only because
+  of OCCT. `gp_Ax3 -> pcurvefit::Ax3`, `gp_Pnt/gp_Dir -> forge::math::Vec3`,
+  `TColgp_Array1OfPnt2d -> std::vector<Pnt2d>`, `Handle(Geom_Curve) -> Curve3dEval`
+  (a `bool(double, Vec3&)` evaluator), `Geom2d_* -> BSpline2d / PCurve2d / Conic2`,
+  and `ElSLib -> cylinderParameters/cylinderValue`, transcribed including ElSLib's
+  `U < -1e-16` seam branch so the two agree on the seam.
+* `include/forge/PCurveFitOcctBridge.hpp` + `src/PCurveFitOcctBridge.cpp` — the OCCT face,
+  in the bridge layer beside `NativeOcctBridge.cpp`, carrying the exact signatures this
+  header used to have under `forge::pcurvefit::occt::`. It computes no geometry.
+
+## The guard proof, inverted — and what it does NOT prove
+
+The `cylinderPCurve` count this file made famous now reads, with **no OCCT include path
+at all**:
+
+    native TU :  guard OFF = 2    guard ON = 2     (guard-INDEPENDENT; was 0 / 2)
+    bridge TU :  guard OFF = 0    guard ON = 4     (correctly still guarded)
+
+★ **And a correction to the technique itself.** A `-E` symbol count does NOT prove
+OCCT-freedom. Measured: re-adding `<gp_Pnt.hxx>` to the native header leaves that count
+at **2, not 0** — `clang++ -E` reports the missing include and emits the rest of the file
+anyway. The count proves the TU is non-empty and guard-independent, and nothing more.
+OCCT-freedom is proved by a real `-fsyntax-only -Werror` compile with no OCCT path
+(`run_pcurve_fit_gate.sh` step 1b) and by the six builders — which were MEASURED red on
+exactly that mutation: all six exit 1, "native source compile failed".
+
+★ The six now also carry a **positive control**: object count, `forge::` symbol count, and
+the presence of `forge::pcurvefit::cylinderPCurve`. Proved able to fire — putting the
+guard back leaves the compile SUCCEEDING at 156/156 objects while the control catches
+`cylinderPCurve=0`.
+
+## ★ "NOTHING CALLS IT" WAS TRUE FOR NINETY-SEVEN MINUTES
+
+The section above ending *"**AND THE BOUND THAT MATTERS: NOTHING CALLS IT**"* was
+committed at **19:58** on 2026-09-02 (`1eca4489`). `b626ddc4` — *"wire all three DRAFT
+sites to cylinderPCurve"* — landed at **21:35 the same evening**, 97 minutes later, and
+the sentence was never corrected. `NativeDraftLocal.cpp` has called this code ever since,
+and now calls it through the bridge. Three of the owed items in the table above are
+therefore discharged or obsolete; the fourth, **a re-measured paired DRAFT pass rate on
+the 565-part corpus, is still owed and T-154 does not touch it.**
+
+A measurement's shelf life is not the same as its correctness, and a file that records
+measurements has to record when they expired.

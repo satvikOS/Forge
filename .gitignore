@@ -126,6 +126,7 @@ forge-kernel/test/native/gdt/fcf_evaluator_test.cpp
 # coverage gate). The .a and the per-run JSONL are regenerable from the scripts;
 # the committed baseline lives in forge-kernel/reports/corpus_ab/ instead.
 forge-kernel/.build-corpus-ab/
+forge-kernel/.build-point-classify-ab/
 forge-kernel/.build-cam-offset-ab/
 # Same deal for test/build_draft_defer_probe.sh's object cache and binary; its
 # committed results live in reports/corpus_ab/draft_defer_probe.jsonl.gz.
@@ -158,6 +159,14 @@ forge-kernel/.build-thicksolid-nesting/
 # summarises live in reports/corpus_ab/thicksolid_bar/.
 forge-kernel/.build-thicksolid-bar/
 forge-kernel/.build-thicken-orientation/
+# test/build_curve_kind_ab_probe.sh's binary and object cache (T-146's curve-kind
+# A/B). It is a gate, rebuilt and rerun from source every time, so it has no
+# committed artefact.
+forge-kernel/.build-curve-kind-ab/
+# test/run_multi_solid_import_gate.sh's binary and object cache (T-152's
+# multi-solid import gate). It is a gate, rebuilt and rerun from source every
+# time, so it has no committed artefact.
+forge-kernel/.build-multi-solid-import/
 # test/sarc_ring_mutation.sh's default build dir. It holds a CMake tree that is
 # deliberately built against a mutated source and then restored, so nothing in it
 # is ever a fact about the repository.
@@ -191,3 +200,9 @@ forge-desktop/.build-*/
 __pycache__/
 *.pyc
 
+
+# T-149 foreign-STEP tail census: the private object cache and the raw
+# manifest/census NDJSON. The DERIVED report (forge-kernel/reports/
+# FOREIGN_STEP_TAIL.md) is committed; the multi-hundred-MB intermediates are not.
+forge-kernel/.build-foreign-step-tail/
+forge-kernel/.foreign-step-tail-out/
