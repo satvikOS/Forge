@@ -69,6 +69,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <string>
 #include <vector>
 
 // The analytic surface geometry a Face may optionally carry (Surface.hpp). It is
@@ -361,6 +362,9 @@ public:
     // --- Element factories (Euler-operator primitives) ---------------------
     Vertex* makeVertex(const Point3& p);
     Edge*   makeEdge(Vertex* start, Vertex* end);
+    // Returns nullptr and sets declineReason() if `e` already carries two
+    // coedges — a third use is non-manifold and this kernel does not model it.
+    // See the T-153 note on ringDecline() below.
     Coedge* makeCoedge(Edge* e, bool forward);
     Loop*   makeLoop();
     Face*   makeFace();
@@ -399,6 +403,8 @@ public:
     // normal points outward by the right-hand rule). Edges are created on
     // demand and SHARED: if an edge between two vertices already exists it is
     // reused and the second coedge becomes the mate.
+    // Returns nullptr WITHOUT mutating the builder if the ring would give any
+    // edge a third coedge (non-manifold); see ringDecline().
     Loop* addOuterLoopToFace(Face* face,
                              const std::vector<Vertex*>& ring);
 
@@ -411,6 +417,7 @@ public:
     // The caller is responsible for orienting the inner ring opposite to the
     // outer loop (material on the left of every coedge); this routine performs
     // the same structural wiring as the outer path without imposing a winding.
+    // Returns nullptr WITHOUT mutating the builder on a non-manifold ring.
     Loop* addInnerLoopToFace(Face* face,
                              const std::vector<Vertex*>& ring);
 
@@ -437,6 +444,26 @@ public:
     // beyond the bare V-E+F arithmetic.)
     bool isClosedTwoManifold() const;
 
+    // ---------------------------------------------------------------------
+    // DECLINE CHANNEL (T-153).
+    //
+    // A THIRD coedge on one edge makes the model non-manifold, which this
+    // increment does not support. That was `assert(false && "edge already has
+    // two coedges (non-manifold use)")` — and the product ships with -DNDEBUG,
+    // where the assert is removed and the code fell through, allocating a
+    // coedge that was wired into NO edge slot and had a null mate. MEASURED:
+    // StepAnalytic::read() on a STEP file with three ADVANCED_FACEs sharing one
+    // EDGE_CURVE returned ok=true with 1 of 9 coedges orphaned. (readForeignStep
+    // cannot reach it — it gives every face private vertices — but
+    // StepAnalytic::read shares them through its VERTEX_POINT map.)
+    //
+    // The builders now REFUSE instead: makeCoedge returns nullptr, and
+    // addOuterLoopToFace / addInnerLoopToFace pre-flight the WHOLE ring before
+    // creating anything, so a refusal leaves the builder untouched rather than
+    // half-built. `declineReason()` carries the why, matching the kernel's
+    // defer(why) convention (NativeFilletChamfer.cpp:103).
+    const std::string& declineReason() const { return declineReason_; }
+
     // Accessors for tests.
     std::size_t vertexCount() const { return vertices_.size(); }
     std::size_t edgeCount()   const { return edges_.size(); }
@@ -453,6 +480,13 @@ private:
     // inner-loop builders (creates/shares edges, wires next/prev/mate, points
     // every coedge at `loop`, sets loop->first/coedgeCount).
     void buildCoedgeRing(Loop* loop, const std::vector<Vertex*>& ring);
+
+    // T-153 pre-flight: would `ring` give any edge a THIRD coedge? Returns the
+    // reason if so (and records it), nullptr when the ring is safe to build.
+    // Pure query — creates nothing.
+    const char* ringDecline(const std::vector<Vertex*>& ring);
+
+    std::string declineReason_;
 
     // O(1) edge lookup by UNORDERED vertex-id pair, keeping findEdge() out of an
     // O(E²) linear scan. Critical for importing large faceted shells (a 200k-tri

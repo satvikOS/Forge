@@ -22,8 +22,16 @@
 //   * No derivatives / tangents / normals / curvature (the gate only checks
 //     point values). No knot insertion, degree elevation, refinement, fitting,
 //     intersection, or trimming. No binding onto the Topology faces/edges yet.
-//   * No NaN/degenerate-knot hardening beyond basic guards; malformed inputs
-//     are the caller's responsibility this increment (asserts, not silent fake).
+//   * No NaN/degenerate-knot hardening beyond basic guards BEYOND the input
+//     validation added by T-153 (below). The original text here said malformed
+//     input was "the caller's responsibility (asserts, not silent fake)" — that
+//     was false in the shipped build: the product compiles with -DNDEBUG, where
+//     every assert() is removed and the code then divided by a zero rational
+//     denominator (NaN into the B-Rep) or read past the end of a vector
+//     (SIGSEGV). MEASURED, not assumed: readForeignStep() on a STEP file whose
+//     RATIONAL_B_SPLINE_SURFACE weight grid is 0.0 returned ok=true with 25 of
+//     25 sampled surface points NaN. The *Checked entry points below are the
+//     typed refusal; the raw ones now refuse instead of performing that UB.
 //
 // Pure C++20, zero external dependencies (standard library only). No OCCT.
 //
@@ -54,6 +62,30 @@ namespace brep {
 // (it adds the arithmetic/dot/cross/norm each declared separately), so this is
 // an alias, not a rewrite -- every existing use keeps compiling unchanged.
 using Vec3 = forge::math::Vec3;
+
+// ---------------------------------------------------------------------------
+// PointEval — the TYPED REFUSAL for the evaluators (T-153).
+//
+// This is the kernel's established decline convention, not a new error channel:
+// an ok flag plus a reason the caller can read and report. The same shape is
+// already used by brep::SurfaceSample (NurbsSurface.hpp), occtfillet::Result +
+// defer(why) (NativeFilletChamfer.hpp), ForeignReadResult (StepRead.hpp) and
+// LoftResult (Loft.hpp). `reason` is static string data and is empty iff ok.
+//
+// `value` is meaningful ONLY when ok. On a refusal it is a quiet NaN, so a
+// caller that ignores `ok` is no worse off than before this type existed — but
+// it can no longer be said that the kernel had no way to tell it.
+// ---------------------------------------------------------------------------
+struct PointEval {
+    bool        ok = false;
+    const char* reason = "";
+    Vec3        value{};
+};
+
+// The value a refusing evaluator hands back on the raw (unchecked) entry points.
+// Quiet NaN in all three components: a defined, inspectable refusal rather than
+// the out-of-bounds read / divide-by-zero those paths performed under NDEBUG.
+Vec3 refusedPoint();
 
 // ---------------------------------------------------------------------------
 // Cox-de Boor basis machinery (free functions, header-light core lives in cpp).
@@ -87,8 +119,18 @@ struct NurbsCurve {
     // Returns true iff sizes are internally consistent.
     bool valid() const;
 
+    // Evaluate the curve point C(u), REFUSING on input this evaluator cannot
+    // answer for: an internally inconsistent curve (valid() == false) or a zero
+    // rational denominator. This is the entry point to prefer.
+    PointEval evaluateChecked(double u) const;
+
     // Evaluate the curve point C(u). For a rational curve this divides the
     // homogeneous accumulation by the accumulated weight.
+    //
+    // Raw (unchecked) form, kept so the ~220 existing call sites are untouched:
+    // it delegates to evaluateChecked() and returns refusedPoint() when that
+    // refuses. For every input evaluateChecked() accepts, the returned Vec3 is
+    // bit-identical to what this function returned before T-153.
     Vec3 evaluate(double u) const;
 };
 
@@ -108,7 +150,12 @@ struct NurbsSurface {
 
     bool valid() const;
 
-    // Evaluate the surface point S(u,v).
+    // Evaluate the surface point S(u,v), REFUSING on an internally inconsistent
+    // surface (valid() == false) or a zero rational denominator. Prefer this.
+    PointEval evaluateChecked(double u, double v) const;
+
+    // Evaluate the surface point S(u,v). Raw (unchecked) form — delegates to
+    // evaluateChecked() and returns refusedPoint() on a refusal.
     Vec3 evaluate(double u, double v) const;
 };
 
@@ -125,11 +172,28 @@ Vec3 bezierCurvePoint(const std::vector<Vec3>& controlPoints,
                       const std::vector<double>& weights,
                       double t);
 
+// Checked form. Refuses an empty control-point list, a weights list of a
+// different length, and a zero de-Casteljau denominator. The raw form above
+// performed an out-of-bounds read on the first two (MEASURED: SIGSEGV on the
+// empty list, and 4.31078e-314 — uninitialised heap — on the short list).
+PointEval bezierCurvePointChecked(const std::vector<Vec3>& controlPoints,
+                                  const std::vector<double>& weights,
+                                  double t);
+
 // Tensor-product (rational) Bezier surface point at (u,v).
 //   control[i][j], i over U (degreeU = nU-1), j over V (degreeV = nV-1).
 Vec3 bezierSurfacePoint(const std::vector<std::vector<Vec3>>& control,
                         const std::vector<std::vector<double>>& weights,
                         double u, double v);
+
+// Checked form. Refuses an empty/ragged control grid, a weights grid that does
+// not match it, and a zero de-Casteljau denominator. NOTE: the raw form never
+// had an assert for the weights grid at all and read past its end (MEASURED:
+// SIGSEGV on a grid missing a row); the shape check is therefore part of this
+// validation even though no assert stated it.
+PointEval bezierSurfacePointChecked(const std::vector<std::vector<Vec3>>& control,
+                                    const std::vector<std::vector<double>>& weights,
+                                    double u, double v);
 
 // Build the clamped Bezier knot vector [0 (p+1 times), 1 (p+1 times)] for a
 // degree-p Bezier so a NurbsCurve/Surface can represent the same Bezier and be

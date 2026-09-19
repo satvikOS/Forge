@@ -3385,6 +3385,22 @@ if(FORGE_BASH)
              COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/native/run_native.sh")
     set_tests_properties(kernel.native_suite PROPERTIES TIMEOUT 3600)
 
+    # test/run_t153_assert_validation_gate.sh — T-153, "assert() is not input
+    # validation". run_native.sh above builds with "-std=c++20 -O2" and NO
+    # -DNDEBUG, so it exercises the asserts rather than the code the product
+    # ships (CMAKE_CXX_FLAGS_RELEASE is "-O3 -DNDEBUG"). This gate builds the
+    # same assertions BOTH ways and then runs a six-mutant battery, each mutant
+    # deleting one of the new input validations; every one must turn the harness
+    # red, and red on its own assertion.
+    #
+    # The assertion body lives at test/native/brep/assert_input_validation_test.cpp
+    # and is ALSO auto-discovered by run_native.sh (the `brep` class), so it runs
+    # in CI's native job as an ordinary gate; this entry is what adds the NDEBUG
+    # build and the mutation proof on top.
+    add_test(NAME kernel.t153_assert_validation
+             COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/run_t153_assert_validation_gate.sh")
+    set_tests_properties(kernel.t153_assert_validation PROPERTIES TIMEOUT 1800)
+
     # test/ft/s0_ratchet.sh — SACROSANCT 3.1 Appendix B s0 acceptance
     # (s0.4 graph cardinality, s0.5 opaque macros, s0.6 pattern occurrence
     # tables, s0.11 chunk/hash chain), under the project's own conformance

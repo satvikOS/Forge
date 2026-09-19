@@ -7,6 +7,8 @@
 #include "forge/native/brep/Surface.hpp"  // complete type for the owned unique_ptr<Surface>
 
 #include <cassert>
+#include <cstdint>
+#include <unordered_map>
 
 namespace forge {
 namespace native {
@@ -65,6 +67,22 @@ Edge* TopologyBuilder::makeEdge(Vertex* start, Vertex* end) {
 }
 
 Coedge* TopologyBuilder::makeCoedge(Edge* e, bool forward) {
+    // T-153: a third use of an edge would make the model non-manifold; this
+    // increment does not support that. REFUSE FIRST — the old code asserted and
+    // then, with the assert compiled out by -DNDEBUG, fell through and pushed a
+    // coedge that no edge slot pointed at and whose mate was null: a silently
+    // corrupt B-Rep. Checking before allocating also means a refusal leaves the
+    // builder exactly as it was.
+    if (e == nullptr) {
+        declineReason_ = "makeCoedge: null edge";
+        return nullptr;
+    }
+    if (e->coedgeA != nullptr && e->coedgeB != nullptr) {
+        declineReason_ = "edge already has two coedges (non-manifold use)";
+        assert(false && "edge already has two coedges (non-manifold use)");
+        return nullptr;
+    }
+
     auto c = std::make_unique<Coedge>();
     c->id = nextId_++;
     c->edge = e;
@@ -73,15 +91,11 @@ Coedge* TopologyBuilder::makeCoedge(Edge* e, bool forward) {
     // Attach to the edge's coedge slots and wire the mate link.
     if (e->coedgeA == nullptr) {
         e->coedgeA = raw;
-    } else if (e->coedgeB == nullptr) {
+    } else {
         e->coedgeB = raw;
         // Mate the two uses of this edge.
         e->coedgeA->mate = raw;
         raw->mate = e->coedgeA;
-    } else {
-        // A third use of an edge would make the model non-manifold; this
-        // increment does not support that. Fail loudly rather than fake it.
-        assert(false && "edge already has two coedges (non-manifold use)");
     }
     coedges_.push_back(std::move(c));
     return raw;
@@ -151,6 +165,45 @@ Edge* TopologyBuilder::mev(Vertex* from, const Point3& newPos,
 // coedge at `loop`. Used by both addOuterLoopToFace and addInnerLoopToFace so
 // the inner-loop path is structurally identical to the (validated) outer path.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// ringDecline — T-153 pre-flight for addOuterLoopToFace / addInnerLoopToFace.
+//
+// Walks the ring exactly as buildCoedgeRing will and asks, for every step,
+// whether the edge it would use already carries two coedges — counting both the
+// edges that exist now AND the ones this same ring would create as it goes (a
+// ring like {a, b, a, b} gives edge a-b three uses all by itself). Creates
+// nothing, so the caller can refuse atomically.
+// ---------------------------------------------------------------------------
+const char* TopologyBuilder::ringDecline(const std::vector<Vertex*>& ring) {
+    const std::size_t n = ring.size();
+    if (n == 0) return nullptr;                 // nothing to wire; not this check's business
+
+    // Coedge uses this ring would ADD, keyed by the edge (existing) or by the
+    // unordered vertex-id pair (an edge this ring would create).
+    std::unordered_map<const Edge*, int> planned;
+    std::unordered_map<std::uint64_t, int> plannedFresh;
+
+    for (std::size_t i = 0; i < n; ++i) {
+        Vertex* a = ring[i];
+        Vertex* b = ring[(i + 1) % n];
+        if (a == nullptr || b == nullptr) {
+            declineReason_ = "coedge ring contains a null vertex";
+            return declineReason_.c_str();
+        }
+        int used;
+        if (Edge* e = findEdge(a, b)) {
+            used = (e->coedgeA ? 1 : 0) + (e->coedgeB ? 1 : 0) + planned[e]++;
+        } else {
+            used = plannedFresh[edgeKey(a->id, b->id)]++;
+        }
+        if (used >= 2) {
+            declineReason_ = "edge already has two coedges (non-manifold use)";
+            return declineReason_.c_str();
+        }
+    }
+    return nullptr;
+}
+
 void TopologyBuilder::buildCoedgeRing(Loop* loop,
                                       const std::vector<Vertex*>& ring) {
     const std::size_t n = ring.size();
@@ -173,17 +226,24 @@ void TopologyBuilder::buildCoedgeRing(Loop* loop,
             forward = (e->start == a && e->end == b);
         }
         Coedge* ce = makeCoedge(e, forward);
+        // makeCoedge refuses a third use of an edge. ringDecline() has already
+        // pre-flighted this whole ring, so a null here means the pre-flight and
+        // makeCoedge disagree — skip rather than dereference null, and let the
+        // loop come out short so the caller sees something is wrong.
+        if (ce == nullptr) continue;
         ce->loop = loop;
         ces.push_back(ce);
     }
 
-    // Link the ring (next / prev).
-    for (std::size_t i = 0; i < n; ++i) {
-        ces[i]->next = ces[(i + 1) % n];
-        ces[i]->prev = ces[(i + n - 1) % n];
+    // Link the ring (next / prev). Use the number of coedges actually built —
+    // equal to n for every ring ringDecline() accepted.
+    const std::size_t m = ces.size();
+    for (std::size_t i = 0; i < m; ++i) {
+        ces[i]->next = ces[(i + 1) % m];
+        ces[i]->prev = ces[(i + m - 1) % m];
     }
     loop->first = ces.empty() ? nullptr : ces[0];
-    loop->coedgeCount = n;
+    loop->coedgeCount = m;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,8 +251,19 @@ void TopologyBuilder::buildCoedgeRing(Loop* loop,
 // ---------------------------------------------------------------------------
 Loop* TopologyBuilder::addOuterLoopToFace(Face* face,
                                           const std::vector<Vertex*>& ring) {
+    // INTERNAL INVARIANT (T-153): every input-facing caller already rejects a
+    // ring shorter than 3 before it gets here — StepRead.cpp:1949,
+    // IgesRead.cpp:996, StepAnalytic's buildRing ("EDGE_LOOP < 3 oriented
+    // edges"), Heal.cpp:1141, Sewing.cpp:54/75 — and every other caller builds
+    // its own ring at a size it chose. Reaching this assert therefore means a
+    // bug in this kernel, not bad input, so it stays an assert.
     assert(ring.size() >= 3 && "a face outer loop needs at least 3 vertices");
 
+    // INPUT VALIDATION (T-153): refuse a non-manifold ring BEFORE creating the
+    // loop, so the builder is untouched on a decline.
+    if (ringDecline(ring) != nullptr) return nullptr;
+
+    declineReason_.clear();
     Loop* loop = makeLoop();
     loop->face = face;
     loop->isOuter = true;
@@ -210,8 +281,19 @@ Loop* TopologyBuilder::addOuterLoopToFace(Face* face,
 // ---------------------------------------------------------------------------
 Loop* TopologyBuilder::addInnerLoopToFace(Face* face,
                                           const std::vector<Vertex*>& ring) {
+    // INTERNAL INVARIANT (T-153), same argument as the outer path: every
+    // input-facing caller guards the size first — StepRead.cpp:1985,
+    // IgesRead.cpp:1004/1191, StepAnalytic.cpp:1371, Heal.cpp:1147/1515,
+    // Boolean.cpp:1524, Sewing.cpp:81, ShapeFix.cpp:125, Healing.cpp:213,
+    // ClassASurfacing.cpp:210, NativeShapeHealBridge.cpp:70 — and the few
+    // unguarded callers (UnifyFaces.cpp:308/1131, FilletAnalytic.cpp:860) copy
+    // an inner loop out of an already-built solid, whose loops were themselves
+    // created through one of those guarded paths.
     assert(ring.size() >= 3 && "a face inner loop needs at least 3 vertices");
 
+    if (ringDecline(ring) != nullptr) return nullptr;
+
+    declineReason_.clear();
     Loop* loop = makeLoop();
     loop->face = face;
     loop->isOuter = false;

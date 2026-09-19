@@ -100,6 +100,31 @@ jobs:
           ccache --max-size=2G --zero-stats
           bash forge-kernel/test/native/run_native.sh
           ccache --show-stats
+      - name: T-153 assert() is not input validation + 6 mutations that must turn it RED
+        # ── WHY THIS STEP EXISTS. ────────────────────────────────────────────────
+        # The step above runs run_native.sh, which compiles with "-std=c++20 -O2"
+        # and NO -DNDEBUG. The product ships with -DNDEBUG
+        # (CMAKE_CXX_FLAGS_RELEASE = "-O3 -DNDEBUG"), where every assert() under
+        # src/native/brep/ compiles to nothing. So the native suite alone
+        # exercises the asserts, not the code that ships, and a gate that only
+        # passes in a debug build tests the assert rather than the fix.
+        #
+        # This runs the same assertions BOTH ways and then a six-mutant battery,
+        # each mutant deleting one input validation and each required to turn the
+        # harness red ON ITS OWN ASSERTION. The battery is not ceremony: on its
+        # first run it found one control that could not fail (a second domain
+        # guard masked the knot-multiplicity mutant) and a latent nullptr
+        # dereference.
+        #
+        # forge-kernel/CMakeLists.txt also registers this as
+        # add_test(NAME kernel.t153_assert_validation), which is REGISTRATION and
+        # not execution — `ctest` is invoked by no workflow in this repository.
+        # This step is the execution, and it is what
+        # forge-kernel/test/gate_registration_ratchet.sh counts.
+        run: |
+          export PATH="/usr/lib/ccache:$PATH"
+          export CCACHE_DIR="$HOME/.ccache"
+          bash forge-kernel/test/run_t153_assert_validation_gate.sh
       - name: heal destruction-refusal gate (T-137) + 4 mutations that must turn it RED
         # ── WHY THIS STEP EXISTS. It is the whole of T-137 defect (C). ────────────
         # forge-kernel/CMakeLists.txt registers heal_destruction_refusal_gate with
