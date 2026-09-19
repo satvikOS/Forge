@@ -37,9 +37,14 @@
 //     beyond S_uu/S_uv/S_vv assembly) — TARGETED, not built.
 //   * Knot insertion is single-knot, multiplicity +1; r-fold insertion, knot
 //     removal, degree elevation, and refinement are TARGETED.
-//   * No NaN/degenerate hardening beyond the evaluator's existing guards; a zero
-//     first derivative (cusp) makes the unit tangent / curvature undefined and
-//     is the caller's responsibility (asserted, not silently faked).
+//   * T-153: a zero first derivative (cusp) makes the unit tangent / curvature
+//     undefined. This used to say it was "the caller's responsibility
+//     (asserted, not silently faked)" — but the product ships with -DNDEBUG,
+//     where the assert is removed and the caller was handed a silent NaN. Every
+//     function below now has a *Checked sibling that REFUSES with a reason, and
+//     the raw forms no longer perform the out-of-bounds reads that an invalid
+//     curve/surface used to cause (MEASURED under NDEBUG: SIGSEGV on an empty
+//     control net, SIGSEGV on insertKnot at a full-multiplicity knot).
 //
 // Honest robustness level: ROBUST-IN-PRACTICE on well-conditioned rational
 // splines (positive weights, non-degenerate parameterization), matching the
@@ -87,13 +92,53 @@ std::vector<std::vector<double>> basisFunctionDerivatives(
 std::vector<Vec3> curveDerivatives(const NurbsCurve& curve, double u,
                                    std::size_t maxDeriv);
 
-// Convenience: unit tangent T(u) = C'(u)/|C'(u)|. Asserts |C'| > 0.
+// ---------------------------------------------------------------------------
+// TYPED REFUSALS (T-153). Same ok/reason shape as brep::PointEval (Nurbs.hpp),
+// brep::SurfaceSample (NurbsSurface.hpp) and occtfillet::Result + defer(why)
+// (NativeFilletChamfer.hpp). `reason` is static text, empty iff ok; the payload
+// is meaningful only when ok.
+// ---------------------------------------------------------------------------
+struct CurveDerivEval {
+    bool              ok = false;
+    const char*       reason = "";
+    std::vector<Vec3> d;          // d[k] = C^(k)(u), size maxDeriv+1
+};
+struct SurfaceDerivEval {
+    bool                           ok = false;
+    const char*                    reason = "";
+    std::vector<std::vector<Vec3>> d;   // d[k][l] = d^(k+l)S/du^k dv^l
+};
+struct ScalarEval {
+    bool        ok = false;
+    const char* reason = "";
+    double      value = 0.0;
+};
+struct CurveEval {
+    bool        ok = false;
+    const char* reason = "";
+    NurbsCurve  curve;
+};
+
+// Checked form of curveDerivatives: refuses an internally inconsistent curve
+// (valid() == false) and a zero rational denominator. The raw form above
+// delegates to it and returns a maxDeriv+1 vector of quiet NaN on a refusal —
+// shape-correct, so an existing caller's d[1] cannot index out of range.
+CurveDerivEval curveDerivativesChecked(const NurbsCurve& curve, double u,
+                                       std::size_t maxDeriv);
+
+// Convenience: unit tangent T(u) = C'(u)/|C'(u)|.
 Vec3 curveTangent(const NurbsCurve& curve, double u);
+// Checked form: additionally refuses |C'| == 0 (a cusp), where the unit tangent
+// does not exist. A cusp is a legitimate property of a perfectly valid curve —
+// the refusal says "undefined here", not "your curve is malformed".
+PointEval curveTangentChecked(const NurbsCurve& curve, double u);
 
 // Convenience: signed-magnitude curvature kappa(u) = |C' x C''| / |C'|^3.
 // For a planar curve this is the usual (nonnegative) curvature; a unit circle
-// returns ~1. Asserts |C'| > 0.
+// returns ~1.
 double curveCurvature(const NurbsCurve& curve, double u);
+// Checked form: refuses |C'| == 0 (a cusp) rather than returning NaN.
+ScalarEval curveCurvatureChecked(const NurbsCurve& curve, double u);
 
 // THE curvature-from-derivatives expression, kappa = |d1 x d2| / |d1|^3, in ONE
 // place so every curve family shares it rather than restating it.
@@ -117,9 +162,17 @@ double curvatureFromDerivatives(const Vec3& d1, const Vec3& d2);
 std::vector<std::vector<Vec3>> surfaceDerivatives(
     const NurbsSurface& surf, double u, double v, std::size_t maxDeriv);
 
+// Checked form: refuses an internally inconsistent surface and a zero rational
+// denominator. The raw form returns a shape-correct table of quiet NaN.
+SurfaceDerivEval surfaceDerivativesChecked(const NurbsSurface& surf,
+                                           double u, double v,
+                                           std::size_t maxDeriv);
+
 // Convenience: unit surface normal n = (S_u x S_v)/|S_u x S_v|.
-// Asserts the cross product is nonzero (non-degenerate tangent plane).
 Vec3 surfaceNormal(const NurbsSurface& surf, double u, double v);
+// Checked form: additionally refuses |S_u x S_v| == 0 (a degenerate tangent
+// plane, e.g. at a pole), where the unit normal does not exist.
+PointEval surfaceNormalChecked(const NurbsSurface& surf, double u, double v);
 
 // ---------------------------------------------------------------------------
 // Boehm knot insertion (single knot, multiplicity +1).
@@ -135,6 +188,15 @@ Vec3 surfaceNormal(const NurbsSurface& surf, double u, double v);
 // see the header TARGETED notes.
 // ---------------------------------------------------------------------------
 NurbsCurve insertKnot(const NurbsCurve& curve, double u);
+
+// Checked form. Refuses (a) an internally inconsistent curve, (b) an existing
+// multiplicity >= degree, and (c) a zero homogeneous weight on a recomputed
+// control point. (b) is not a theoretical case: `insertKnot(c, c.knots.front())`
+// on an ordinary CLAMPED curve has multiplicity degree+1, and under NDEBUG the
+// unsigned `p - s` wrapped to SIZE_MAX and the algorithm indexed an
+// empty vector (MEASURED: SIGSEGV). The raw form returns a default-constructed
+// (valid() == false) NurbsCurve on a refusal rather than a fabricated one.
+CurveEval insertKnotChecked(const NurbsCurve& curve, double u);
 
 } // namespace brep
 } // namespace native

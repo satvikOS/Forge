@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <limits>
 
 namespace forge {
 namespace native {
@@ -67,6 +68,34 @@ inline double binom(std::size_t n, std::size_t k) {
         r = r * static_cast<double>(n - i) / static_cast<double>(i + 1);
     }
     return r;
+}
+
+// T-153: the exact conditions NurbsCurve::valid() / NurbsSurface::valid() test,
+// reported one at a time so a refusal names WHICH one failed. Returns nullptr
+// when the object is well-formed.
+const char* curveDefect(const NurbsCurve& c) {
+    if (c.controlPoints.empty())                  return "invalid curve: empty control points";
+    if (c.weights.size() != c.controlPoints.size()) return "invalid curve: weights count != control point count";
+    if (c.degree < 1)                             return "invalid curve: degree < 1";
+    if (c.knots.size() != c.controlPoints.size() + c.degree + 1)
+        return "invalid curve: knots.size() != controlPoints.size() + degree + 1";
+    return nullptr;
+}
+const char* surfaceDefect(const NurbsSurface& s) {
+    if (s.control.empty())                        return "invalid surface: empty control net";
+    if (s.control[0].empty())                     return "invalid surface: empty control row";
+    if (s.weights.size() != s.control.size())     return "invalid surface: weights row count != control row count";
+    const std::size_t nV = s.control[0].size();
+    for (std::size_t i = 0; i < s.control.size(); ++i) {
+        if (s.control[i].size() != nV)            return "invalid surface: ragged control net";
+        if (s.weights[i].size() != nV)            return "invalid surface: ragged weights net";
+    }
+    if (s.degreeU < 1 || s.degreeV < 1)           return "invalid surface: degreeU or degreeV < 1";
+    if (s.knotsU.size() != s.control.size() + s.degreeU + 1)
+        return "invalid surface: knotsU.size() != nU + degreeU + 1";
+    if (s.knotsV.size() != nV + s.degreeV + 1)
+        return "invalid surface: knotsV.size() != nV + degreeV + 1";
+    return nullptr;
 }
 
 } // namespace
@@ -165,8 +194,16 @@ std::vector<std::vector<double>> basisFunctionDerivatives(
 // points (Alg. A3.2 applied to homogeneous points), then
 //   C^{(k)} = ( A^{(k)} - sum_{i=1..k} C(k,i) w^{(i)} C^{(k-i)} ) / w.
 // ===========================================================================
-std::vector<Vec3> curveDerivatives(const NurbsCurve& curve, double u,
-                                   std::size_t maxDeriv) {
+CurveDerivEval curveDerivativesChecked(const NurbsCurve& curve, double u,
+                                       std::size_t maxDeriv) {
+    CurveDerivEval r;
+    // T-153 INPUT VALIDATION. Under NDEBUG an empty control-point list made
+    // `controlPoints.size() - 1` wrap to SIZE_MAX and the span search read off
+    // the end of the knot vector (MEASURED: SIGSEGV).
+    if (const char* why = curveDefect(curve)) {
+        r.reason = why;
+        return r;
+    }
     assert(curve.valid() && "curveDerivatives on invalid curve");
     const std::size_t p = curve.degree;
     const std::size_t du = std::min(maxDeriv, p); // beyond degree -> zero
@@ -195,17 +232,72 @@ std::vector<Vec3> curveDerivatives(const NurbsCurve& curve, double u,
             v = vsub(v, vscale(ck[k - i], binom(k, i) * CK[i].w));
         }
         const double w0 = CK[0].w;
+        // T-153: the check that ships. w0 is loop-invariant, so this refuses on
+        // the k == 0 pass before any NaN can be produced.
+        if (!(std::fabs(w0) > 0.0)) {
+            r.reason = "curveDerivatives: degenerate rational weight (denominator == 0)";
+            return r;
+        }
         assert(std::fabs(w0) > 0.0 && "degenerate rational weight (w == 0)");
         ck[k] = vscale(v, 1.0 / w0);
     }
-    return ck;
+    r.d = std::move(ck);
+    r.ok = true;
+    return r;
+}
+
+// Raw form: shape-correct quiet NaN on a refusal, so an existing caller's d[1]
+// / d[2] cannot index out of range (it used to CRASH instead).
+static std::vector<Vec3> refusedDerivs(std::size_t maxDeriv) {
+    const double qnan = std::numeric_limits<double>::quiet_NaN();
+    return std::vector<Vec3>(maxDeriv + 1, Vec3{qnan, qnan, qnan});
+}
+
+std::vector<Vec3> curveDerivatives(const NurbsCurve& curve, double u,
+                                   std::size_t maxDeriv) {
+    CurveDerivEval r = curveDerivativesChecked(curve, u, maxDeriv);
+    return r.ok ? std::move(r.d) : refusedDerivs(maxDeriv);
+}
+
+PointEval curveTangentChecked(const NurbsCurve& curve, double u) {
+    PointEval r;
+    const CurveDerivEval dv = curveDerivativesChecked(curve, u, 1);
+    if (!dv.ok) { r.reason = dv.reason; return r; }
+    const double s = vnorm(dv.d[1]);
+    // T-153: |C'| == 0 is a CUSP — a real property of a perfectly valid curve,
+    // reachable with caller-supplied control points (three coincident control
+    // points suffice). Under NDEBUG this divided by zero and returned NaN.
+    if (!(s > 0.0)) {
+        r.reason = "curveTangent: zero first derivative (cusp) — unit tangent undefined here";
+        return r;
+    }
+    assert(s > 0.0 && "curveTangent: zero first derivative (cusp)");
+    r.value = vscale(dv.d[1], 1.0 / s);
+    r.ok = true;
+    return r;
 }
 
 Vec3 curveTangent(const NurbsCurve& curve, double u) {
-    const auto d = curveDerivatives(curve, u, 1);
-    const double s = vnorm(d[1]);
-    assert(s > 0.0 && "curveTangent: zero first derivative (cusp)");
-    return vscale(d[1], 1.0 / s);
+    const PointEval r = curveTangentChecked(curve, u);
+    return r.ok ? r.value : refusedPoint();
+}
+
+ScalarEval curveCurvatureChecked(const NurbsCurve& curve, double u) {
+    ScalarEval r;
+    const CurveDerivEval dv = curveDerivativesChecked(curve, u, 2);
+    if (!dv.ok) { r.reason = dv.reason; return r; }
+    const double s = vnorm(dv.d[1]);
+    if (!(s > 0.0)) {
+        r.reason = "curveCurvature: zero first derivative (cusp) — curvature undefined here";
+        return r;
+    }
+    assert(s > 0.0 && "curveCurvature: zero first derivative (cusp)");
+    // REUSE the factored expression rather than a second copy of it: the
+    // helper returns 0.0 on |C'| == 0 and says the caller owns the cusp
+    // decision. This is that caller, and the refusal above is the decision.
+    r.value = curvatureFromDerivatives(dv.d[1], dv.d[2]);
+    r.ok = true;
+    return r;
 }
 
 // The expression itself, factored out so the ANALYTIC curve kinds in
@@ -220,9 +312,8 @@ double curvatureFromDerivatives(const Vec3& d1, const Vec3& d2) {
 }
 
 double curveCurvature(const NurbsCurve& curve, double u) {
-    const auto d = curveDerivatives(curve, u, 2);
-    assert(vnorm(d[1]) > 0.0 && "curveCurvature: zero first derivative (cusp)");
-    return curvatureFromDerivatives(d[1], d[2]);
+    const ScalarEval r = curveCurvatureChecked(curve, u);
+    return r.ok ? r.value : std::numeric_limits<double>::quiet_NaN();
 }
 
 // ===========================================================================
@@ -230,8 +321,15 @@ double curveCurvature(const NurbsCurve& curve, double u) {
 // (RatSurfaceDerivs, Alg. A4.4) built on A3.6 (homogeneous) then the 2D
 // Leibniz quotient rule.
 // ===========================================================================
-std::vector<std::vector<Vec3>> surfaceDerivatives(
+SurfaceDerivEval surfaceDerivativesChecked(
     const NurbsSurface& surf, double u, double v, std::size_t maxDeriv) {
+    SurfaceDerivEval r;
+    // T-153 INPUT VALIDATION. `surf.control[0]` on an empty net was an
+    // out-of-bounds read under NDEBUG (MEASURED: SIGSEGV).
+    if (const char* why = surfaceDefect(surf)) {
+        r.reason = why;
+        return r;
+    }
     assert(surf.valid() && "surfaceDerivatives on invalid surface");
     const std::size_t pu = surf.degreeU, pv = surf.degreeV;
     const std::size_t du = std::min(maxDeriv, pu);
@@ -267,6 +365,11 @@ std::vector<std::vector<Vec3>> surfaceDerivatives(
     std::vector<std::vector<Vec3>> skl(
         maxDeriv + 1, std::vector<Vec3>(maxDeriv + 1, Vec3{}));
     const double w0 = SKL[0][0].w;
+    // T-153: the check that ships — refuse before the 1.0/w0 below makes NaN.
+    if (!(std::fabs(w0) > 0.0)) {
+        r.reason = "surfaceDerivatives: degenerate rational weight (denominator == 0)";
+        return r;
+    }
     assert(std::fabs(w0) > 0.0 && "degenerate rational surface weight");
     for (std::size_t k = 0; k <= maxDeriv; ++k) {
         for (std::size_t l = 0; l + k <= maxDeriv; ++l) {
@@ -287,24 +390,58 @@ std::vector<std::vector<Vec3>> surfaceDerivatives(
             skl[k][l] = vscale(vv, 1.0 / w0);
         }
     }
-    return skl;
+    r.d = std::move(skl);
+    r.ok = true;
+    return r;
+}
+
+std::vector<std::vector<Vec3>> surfaceDerivatives(
+    const NurbsSurface& surf, double u, double v, std::size_t maxDeriv) {
+    SurfaceDerivEval r = surfaceDerivativesChecked(surf, u, v, maxDeriv);
+    if (r.ok) return std::move(r.d);
+    // Shape-correct quiet NaN so an existing caller's d[1][0] / d[0][1] cannot
+    // index out of range (it used to CRASH instead).
+    const double qnan = std::numeric_limits<double>::quiet_NaN();
+    return std::vector<std::vector<Vec3>>(
+        maxDeriv + 1, std::vector<Vec3>(maxDeriv + 1, Vec3{qnan, qnan, qnan}));
+}
+
+PointEval surfaceNormalChecked(const NurbsSurface& surf, double u, double v) {
+    PointEval r;
+    const SurfaceDerivEval dv = surfaceDerivativesChecked(surf, u, v, 1);
+    if (!dv.ok) { r.reason = dv.reason; return r; }
+    const Vec3 su = dv.d[1][0];
+    const Vec3 sv = dv.d[0][1];
+    const Vec3 nrm = vcross(su, sv);
+    const double s = vnorm(nrm);
+    // T-153: a degenerate tangent plane is a real property of a valid surface
+    // (a pole, a collapsed row). Under NDEBUG this divided by zero -> NaN.
+    if (!(s > 0.0)) {
+        r.reason = "surfaceNormal: degenerate tangent plane — unit normal undefined here";
+        return r;
+    }
+    assert(s > 0.0 && "surfaceNormal: degenerate tangent plane");
+    r.value = vscale(nrm, 1.0 / s);
+    r.ok = true;
+    return r;
 }
 
 Vec3 surfaceNormal(const NurbsSurface& surf, double u, double v) {
-    const auto d = surfaceDerivatives(surf, u, v, 1);
-    const Vec3 su = d[1][0];
-    const Vec3 sv = d[0][1];
-    const Vec3 nrm = vcross(su, sv);
-    const double s = vnorm(nrm);
-    assert(s > 0.0 && "surfaceNormal: degenerate tangent plane");
-    return vscale(nrm, 1.0 / s);
+    const PointEval r = surfaceNormalChecked(surf, u, v);
+    return r.ok ? r.value : refusedPoint();
 }
 
 // ===========================================================================
 // insertKnot — Boehm single-knot insertion (CurveKnotIns, Alg. A5.1), rational
 // (operates on homogeneous control points so the geometry is unchanged).
 // ===========================================================================
-NurbsCurve insertKnot(const NurbsCurve& curve, double u) {
+CurveEval insertKnotChecked(const NurbsCurve& curve, double u) {
+    CurveEval r;
+    // T-153 INPUT VALIDATION.
+    if (const char* why = curveDefect(curve)) {
+        r.reason = why;
+        return r;
+    }
     assert(curve.valid() && "insertKnot on invalid curve");
     const std::size_t p = curve.degree;
     const std::size_t np = curve.controlPoints.size(); // = n + 1
@@ -318,7 +455,23 @@ NurbsCurve insertKnot(const NurbsCurve& curve, double u) {
     std::size_t s = 0;
     for (double kn : curve.knots)
         if (kn == u) ++s;
+    // T-153: the check that ships. `s >= p` is NOT exotic — a CLAMPED curve has
+    // its first and last knot repeated degree+1 times, so insertKnot(c, 0.0) on
+    // an ordinary curve lands here. Under NDEBUG the unsigned `p - s` below
+    // wrapped to SIZE_MAX, `R(p - s + 1)` allocated a zero-length vector and
+    // `R[i]` indexed it (MEASURED: SIGSEGV).
+    if (!(s < p)) {
+        r.reason = "insertKnot: existing knot multiplicity already >= degree";
+        return r;
+    }
     assert(s < p && "insertKnot: knot multiplicity would reach the degree");
+    // The window arithmetic below also needs k >= p and k >= s (unsigned
+    // subtraction); both hold for a valid curve because findSpan clamps the
+    // span to [degree, n], and s < p <= k. Stated, not assumed.
+    if (k < p || k < s) {
+        r.reason = "insertKnot: parameter outside the curve's knot domain";
+        return r;
+    }
 
     // Homogeneous control points of the original curve.
     std::vector<Vec4> Pw(np);
@@ -369,11 +522,26 @@ NurbsCurve insertKnot(const NurbsCurve& curve, double u) {
     for (std::size_t i = 0; i < np + 1; ++i) {
         const Vec4& q = Qw[i];
         const double w = q.w;
+        // T-153: the check that ships — refuse rather than divide by zero.
+        if (!(std::fabs(w) > 0.0)) {
+            r.reason = "insertKnot: degenerate weight on a recomputed control point";
+            return r;
+        }
         assert(std::fabs(w) > 0.0 && "insertKnot: degenerate weight");
         out.controlPoints[i] = Vec3{q.x / w, q.y / w, q.z / w};
         out.weights[i] = w;
     }
-    return out;
+    r.curve = std::move(out);
+    r.ok = true;
+    return r;
+}
+
+// Raw form: a default-constructed NurbsCurve on a refusal. That curve reports
+// valid() == false, so anything downstream refuses in turn — an honest empty
+// result, never a fabricated one.
+NurbsCurve insertKnot(const NurbsCurve& curve, double u) {
+    CurveEval r = insertKnotChecked(curve, u);
+    return r.ok ? std::move(r.curve) : NurbsCurve{};
 }
 
 } // namespace brep

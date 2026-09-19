@@ -133,7 +133,7 @@ migration:
 | files including `forge/math/Vec3.hpp` | 18 |
 | of those, under `native/` | **10** |
 | `gp_Pnt` uses in `src/native/brep` | **625** |
-| `Vec3` uses there (now the canonical type) | **2450** |
+| `Vec3` uses there (now the canonical type) | **2462** |
 
 Vec3 HAD ten layout-identical declarations in ten namespaces, and the canonical
 forge/math/Vec3.hpp -- a superset of every one of them -- was included by no

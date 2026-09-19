@@ -36,6 +36,7 @@
 #define FORGE_NATIVE_BREP_PRIMITIVES_HPP
 
 #include <array>
+#include <string>
 #include <vector>
 
 #include "forge/native/brep/Topology.hpp"
@@ -62,6 +63,34 @@ public:
 
     TopologyBuilder& builder() { return tb_; }
     const TopologyBuilder& builder() const { return tb_; }
+
+    // ---------------------------------------------------------------------
+    // DECLINE CHANNEL (T-153).
+    //
+    // EVERY builder below now DECLINES — returns nullptr — on dimensions it
+    // cannot build, and `declineReason()` carries the why. This is not a new
+    // error channel: returning nullptr is the decline this class already
+    // documented for buildPrismFromProfile / buildRevolveProfile below, and
+    // FgCreateBox and friends already handle it (forge_capi.cpp:302,
+    // "primitive build returned null"). The reason string matches the kernel's
+    // defer(why) convention (NativeFilletChamfer.cpp:103).
+    //
+    // WHY IT CHANGED: each builder opened with an assert on its dimensions, and
+    // the product ships with -DNDEBUG, where those asserts are removed. MEASURED
+    // under NDEBUG before this change: buildBox(0, 10, 10) returned a 6-faced
+    // "solid" of zero thickness, buildBox(-5, 10, 10) a 6-faced solid of
+    // NEGATIVE extent, buildTorus(R=1, r=5) a self-intersecting 32-faced body,
+    // and buildPrism(n=0, 1, 1) a 2-faced body with no sides — all reported as
+    // success. The Node addon reaches every one of them with unvalidated
+    // JavaScript numbers (binding.cpp:752-760, exported as nativeMassProps /
+    // nativeTessellate at binding.cpp:6324-6325); only the C API validated.
+    //
+    // A non-finite dimension (NaN / inf) declines too: every predicate is
+    // written so NaN fails it.
+    //
+    // `declineReason()` is meaningful immediately after a builder returned
+    // nullptr; it is cleared at the start of every build call.
+    const std::string& declineReason() const { return declineReason_; }
 
     // --- analytic primitives (planar + quadric faces) ---------------------
     Solid* buildBox(double dx, double dy, double dz);
@@ -113,8 +142,12 @@ public:
                                double angleRad);
 
 private:
+    // Records `why` and returns nullptr — the decline helper for every builder.
+    Solid* decline(const char* why);
+
     PrimitiveOptions opt_;
     TopologyBuilder tb_;
+    std::string declineReason_;
 };
 
 } // namespace brep

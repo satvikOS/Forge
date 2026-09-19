@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <limits>
 
 namespace forge {
 namespace native {
@@ -27,14 +28,33 @@ struct Homog {
         z += p.z * wb;
         w += wb;
     }
-    Vec3 project() const {
-        // w is the accumulated rational denominator; for a valid NURBS with
-        // positive weights and a partition-of-unity basis it is strictly > 0.
+    // w is the accumulated rational denominator; for a valid NURBS with
+    // positive weights and a partition-of-unity basis it is strictly > 0.
+    //
+    // T-153: this was an assert on std::fabs(w) > 0.0, followed unconditionally by
+    // the division. Under -DNDEBUG (how the product ships) the assert is gone
+    // and the division produced NaN, which then travelled into the B-Rep. The
+    // `if` below is the check that SHIPS; the assert is kept beneath it purely
+    // to document the intent, and is now unreachable when the check fires.
+    // The division itself is untouched, so every w != 0 answer is bit-identical.
+    bool project(Vec3& out) const {
+        if (!(std::fabs(w) > 0.0)) return false;
         assert(std::fabs(w) > 0.0 && "degenerate rational weight (w == 0)");
-        return Vec3{x / w, y / w, z / w};
+        out = Vec3{x / w, y / w, z / w};
+        return true;
     }
 };
 } // namespace
+
+// ---------------------------------------------------------------------------
+// refusedPoint — the value the raw (unchecked) evaluators return on a refusal.
+// A quiet NaN, produced deliberately and identically everywhere, instead of the
+// undefined behaviour (out-of-bounds read, 0/0) those paths performed before.
+// ---------------------------------------------------------------------------
+Vec3 refusedPoint() {
+    const double qnan = std::numeric_limits<double>::quiet_NaN();
+    return Vec3{qnan, qnan, qnan};
+}
 
 // ---------------------------------------------------------------------------
 // findSpan — locate the knot span containing u.
@@ -104,8 +124,23 @@ bool NurbsCurve::valid() const {
     return true;
 }
 
-Vec3 NurbsCurve::evaluate(double u) const {
+PointEval NurbsCurve::evaluateChecked(double u) const {
+    PointEval r;
+    // T-153 INPUT VALIDATION. These are exactly the four conditions valid()
+    // tests, reported one at a time so the caller learns WHICH one failed.
+    // Without them, NDEBUG turned `controlPoints.empty()` into
+    // `controlPoints.size() - 1 == SIZE_MAX` and the evaluator read off the end
+    // of the knot vector (MEASURED: SIGSEGV).
+    if (controlPoints.empty())
+        { r.reason = "NurbsCurve::evaluate: empty control points"; return r; }
+    if (weights.size() != controlPoints.size())
+        { r.reason = "NurbsCurve::evaluate: weights count != control point count"; return r; }
+    if (degree < 1)
+        { r.reason = "NurbsCurve::evaluate: degree < 1"; return r; }
+    if (knots.size() != controlPoints.size() + degree + 1)
+        { r.reason = "NurbsCurve::evaluate: knots.size() != controlPoints.size() + degree + 1"; return r; }
     assert(valid() && "NurbsCurve::evaluate on invalid curve");
+
     const std::size_t n = controlPoints.size() - 1;
     const std::size_t span = findSpan(n, degree, u, knots);
     const std::vector<double> N = basisFunctions(span, u, degree, knots);
@@ -115,7 +150,18 @@ Vec3 NurbsCurve::evaluate(double u) const {
         const std::size_t idx = span - degree + i;
         acc.add(controlPoints[idx], weights[idx], N[i]);
     }
-    return acc.project();
+    if (!acc.project(r.value)) {
+        r.value = Vec3{};
+        r.reason = "NurbsCurve::evaluate: degenerate rational weight (denominator == 0)";
+        return r;
+    }
+    r.ok = true;
+    return r;
+}
+
+Vec3 NurbsCurve::evaluate(double u) const {
+    const PointEval r = evaluateChecked(u);
+    return r.ok ? r.value : refusedPoint();
 }
 
 // ---------------------------------------------------------------------------
@@ -137,8 +183,34 @@ bool NurbsSurface::valid() const {
     return true;
 }
 
-Vec3 NurbsSurface::evaluate(double u, double v) const {
+PointEval NurbsSurface::evaluateChecked(double u, double v) const {
+    PointEval r;
+    // T-153 INPUT VALIDATION — the conditions valid() tests, reported
+    // individually. `control.empty()` was the worst of them: NDEBUG let
+    // `control[0].size()` run on an empty vector (MEASURED: SIGSEGV).
+    if (control.empty())
+        { r.reason = "NurbsSurface::evaluate: empty control net"; return r; }
+    if (control[0].empty())
+        { r.reason = "NurbsSurface::evaluate: empty control row"; return r; }
+    if (weights.size() != control.size())
+        { r.reason = "NurbsSurface::evaluate: weights row count != control row count"; return r; }
+    {
+        const std::size_t nV0 = control[0].size();
+        for (std::size_t i = 0; i < control.size(); ++i) {
+            if (control[i].size() != nV0)
+                { r.reason = "NurbsSurface::evaluate: ragged control net"; return r; }
+            if (weights[i].size() != nV0)
+                { r.reason = "NurbsSurface::evaluate: ragged weights net"; return r; }
+        }
+    }
+    if (degreeU < 1 || degreeV < 1)
+        { r.reason = "NurbsSurface::evaluate: degreeU or degreeV < 1"; return r; }
+    if (knotsU.size() != control.size() + degreeU + 1)
+        { r.reason = "NurbsSurface::evaluate: knotsU.size() != nU + degreeU + 1"; return r; }
+    if (knotsV.size() != control[0].size() + degreeV + 1)
+        { r.reason = "NurbsSurface::evaluate: knotsV.size() != nV + degreeV + 1"; return r; }
     assert(valid() && "NurbsSurface::evaluate on invalid surface");
+
     const std::size_t nU = control.size();
     const std::size_t nV = control[0].size();
     const std::size_t spanU = findSpan(nU - 1, degreeU, u, knotsU);
@@ -154,15 +226,35 @@ Vec3 NurbsSurface::evaluate(double u, double v) const {
             acc.add(control[iu][iv], weights[iu][iv], Nu[a] * Nv[b]);
         }
     }
-    return acc.project();
+    if (!acc.project(r.value)) {
+        r.value = Vec3{};
+        r.reason = "NurbsSurface::evaluate: degenerate rational weight (denominator == 0)";
+        return r;
+    }
+    r.ok = true;
+    return r;
+}
+
+Vec3 NurbsSurface::evaluate(double u, double v) const {
+    const PointEval r = evaluateChecked(u, v);
+    return r.ok ? r.value : refusedPoint();
 }
 
 // ---------------------------------------------------------------------------
 // Bezier direct evaluators (de Casteljau on homogeneous coordinates).
 // ---------------------------------------------------------------------------
-Vec3 bezierCurvePoint(const std::vector<Vec3>& controlPoints,
-                      const std::vector<double>& weights,
-                      double t) {
+PointEval bezierCurvePointChecked(const std::vector<Vec3>& controlPoints,
+                                  const std::vector<double>& weights,
+                                  double t) {
+    PointEval r;
+    // T-153 INPUT VALIDATION. Both conditions were asserts, and both were an
+    // out-of-bounds READ under NDEBUG: the empty list crashed (SIGSEGV), the
+    // short weights list returned 4.31078e-314 — uninitialised heap presented
+    // as a coordinate. A wrong number is worse than a refusal.
+    if (controlPoints.empty())
+        { r.reason = "bezierCurvePoint: empty control points"; return r; }
+    if (weights.size() != controlPoints.size())
+        { r.reason = "bezierCurvePoint: weights count != control point count"; return r; }
     assert(!controlPoints.empty());
     assert(weights.size() == controlPoints.size());
     const std::size_t m = controlPoints.size();
@@ -183,13 +275,39 @@ Vec3 bezierCurvePoint(const std::vector<Vec3>& controlPoints,
             W[i] = (1.0 - t) * W[i] + t * W[i + 1];
         }
     }
+    if (!(std::fabs(W[0]) > 0.0))
+        { r.reason = "bezierCurvePoint: degenerate weight (denominator == 0)"; return r; }
     assert(std::fabs(W[0]) > 0.0 && "degenerate Bezier weight");
-    return Vec3{X[0] / W[0], Y[0] / W[0], Z[0] / W[0]};
+    r.value = Vec3{X[0] / W[0], Y[0] / W[0], Z[0] / W[0]};
+    r.ok = true;
+    return r;
 }
 
-Vec3 bezierSurfacePoint(const std::vector<std::vector<Vec3>>& control,
-                        const std::vector<std::vector<double>>& weights,
-                        double u, double v) {
+Vec3 bezierCurvePoint(const std::vector<Vec3>& controlPoints,
+                      const std::vector<double>& weights,
+                      double t) {
+    const PointEval r = bezierCurvePointChecked(controlPoints, weights, t);
+    return r.ok ? r.value : refusedPoint();
+}
+
+PointEval bezierSurfacePointChecked(const std::vector<std::vector<Vec3>>& control,
+                                    const std::vector<std::vector<double>>& weights,
+                                    double u, double v) {
+    PointEval r;
+    // T-153 INPUT VALIDATION. `!control.empty()` was the only assert here; the
+    // weights grid was read with NO guard of any kind, so a grid missing a row
+    // read past its end (MEASURED: SIGSEGV). Validating the grid shape is
+    // therefore part of removing the undefined behaviour the assert implied.
+    if (control.empty())
+        { r.reason = "bezierSurfacePoint: empty control grid"; return r; }
+    if (weights.size() != control.size())
+        { r.reason = "bezierSurfacePoint: weights row count != control row count"; return r; }
+    for (std::size_t i = 0; i < control.size(); ++i) {
+        if (control[i].empty())
+            { r.reason = "bezierSurfacePoint: empty control row"; return r; }
+        if (weights[i].size() != control[i].size())
+            { r.reason = "bezierSurfacePoint: weights row length != control row length"; return r; }
+    }
     assert(!control.empty());
     const std::size_t nU = control.size();
     // First de Casteljau along V for each U row, producing nU intermediate
@@ -237,8 +355,19 @@ Vec3 bezierSurfacePoint(const std::vector<std::vector<Vec3>>& control,
             W[i] = (1.0 - u) * W[i] + u * W[i + 1];
         }
     }
+    if (!(std::fabs(W[0]) > 0.0))
+        { r.reason = "bezierSurfacePoint: degenerate weight (denominator == 0)"; return r; }
     assert(std::fabs(W[0]) > 0.0 && "degenerate Bezier surface weight");
-    return Vec3{X[0] / W[0], Y[0] / W[0], Z[0] / W[0]};
+    r.value = Vec3{X[0] / W[0], Y[0] / W[0], Z[0] / W[0]};
+    r.ok = true;
+    return r;
+}
+
+Vec3 bezierSurfacePoint(const std::vector<std::vector<Vec3>>& control,
+                        const std::vector<std::vector<double>>& weights,
+                        double u, double v) {
+    const PointEval r = bezierSurfacePointChecked(control, weights, u, v);
+    return r.ok ? r.value : refusedPoint();
 }
 
 std::vector<double> bezierKnotVector(std::size_t degree) {

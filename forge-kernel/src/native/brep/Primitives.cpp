@@ -62,9 +62,35 @@ void attachCurvedFace(Face* f, Surface* s, double u0, double u1,
 } // namespace
 
 // ===========================================================================
+// T-153 — the decline helper. Every builder below validates its dimensions and
+// DECLINES (nullptr + reason) instead of relying on an assert that the shipped
+// -DNDEBUG build removes. Each `if` states exactly the condition its assert
+// stated, so any input the assert accepted is built bit-identically; the assert
+// is kept beneath the check to document the intent.
+// ===========================================================================
+Solid* SolidFactory::decline(const char* why) {
+    declineReason_ = why;
+    return nullptr;
+}
+
+namespace {
+// `inf > 0` is TRUE, so a positivity test alone lets an infinite dimension
+// through and every coordinate derived from it becomes inf or NaN. The C API
+// already refuses non-finite dimensions (forge_capi.cpp:313 `finite1`); the
+// builders must too, because the Node addon reaches them without that check.
+inline bool fin(double a) { return std::isfinite(a); }
+inline bool fin(double a, double b) { return fin(a) && fin(b); }
+inline bool fin(double a, double b, double c) { return fin(a, b) && fin(c); }
+inline bool fin(double a, double b, double c, double d) { return fin(a, b, c) && fin(d); }
+} // namespace
+
+// ===========================================================================
 // BOX — min corner at origin, [0,dx]x[0,dy]x[0,dz]. Six planar faces.
 // ===========================================================================
 Solid* SolidFactory::buildBox(double dx, double dy, double dz) {
+    declineReason_.clear();
+    if (!(fin(dx, dy, dz) && dx > 0 && dy > 0 && dz > 0))
+        return decline("buildBox: dx, dy and dz must each be > 0 and finite");
     assert(dx > 0 && dy > 0 && dz > 0);
     TopologyBuilder& tb = tb_;
     Vertex* v[8];
@@ -150,6 +176,10 @@ static void addPolyCap(TopologyBuilder& tb, Shell* shell,
 //   rT==0 collapses the top rim to a single apex vertex.
 // ===========================================================================
 Solid* SolidFactory::buildCone(double rB, double rT, double h) {
+    declineReason_.clear();
+    if (!(fin(h, rB, rT) && h > 0 && rB >= 0 && rT >= 0 && (rB > 0 || rT > 0)))
+        return decline("buildCone: need h > 0, rB >= 0, rT >= 0 and at least one radius > 0 "
+                       "(this is also buildCylinder(r,h), which routes through buildCone(r,r,h))");
     assert(h > 0 && rB >= 0 && rT >= 0 && (rB > 0 || rT > 0));
     TopologyBuilder& tb = tb_;
     const int N = opt_.nSeg;
@@ -210,6 +240,9 @@ Solid* SolidFactory::buildCone(double rB, double rT, double h) {
 }
 
 Solid* SolidFactory::buildCylinder(double r, double h) {
+    // A cylinder IS the equal-radius cone, so buildCone's validation (and its
+    // decline reason) covers it — this is why there are 9 dimension asserts for
+    // 10 builders.
     return buildCone(r, r, h);
 }
 
@@ -218,6 +251,8 @@ Solid* SolidFactory::buildCylinder(double r, double h) {
 // (phi in [0,pi]); top/bottom rows are triangle fans to the poles.
 // ===========================================================================
 Solid* SolidFactory::buildSphere(double r) {
+    declineReason_.clear();
+    if (!(fin(r) && r > 0)) return decline("buildSphere: r must be > 0 and finite");
     assert(r > 0);
     TopologyBuilder& tb = tb_;
     const int N = opt_.nSeg;
@@ -297,6 +332,10 @@ Solid* SolidFactory::buildSphere(double r) {
 // wrapping both ways => genus 1, chi = 0.
 // ===========================================================================
 Solid* SolidFactory::buildTorus(double R, double r) {
+    declineReason_.clear();
+    if (!(fin(R, r) && R > 0 && r > 0 && r < R))
+        return decline("buildTorus: need 0 < r < R (a minor radius >= the major radius is "
+                       "self-intersecting, not a torus)");
     assert(R > 0 && r > 0 && r < R);
     TopologyBuilder& tb = tb_;
     const int N = opt_.nSeg;          // around major (theta)
@@ -349,6 +388,9 @@ Solid* SolidFactory::buildTorus(double R, double r) {
 // REGULAR PRISM — n-gon circumradius R centred on Z, z in [0,h]. All planar.
 // ===========================================================================
 Solid* SolidFactory::buildPrism(int n, double R, double h) {
+    declineReason_.clear();
+    if (!(fin(R, h) && n >= 3 && R > 0 && h > 0))
+        return decline("buildPrism: need n >= 3 sides, R > 0 and h > 0");
     assert(n >= 3 && R > 0 && h > 0);
     TopologyBuilder& tb = tb_;
 
@@ -390,6 +432,9 @@ Solid* SolidFactory::buildPrism(int n, double R, double h) {
 // faces (two of them trapezoids/triangles). All planar.
 // ===========================================================================
 Solid* SolidFactory::buildWedge(double dx, double dy, double dz, double ltx) {
+    declineReason_.clear();
+    if (!(fin(dx, dy, dz, ltx) && dx > 0 && dy > 0 && dz > 0 && ltx >= 0 && ltx <= dx))
+        return decline("buildWedge: need dx, dy, dz > 0 and 0 <= ltx <= dx");
     assert(dx > 0 && dy > 0 && dz > 0 && ltx >= 0 && ltx <= dx);
     TopologyBuilder& tb = tb_;
     Solid* solid = tb.makeSolid();
@@ -438,6 +483,9 @@ Solid* SolidFactory::buildWedge(double dx, double dy, double dz, double ltx) {
 // planar face. This keeps every face a simple loop and the solid 2-manifold.
 // ===========================================================================
 Solid* SolidFactory::buildTube(double rO, double rI, double h) {
+    declineReason_.clear();
+    if (!(fin(rO, rI, h) && rO > rI && rI > 0 && h > 0))
+        return decline("buildTube: need 0 < rI < rO and h > 0");
     assert(rO > rI && rI > 0 && h > 0);
     TopologyBuilder& tb = tb_;
     const int N = opt_.nSeg;
@@ -522,6 +570,9 @@ Solid* SolidFactory::buildTube(double rO, double rI, double h) {
 // is an EXACT analytic (planar) solid.
 // ===========================================================================
 Solid* SolidFactory::buildPyramid(double dx, double dy, double h) {
+    declineReason_.clear();
+    if (!(fin(dx, dy, h) && dx > 0 && dy > 0 && h > 0))
+        return decline("buildPyramid: need dx > 0, dy > 0 and h > 0");
     assert(dx > 0 && dy > 0 && h > 0);
     TopologyBuilder& tb = tb_;
     Solid* solid = tb.makeSolid();
@@ -575,6 +626,9 @@ Solid* SolidFactory::buildPyramid(double dx, double dy, double h) {
 // grid vertices; the NURBS interpolates between them to < chord tol).
 // ===========================================================================
 Solid* SolidFactory::buildEllipsoid(double rx, double ry, double rz) {
+    declineReason_.clear();
+    if (!(fin(rx, ry, rz) && rx > 0 && ry > 0 && rz > 0))
+        return decline("buildEllipsoid: need rx > 0, ry > 0 and rz > 0");
     assert(rx > 0 && ry > 0 && rz > 0);
     TopologyBuilder& tb = tb_;
     const int N = opt_.nSeg;
