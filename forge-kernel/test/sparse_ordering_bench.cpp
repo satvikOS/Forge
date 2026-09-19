@@ -677,8 +677,13 @@ int main(int argc, char** argv) {
     // ---- 3 DOF/node structural (Fea.cpp / FeaExtras / FeaContact / dynamics) -
     if (gMarkdown)
         std::printf("\n---\n\n## 1. REAL FEA matrices — 3 DOF per node (structural)\n\n"
-                    "The `SparseLDLT` path of `src/Fea.cpp` (`solveStatic`, `solveModal`, "
-                    "`solveDynamic`), `src/FeaExtras.cpp` and `src/FeaContact.cpp`.\n");
+                    "The `SparseLDLT` call sites are `src/Fea.cpp` (`solveStatic` :1162, the "
+                    "modal shift-invert :1561, the Newmark effective operator :1539), "
+                    "`src/FeaExtras.cpp` (:238, :416, :700) and `src/FeaContact.cpp` "
+                    "(:398, :783, :1119). Note that `forge/native/fea/TransientDynamics.hpp` "
+                    "is NOT one of them despite its comments: `assembleKM` resizes K and M to "
+                    "DENSE n x n and the integrator factors densely. Only the `src/*.cpp` "
+                    "paths above reach the sparse solver.\n");
     else
         std::printf("== REAL FEA, 3 DOF/node (structural) ==\n");
 
@@ -699,10 +704,12 @@ int main(int argc, char** argv) {
     // ---- 1 DOF/node scalar (Emag / TransientThermal / ScalarElliptic) -------
     if (gMarkdown)
         std::printf("\n---\n\n## 2. REAL FEA matrices — 1 DOF per node (scalar)\n\n"
-                    "The `SparseLDLT` path of `src/Emag.cpp` and the "
-                    "`forge::native::fea::transient_thermal` / `scalar_elliptic` operators. "
-                    "Same meshes, one third the DOFs, and NO 3x supervariable structure — "
-                    "the hardest case for AMD.\n");
+                    "The `SparseLDLT` call sites are `src/Emag.cpp` :156 and :340 — the "
+                    "scalar Laplacian, one DOF per node, built here with the same "
+                    "`forge::native::fea::scalar_elliptic` element those paths use. "
+                    "(`transient_thermal` assembles the same element but factors DENSE, so it "
+                    "is not a sparse-solver call site.) Same meshes, one third the DOFs, and "
+                    "NO 3x supervariable structure — the hardest case for AMD.\n");
     else
         std::printf("\n== REAL FEA, 1 DOF/node (scalar) ==\n");
 
@@ -723,9 +730,9 @@ int main(int argc, char** argv) {
     // ---- the SparseLU path (MoldFlow / WeldingFea) -------------------------
     if (gMarkdown)
         std::printf("\n---\n\n## 3. The SparseLU path\n\n"
-                    "`src/MoldFlow.cpp` and `src/WeldingFea.cpp` factor with `la::SparseLU` "
-                    "(Gilbert-Peierls, partial pivoting), whose COLUMN pre-ordering is the "
-                    "same helper. Fill here is nnz(L)+nnz(U). Measured on the real scalar "
+                    "`src/MoldFlow.cpp` :237 and `src/WeldingFea.cpp` :263 are the only two "
+                    "`la::SparseLU` call sites in the tree; they factor with Gilbert-Peierls "
+                    "and partial pivoting, and their COLUMN pre-ordering is the same helper. Fill here is nnz(L)+nnz(U). Measured on the real scalar "
                     "matrices because LU with partial pivoting is far more expensive than "
                     "LDLT and these keep the run inside a CI budget.\n\n"
                     "**A regression lives in this section, and it is not being hidden.** On "
