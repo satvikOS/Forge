@@ -1268,7 +1268,7 @@ jobs:
         run: |
           bash forge-kernel/scripts/occt_closure_count.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --assert-closure 14 --assert-direct 8 --assert-symbols 507
+            --assert-closure 14 --assert-direct 8 --assert-symbols 499
       # ── AND THE GATE THAT WAS WRITTEN FOR THIS AND NEVER CALLED ────────────────
       # The comment above states the hole and does not close it: PHANTOM is still
       # unguarded, and forge-kernel/scripts/tkoffset_ledger_gate.sh -- which carries
@@ -1338,13 +1338,36 @@ jobs:
         # --max-symbols / --max-closure / --max-phantom track the ratchet above and
         # are MAIN's already-measured values, carried through this merge unchanged.
         #
-        # ★ --max-tkoffset: THIS BRANCH PROPOSED 42 -> 38 AND THAT NUMBER IS STALE.
-        #   Family A was measured against a 42-symbol ledger. Main has since moved
-        #   the same ceiling to 29 (T-146/T-147/T-151 era), so taking this branch's
-        #   38 would RAISE a ceiling and hand back eleven symbols of slack. The
-        #   merged value below is the number MEASURED on the addon built from this
-        #   merged tree, and the ledger diff (departures AND arrivals) is recorded
-        #   in the merge commit.
+        # ★ --max-tkoffset 29 -> 25 and --max-symbols 507 -> 499, BOTH MEASURED on an
+        #   addon built from this merged tree (forge-kernel.node, Release, all drop
+        #   options at their defaults -- NOT the dylib, which this build does not
+        #   emit, and not a configuration with a family flag forced ON).
+        #
+        #   This branch proposed --max-tkoffset 38 and that number is STALE: family A
+        #   measured itself against a 42-symbol ledger, and main has since moved the
+        #   same ceiling to 29, so taking 38 would RAISE a ceiling.
+        #
+        #   THE LEDGER DIFF, BOTH DIRECTIONS (nm -u addon INTERSECT nm -gU libTK*,
+        #   per symbol, base 6d70a777 vs this tree):
+        #     DEPARTURES 4, all TKOffset, all family A:
+        #       BRepOffsetAPI_MakeOffset::Init / ::Perform / ::ctor(Wire,JoinType,bool)
+        #       and vtable for BRepOffsetAPI_MakeOffset
+        #     ARRIVALS 0. Every other toolkit is byte-for-byte unmoved --
+        #       TKG3d 135, TKTopAlgo 112, TKBRep 89, TKMath 32, TKBO 32, TKernel 26,
+        #       TKG2d 25, TKShHealing 12, TKFillet 11 on BOTH binaries.
+        #   That last line is the check #245 needed and did not do: its TKOffset -13
+        #   was really -11, because TKTopAlgo went +2. Here TKOffset -4 IS -4.
+        #   Cam.cpp's OCCT includes go 21 -> 22 (the exact-circle path adds
+        #   BRepBuilderAPI_MakeEdge and gp_Circ) and that cost ZERO symbols: both were
+        #   already undefined symbols of the baseline, named by other owners.
+        #
+        #   NOT VACUOUS, and the controls were run rather than assumed:
+        #     this tree  at 25 / 499 -> rc 0        at 24 or 498 -> rc 1
+        #     the BASELINE addon at 25 / 499 -> rc 1, naming TKOffset 29 and
+        #     OCCT_SYMBOLS 503 -- so the ratchet measures THIS work, not drift.
+        #   4 of the 8 symbols come off pre-existing slack (main MEASURED 503 against
+        #   its own 507 ceiling); 4 are earned here. Both ceilings govern the same
+        #   artifact, so they move together.
         #
         # The second command is the control that makes the ceiling mean anything:
         # the script used to leave the count at 0 whenever libTKOffset.7.9.dylib was
@@ -1354,10 +1377,10 @@ jobs:
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 507
+            --max-closure 14 --max-phantom 2 --max-tkoffset 25 --max-symbols 499
           set +e
           OCCT_LIB_DIR="$(mktemp -d)" bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
-            forge-kernel/build/Release/forge-kernel.node --max-tkoffset 29
+            forge-kernel/build/Release/forge-kernel.node --max-tkoffset 25
           rc=$?
           set -e
           if [ "$rc" != "2" ]; then
