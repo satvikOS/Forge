@@ -450,6 +450,19 @@ list. Both are stated here rather than left to be discovered.
 
    **The OCCT-removal programme's number is the KERNEL bucket, and this work does not move it.**
 
+3. **`implementation/sacrosanct/archie_op_vocabulary.json`** — re-pinned. It carries a
+   sha256/bytes/lines triple for each of the 9 sources it is derived from, and
+   `forge-kernel/CMakeLists.txt` is one; the 24 lines of gate registration drifted the pin and
+   `kernel-tests.yml`'s *Archie op vocabulary is still what the sources imply* went red.
+   **Nothing semantic moved**: the regenerated file differs by exactly those three lines, and
+   the generator reports `65 user-invocable ops, 3 forbidden, 104 commands` on both sides. No op
+   added, removed or renamed.
+
+The tree was then swept for any *other* artefact pinned to a file this branch touches, by
+grepping for the pre-change sha256 of each — `CMakeLists.txt`, `StepAnalytic.cpp`,
+`StepAnalytic.hpp`, `gate_registration_ratchet.sh`, `OCCT_REMOVAL_TRACKER.md`: **no other pin
+anywhere**, so the list above is closed rather than the front of a queue.
+
 Every other check in `gate-registration.yml` was run locally and is green:
 `occt_dependency_graph.py --check`, `occt_header_reach_check.py` (`--selftest`,
 `--report-shipped`), `shell_gate_registration_ratchet.sh`, `topology_honesty_gate.py`,
