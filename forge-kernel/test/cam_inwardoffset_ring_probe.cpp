@@ -135,8 +135,15 @@ int main(int argc, char** argv) {
         }
 
         const char* base = std::strrchr(argv[i], '/'); base = base ? base + 1 : argv[i];
-        const double signedDist = loop.isCCW() ? -d : d;
+        // Kept in step with the shipped src/Cam.cpp: inward is d<0 for BOTH
+        // windings (the old `loop.isCCW() ? -d : d` was backwards for a CW loop
+        // and is fixed there), and the join tessellation is pinned to the input
+        // sampling budget rather than left to the engine's |d|-proportional
+        // default. A probe that models a different rule from the function it
+        // probes reports on nothing.
+        const double signedDist = -d;
         OffsetOptions opts;
+        opts.arcTolerance = kOffsetInputDeflection;
         OffsetResult r = PolygonOffset2D::offsetLoop(loop, signedDist, opts);
         double minx = 0, maxx = 0, miny = 0, maxy = 0;
         if (!loop.pts.empty()) {

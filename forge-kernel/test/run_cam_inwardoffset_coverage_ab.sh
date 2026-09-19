@@ -7,13 +7,20 @@
 # sweep ... with the option ON and show native defers <= the OCCT baseline rate".
 # The corpus that sweep used (data/forge/complex_all.jsonl) is not in the tree,
 # and cam::inwardOffset is only reachable through the JS binding, so this builds
-# TWO BINARIES of test/cam_inwardoffset_coverage_ab.cpp — one WITHOUT the drop
-# macro (OCCT BRepOffsetAPI_MakeOffset, the baseline) and one WITH it (native
-# PolygonOffset2D only) — and runs both over the same 600 STEP parts.
+# TWO BINARIES of test/cam_inwardoffset_coverage_ab.cpp and runs both over the
+# same 600 STEP parts.
+#
+# UPDATED 2026-09-14 (TKOffset family A). The arms used to be separated by
+# -DFORGE_OFFSET_DROP_MAKEOFFSET. The OCCT branch is now DELETED from src/Cam.cpp
+# rather than gated — that is what removes the four symbols — so the macro selects
+# nothing and both binaries would be identical. The arms are now:
+#   occt   : -DFORGE_AB_ARM_OCCT, the deleted OCCT block held verbatim in
+#            test/cam_family_a_occt_oracle.hpp — the baseline
+#   native : the shipped forge::cam::inwardOffset
 #
 # ★ THE ARMS ARE PROVED TO DIFFER, twice, before any number is believed: `cmp`
 #   on the two binaries, and `nm -u | grep BRepOffsetAPI_MakeOffset`, which must
-#   report 4 symbols for the stock arm and 0 for the drop arm. A flag that CMake
+#   report 4 symbols for the occt arm and 0 for the native arm. A flag that CMake
 #   or the compiler silently ignored would otherwise produce two identical arms
 #   and a meaningless "no difference".
 #
@@ -52,9 +59,9 @@ if [ ! -f "$LIBNAT" ]; then
 fi
 [ -f "$LIBNAT" ] || { echo "FATAL: no $LIBNAT — a gate that cannot build cannot fail" >&2; exit 1; }
 
-build_arm() {   # $1 = stock|drop
+build_arm() {   # $1 = occt|native
   local arm="$1" extra="" obj="$OUTDIR/obj-$1" objs=""
-  [ "$arm" = "drop" ] && extra="-DFORGE_OFFSET_DROP_MAKEOFFSET=1"
+  [ "$arm" = "occt" ] && extra="-DFORGE_AB_ARM_OCCT=1"
   mkdir -p "$obj"
   local flags="-std=c++20 -O2 -DFORGE_NATIVE_BREP $extra"
   local src o
@@ -76,26 +83,27 @@ build_arm() {   # $1 = stock|drop
     echo "LINK FAILED ($arm)" >&2; tail -30 "$obj/link.err" >&2; return 1; }
 }
 
-build_arm stock || exit 1
-build_arm drop  || exit 1
+build_arm occt   || exit 1
+build_arm native || exit 1
 
 # ── PROVE THE ARMS DIFFER (a null A/B usually means one binary compared to itself)
-if cmp -s "$OUTDIR/cam_offset_stock" "$OUTDIR/cam_offset_drop"; then
-  echo "FATAL: the two arms are BYTE-IDENTICAL — the drop macro did nothing." >&2
+if cmp -s "$OUTDIR/cam_offset_occt" "$OUTDIR/cam_offset_native"; then
+  echo "FATAL: the two arms are BYTE-IDENTICAL — the arm macro did nothing." >&2
   exit 3
 fi
-NS="$(nm -u "$OUTDIR/cam_offset_stock" 2>/dev/null | grep -c BRepOffsetAPI_MakeOffset)"
-ND="$(nm -u "$OUTDIR/cam_offset_drop"  2>/dev/null | grep -c BRepOffsetAPI_MakeOffset)"
-echo "[cam-offset-ab] BRepOffsetAPI_MakeOffset undefined symbols: stock=$NS drop=$ND"
+NS="$(nm -u "$OUTDIR/cam_offset_occt"   2>/dev/null | grep -c BRepOffsetAPI_MakeOffset)"
+ND="$(nm -u "$OUTDIR/cam_offset_native" 2>/dev/null | grep -c BRepOffsetAPI_MakeOffset)"
+echo "[cam-offset-ab] BRepOffsetAPI_MakeOffset undefined symbols: occt=$NS native=$ND"
 if [ "$NS" != "4" ] || [ "$ND" != "0" ]; then
-  echo "FATAL: expected stock=4 drop=0. The drop macro is not doing what it claims." >&2
+  echo "FATAL: expected occt=4 native=0. The arm macro is not doing what it claims," >&2
+  echo "       or src/Cam.cpp still references TKOffset." >&2
   exit 3
 fi
 
 LC_ALL=C find "$CORPUS" -maxdepth 1 -name '*.step' | LC_ALL=C sort > "$OUTDIR/corpus.list"
 N="$(wc -l < "$OUTDIR/corpus.list" | tr -d ' ')"
 echo "[cam-offset-ab] $N parts"
-for arm in stock drop; do
+for arm in occt native; do
   # shellcheck disable=SC2046
   "$OUTDIR/cam_offset_$arm" $(cat "$OUTDIR/corpus.list") > "$OUTDIR/$arm.txt" 2>"$OUTDIR/$arm.err"
   echo "[cam-offset-ab] $arm: $(tail -1 "$OUTDIR/$arm.txt")"
@@ -116,12 +124,12 @@ awk 'FNR==NR { if ($2=="OK"||$2=="DEFER") a[$1]=$2; next }
      END {
        no=split(natonly,x," "); oo=split(occtonly,y," ")
        printf "\nparts %d\n", n
-       printf "  OCCT baseline (stock) ok %d = %.1f%%\n", ao, 100*ao/n
-       printf "  native (drop)         ok %d = %.1f%%\n", bo, 100*bo/n
+       printf "  OCCT baseline (oracle) ok %d = %.1f%%\n", ao, 100*ao/n
+       printf "  native (shipped)       ok %d = %.1f%%\n", bo, 100*bo/n
        printf "  both %d   native-only %d   OCCT-only (the deletion bucket) %d   neither %d\n", both, no, oo, neither+0
        if (oo) printf "  OCCT-only parts:%s\n", occtonly
        if (no) printf "  native-only parts:%s\n", natonly
        printf "  rate clause: %s\n", (bo>=ao ? "PASS (native >= baseline)" : "FAIL")
        printf "  Law 9 clause: %s\n", (oo==0 ? "PASS (deletion bucket empty)" : "FAIL (capability would be deleted on those parts)")
-     }' "$OUTDIR/stock.txt" "$OUTDIR/drop.txt" | tee "$OUTDIR/summary.txt"
+     }' "$OUTDIR/occt.txt" "$OUTDIR/native.txt" | tee "$OUTDIR/summary.txt"
 exit 0

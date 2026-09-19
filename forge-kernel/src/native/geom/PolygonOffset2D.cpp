@@ -443,8 +443,20 @@ std::vector<Loop2> PolygonOffset2D::cleanRawLoop(const Loop2& raw,
                 const Point2& X = si.point;
                 double ti = paramOnSeg(segs[i].a, segs[i].b, X);
                 double tj = paramOnSeg(segs[j].a, segs[j].b, X);
-                if (ti > 1e-9 && ti < 1.0 - 1e-9) splits[i].push_back({ti, X});
-                if (tj > 1e-9 && tj < 1.0 - 1e-9) splits[j].push_back({tj, X});
+                // The guard is only "strictly between the end points", not a
+                // PARAMETRIC margin. A margin of 1e-9 of the segment is an
+                // absolute length that grows with the segment: on a 1800 mm side
+                // it is 1.8e-6 mm, and the crossing of that side with the first
+                // chord of a fillet offset inward by 0.005 mm sits 1.1e-6 mm from
+                // the side's end (measured 2026-09-15, 2000 x 1000 mm rounded
+                // rectangle, f = 200). The long side was then NOT split while the
+                // short chord was, the corner's ear never closed into a sub-chain
+                // the excision below can see, and the offset was reported as a
+                // total collapse. A crossing close to an end point needs no
+                // special case: it is welded to that end point's node by the
+                // same snapDist every other vertex is.
+                if (ti > 0.0 && ti < 1.0) splits[i].push_back({ti, X});
+                if (tj > 0.0 && tj < 1.0) splits[j].push_back({tj, X});
             }
         }
     }
@@ -517,10 +529,72 @@ std::vector<Loop2> PolygonOffset2D::cleanRawLoop(const Loop2& raw,
     {
         std::vector<int> occ(nodes.size(), 0);
         for (std::size_t i = 0; i < R; ++i) ++occ[nid[i]];
-        // Start the walk at a node visited exactly once, so no sub-chain can
-        // straddle the seam. If every node repeats, leave the ring untouched.
+        // Start the walk where no SHORT closed sub-chain can straddle the seam.
+        //
+        // A node visited exactly once is NOT enough, and that was a defect
+        // (measured 2026-09-15 on a 1400 x 700 mm rounded rectangle offset
+        // inward by 0.05 mm): the ring's first vertex is the offset START of
+        // edge 0, which is the Q of the convergent corner where the last edge
+        // meets the first -- visited once, yet strictly INSIDE the sub-chain
+        // X -> P -> Q -> X. Walking from Q splits that chain across the seam,
+        // so X's second visit sees the whole ring between its two visits, the
+        // flat ear is never excised, and P (in 2 / out 0) and Q (in 0 / out 2)
+        // leave the only boundary walk dead-ended: a feasible offset reported
+        // as a total collapse. It depends only on WHERE the source ring starts,
+        // which is why the refusals did not get monotonically rarer with a
+        // smaller tool.
+        //
+        // The rule: between two consecutive visits of a node the ring closes a
+        // sub-chain, and every such sub-chain no longer than half the ring has
+        // its interior positions AND its closing position marked COVERED. The
+        // walk starts at the first uncovered position. Starting inside a chain
+        // splits it across the seam; starting at its CLOSING visit does too
+        // (the walk would record that visit first and meet the opening one only
+        // at the far end, with the whole ring in between); starting at its
+        // OPENING visit is exactly right, because the chain then closes
+        // contiguously a few steps later. The start need not be a node visited
+        // once: on a convex outline offset inward EVERY vertex is either a
+        // crossing X (visited twice) or the P / Q of the ear around it (inside
+        // that ear), so "visited once" left no safe candidate at all, and the
+        // old fallback to position 0 was the Q of the seam's ear. (Of the arcs a
+        // repeated node cuts the ring into, at most one is longer than half of
+        // it, so only that arc is left unmarked, and the long way round is never
+        // a chain the flatness test could excise anyway.) If every position is
+        // covered the first once-visited node is used, which is what this code
+        // did before; if there is none either the ring is left untouched.
+        std::vector<int> coverDelta(R + 1, 0);
+        {
+            std::vector<long long> firstAt(nodes.size(), -1), prevAt(nodes.size(), -1);
+            auto cover = [&](std::size_t from, std::size_t to) {   // cyclic, (from, to]
+                const std::size_t len = (to + R - from) % R;          // steps from -> to
+                if (len < 2 || 2 * len > R) return;                   // nothing inside, or the long arc
+                const std::size_t a = (from + 1) % R;                 // first interior position
+                const std::size_t b = to;                             // the closing visit
+                if (a <= b) { ++coverDelta[a]; --coverDelta[b + 1]; }
+                else        { ++coverDelta[a]; --coverDelta[R]; ++coverDelta[0]; --coverDelta[b + 1]; }
+            };
+            for (std::size_t i = 0; i < R; ++i) {
+                const int nd = nid[i];
+                if (occ[nd] < 2) continue;
+                if (prevAt[nd] >= 0) cover(static_cast<std::size_t>(prevAt[nd]), i);
+                else firstAt[nd] = static_cast<long long>(i);
+                prevAt[nd] = static_cast<long long>(i);
+            }
+            for (std::size_t k = 0; k < nodes.size(); ++k)       // the wrap-around pair
+                if (occ[k] >= 2) cover(static_cast<std::size_t>(prevAt[k]),
+                                       static_cast<std::size_t>(firstAt[k]));
+        }
         std::size_t start = R;
-        for (std::size_t i = 0; i < R; ++i) if (occ[nid[i]] == 1) { start = i; break; }
+        {
+            std::size_t firstOnce = R;
+            int covered = 0;
+            for (std::size_t i = 0; i < R; ++i) {
+                covered += coverDelta[i];
+                if (covered == 0) { start = i; break; }
+                if (firstOnce == R && occ[nid[i]] == 1) firstOnce = i;
+            }
+            if (start == R) start = firstOnce;
+        }
         if (start < R) {
             std::vector<Point2> keepPt;
             std::vector<int>    keepNid;

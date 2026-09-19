@@ -1131,6 +1131,18 @@ jobs:
         run: |
           grep -h OCC_VERSION_COMPLETE \
             /opt/homebrew/opt/opencascade/include/opencascade/Standard_Version.hxx || true
+      - name: CAM inward offset keeps the tool-radius standoff at EVERY scale (1e-3..1e3 mm, 7 mutations)
+        # TKOffset family A replaced BRepOffsetAPI_MakeOffset in src/Cam.cpp with the
+        # native PolygonOffset2D behind a clearance post-condition. An adversarial
+        # review refuted that post-condition BY SCALE: its slack was an ABSOLUTE
+        # 0.0125 mm, so a 0.008 mm square with a 0.012 mm tool radius came back as a
+        # toolpath with ZERO standoff, reported as success. A gouging toolpath is
+        # physical damage. This gate drives the PUBLIC cam::profile / cam::pocket over
+        # squares, an L, discs (both CW constructions) and a stadium at 13 scales and
+        # two positions, and measures every cutting segment against the EXACT source
+        # boundary; --mutations puts each repair back and requires the matching RED.
+        # Needs only OCCT (installed above) and clang: no kernel build, no corpus.
+        run: bash forge-kernel/test/run_cam_offset_scale_gate.sh --mutations
       - name: Install root deps (cmake-js, node-addon-api)
         run: npm install --no-audit --no-fund --ignore-scripts
       - name: Configure + build native kernel (.node)
@@ -1256,7 +1268,7 @@ jobs:
         run: |
           bash forge-kernel/scripts/occt_closure_count.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --assert-closure 14 --assert-direct 8 --assert-symbols 507
+            --assert-closure 14 --assert-direct 8 --assert-symbols 499
       # ── AND THE GATE THAT WAS WRITTEN FOR THIS AND NEVER CALLED ────────────────
       # The comment above states the hole and does not close it: PHANTOM is still
       # unguarded, and forge-kernel/scripts/tkoffset_ledger_gate.sh -- which carries
@@ -1323,24 +1335,60 @@ jobs:
           BIN="$(bash forge-kernel/test/build_curve_kind_ab_probe.sh | sed -n 's/^BIN=//p')"
           "$BIN"
       - name: OCCT ledger gate — closure, PHANTOM and TKOffset symbols
-        # --max-symbols tracks the ratchet above: 539 -> 532 (T-146, the six
-        # Geom_*::get_type_descriptor symbols plus Standard_Transient::IsKind).
-        # Both ceilings govern the SAME artifact, so leaving this one at 539 would
-        # have kept seven symbols of slack in the gate that exists to remove it.
+        # --max-closure 14 and --max-phantom 2 are MAIN's already-measured values,
+        # carried through this merge unchanged: neither moved on this work.
+        # --max-symbols tracks the --assert-symbols ratchet above, and both moved.
         #
-        # ★ --max-symbols 539 -> 514, T-147, same measurement as the step above and
-        #   on the same artifact. --max-tkoffset stays 29: the census shows TKOffset
-        #   unmoved (the 25 that left are 14 TKBRep + 11 TKG3d and nothing else), and
-        #   lowering a ceiling no work earned is how a later honest change gets
-        #   blamed for a red gate.
-        #   After the merge it tracks the ratchet above at the MEASURED merged
-        #   number. --max-tkoffset stays 29 on both sides: neither change moved
-        #   TKOffset, and lowering a ceiling no work earned is how a later honest
-        #   change gets blamed for a red gate.
+        # ★ --max-tkoffset 29 -> 25 and --max-symbols 507 -> 499, BOTH MEASURED on an
+        #   addon built from this merged tree (forge-kernel.node, Release, all drop
+        #   options at their defaults -- NOT the dylib, which this build does not
+        #   emit, and not a configuration with a family flag forced ON).
+        #
+        #   This branch proposed --max-tkoffset 38 and that number is STALE: family A
+        #   measured itself against a 42-symbol ledger, and main has since moved the
+        #   same ceiling to 29, so taking 38 would RAISE a ceiling.
+        #
+        #   THE LEDGER DIFF, BOTH DIRECTIONS (nm -u addon INTERSECT nm -gU libTK*,
+        #   per symbol, base 6d70a777 vs this tree):
+        #     DEPARTURES 4, all TKOffset, all family A:
+        #       BRepOffsetAPI_MakeOffset::Init / ::Perform / ::ctor(Wire,JoinType,bool)
+        #       and vtable for BRepOffsetAPI_MakeOffset
+        #     ARRIVALS 0. Every other toolkit is byte-for-byte unmoved --
+        #       TKG3d 135, TKTopAlgo 112, TKBRep 89, TKMath 32, TKBO 32, TKernel 26,
+        #       TKG2d 25, TKShHealing 12, TKFillet 11 on BOTH binaries.
+        #   That last line is the check #245 needed and did not do: its TKOffset -13
+        #   was really -11, because TKTopAlgo went +2. Here TKOffset -4 IS -4.
+        #   Cam.cpp's OCCT includes go 21 -> 22 (the exact-circle path adds
+        #   BRepBuilderAPI_MakeEdge and gp_Circ) and that cost ZERO symbols: both were
+        #   already undefined symbols of the baseline, named by other owners.
+        #
+        #   NOT VACUOUS, and the controls were run rather than assumed:
+        #     this tree  at 25 / 499 -> rc 0        at 24 or 498 -> rc 1
+        #     the BASELINE addon at 25 / 499 -> rc 1, naming TKOffset 29 and
+        #     OCCT_SYMBOLS 503 -- so the ratchet measures THIS work, not drift.
+        #   4 of the 8 symbols come off pre-existing slack (main MEASURED 503 against
+        #   its own 507 ceiling); 4 are earned here. Both ceilings govern the same
+        #   artifact, so they move together.
+        #
+        # The second command is the control that makes the ceiling mean anything:
+        # the script used to leave the count at 0 whenever libTKOffset.7.9.dylib was
+        # not found (OCCT_LIB_DIR=/nonexistent printed "TKOffset syms = 0 ... PASS",
+        # rc 0, on a 42-symbol binary). With no library it must now REFUSE, exit 2.
+        shell: bash
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 507
+            --max-closure 14 --max-phantom 2 --max-tkoffset 25 --max-symbols 499
+          set +e
+          OCCT_LIB_DIR="$(mktemp -d)" bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
+            forge-kernel/build/Release/forge-kernel.node --max-tkoffset 25
+          rc=$?
+          set -e
+          if [ "$rc" != "2" ]; then
+            echo "::error::tkoffset_ledger_gate.sh with no libTKOffset exited $rc, not 2 — an unmeasured TKOffset count can pass the ceiling"
+            exit 1
+          fi
+          echo "control: no libTKOffset -> exit 2 (refused, not a fake 0)"
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Physics validation gates (known-answer, against textbook closed forms)

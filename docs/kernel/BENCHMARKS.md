@@ -202,9 +202,19 @@ score. Three steps in the `kernel` job defend it, in this order:
 
 | step | script | assertion |
 |---|---|---|
-| `OCCT ledger ratchet (CLOSURE is the number; DIRECT is gameable)` | `forge-kernel/scripts/occt_closure_count.sh` | `--assert-closure 14 --assert-direct 9` |
+| `OCCT ledger ratchet (CLOSURE is the number; DIRECT is gameable)` | `forge-kernel/scripts/occt_closure_count.sh` | `--assert-closure 14 --assert-direct 8 --assert-symbols 499` |
 | `OCCT libraries actually RESOLVE (the ledger number cannot be faked)` | `forge-kernel/test/occt_lib_resolution_gate.sh` | the closure is not fabricated by a missing library |
-| `OCCT ledger gate — closure, PHANTOM and TKOffset symbols` | `forge-kernel/scripts/tkoffset_ledger_gate.sh` | `--max-closure 14 --max-phantom 2 --max-tkoffset 42` |
+| `OCCT ledger gate — closure, PHANTOM and TKOffset symbols` | `forge-kernel/scripts/tkoffset_ledger_gate.sh` | `--max-closure 14 --max-phantom 2 --max-tkoffset 25 --max-symbols 499` |
+
+★ TKOffset's ceiling here has been wrong twice, in opposite directions, so the
+history is worth keeping: 42 was the pre-family-A number, TKOffset family A
+lowered it to 38 against that baseline, and #245 then took main to 29 — which
+made "38" a ceiling that would have been RAISED, not lowered, by merging family
+A. The value above is MEASURED on an addon built from the merged tree, and its
+controls are recorded in the workflow step's own comment. Quote a number here
+only after re-reading the workflow; this table has drifted from it before (it
+carried `--assert-direct 9` while the workflow asserted 8, and omitted
+`--assert-symbols` entirely).
 
 The middle one runs before the ceilings for a measured reason recorded in its
 own header: the closure is a BFS that expands a dependency only if it resolves
@@ -217,15 +227,19 @@ MEASURED here against `forge-kernel/build/Release/forge-kernel.node` (the binary
 built in this worktree; OCCT 7.9.3 per the bench banner):
 
 ```
-  OCCT_DIRECT  = 9    (LC_LOAD_DYLIB/DT_NEEDED records — gameable, NOT the ledger number)
+  OCCT_DIRECT  = 8    (LC_LOAD_DYLIB/DT_NEEDED records — gameable, NOT the ledger number)
   OCCT_CLOSURE = 14   ★ libraries that actually LOAD at run time — THE LEDGER NUMBER
   OCCT_PHANTOM = 2    (closure libs whose symbols the binary CALLS with no link record)
+  OCCT_SYMBOLS = 499  ★ the total across all toolkits; relocation cannot lower it
 ```
 
-- direct (9): TKBRep TKernel TKFillet TKG3d TKMath TKOffset TKPrim TKShHealing TKTopAlgo
-- closure (14): the above plus TKBO TKBool TKG2d TKGeomAlgo TKGeomBase
-- `tkoffset_ledger_gate.sh … --max-closure 14 --max-phantom 2 --max-tkoffset 42`
-  → `TKOffset syms = 42 (ceiling 42)`, `PASS — every ceiling held`, rc 0.
+- direct (8): TKBRep TKernel TKFillet TKG3d TKMath TKOffset TKShHealing TKTopAlgo
+- closure (14): the above plus TKBO TKBool TKG2d TKGeomAlgo TKGeomBase TKPrim
+- `tkoffset_ledger_gate.sh … --max-closure 14 --max-phantom 2 --max-tkoffset 25 --max-symbols 499`
+  → `TKOffset syms = 25 (ceiling 25)`, `OCCT_SYMBOLS = 499 (ceiling 499)`,
+  `PASS — every ceiling held`, rc 0. The same command on an addon built from
+  `origin/archdisc` reads `TKOffset syms = 29` / `OCCT_SYMBOLS = 503` and exits 1,
+  so the ceiling measures TKOffset family A rather than drift.
 - `occt_lib_resolution_gate.sh` → `7 passed, 0 failed`, including T2 (a
   relocated OCCT must exit 2 and print NO closure number) and T4 (identical
   14-toolkit census on a 7.9.x tree and on a fabricated 9.9 tree).

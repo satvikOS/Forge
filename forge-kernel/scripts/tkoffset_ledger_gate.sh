@@ -30,6 +30,15 @@
 #     TKG3d 152 / TKTopAlgo 110 / TKBRep 103 / TKOffset 42 / TKMath 34 / TKBO 32 /
 #     TKG2d 27 / TKernel 27 / TKShHealing 12 / TKFillet 11
 #   Lower it as families land; never raise it to make a build pass.
+#   ★TKOffset 42 -> 38 comes from this branch (family A left src/Cam.cpp; CI measured
+#    42 on b8aefa91, 38 on 918fa759). BOTH CEILINGS ARE NOW LOOSE and deliberately so:
+#    #245 has since taken TKOffset to 29 and OCCT_SYMBOLS to 539 on main, and this
+#    branch removes 4 more, so the combined tree should measure ~25 / ~535. Those are
+#    PREDICTIONS, not measurements -- a ceiling may be loose, never wrong, so they are
+#    left at the last MEASURED safe values until a build of the combined tree retightens
+#    them. MAX_SYMBOLS is kept because the branch's side dropped it entirely, and it is
+#    the only ceiling a symbol RELOCATING between toolkits cannot satisfy -- exactly how
+#    #245's +2 TKTopAlgo was caught.
 # Lower them as the programme moves; never raise one to make a build pass.
 #
 # usage:
@@ -43,7 +52,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COUNT="$ROOT/forge-kernel/scripts/occt_closure_count.sh"
 OCCT_LIB="${OCCT_LIB_DIR:-/opt/homebrew/opt/opencascade/lib}"
 
-BIN=""; MAX_CLOSURE=14; MAX_PHANTOM=2; MAX_TKOFFSET=42; MAX_SYMBOLS=550
+BIN=""; MAX_CLOSURE=14; MAX_PHANTOM=2; MAX_TKOFFSET=38; MAX_SYMBOLS=550
 while [ $# -gt 0 ]; do
   case "$1" in
     --max-closure)  MAX_CLOSURE="${2:?}"; shift ;;
@@ -67,14 +76,37 @@ get() { printf '%s' "$JSON" | sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p"; }
 CLOSURE="$(get closure)"; PHANTOM="$(get phantom)"; DIRECT="$(get direct)"
 [ -n "$CLOSURE" ] && [ -n "$PHANTOM" ] || { echo "FATAL: could not parse closure JSON" >&2; exit 2; }
 
-TKO=0
-if [ -f "$OCCT_LIB/libTKOffset.7.9.dylib" ]; then
-  nm -gU "$OCCT_LIB"/libTKOffset.*.dylib 2>/dev/null \
-    | awk 'NF>=3{print $3} NF==2{print $2}' | sort -u > "${TMPDIR:-/tmp}/.tko.exp.$$"
-  nm -u "$BIN" 2>/dev/null | sed 's/^ *//' | sort -u > "${TMPDIR:-/tmp}/.tko.und.$$"
-  TKO=$(comm -12 "${TMPDIR:-/tmp}/.tko.und.$$" "${TMPDIR:-/tmp}/.tko.exp.$$" | grep -c .)
-  rm -f "${TMPDIR:-/tmp}/.tko.exp.$$" "${TMPDIR:-/tmp}/.tko.und.$$"
+# ★ NO LIBRARY, NO NUMBER (2026-09-15). This block used to run only when the file
+#   libTKOffset.7.9.dylib existed and otherwise left TKO=0, so the TKOffset ceiling
+#   PASSED WITHOUT MEASURING on any host where that exact name is absent: an OCCT
+#   7.10 upgrade, a relocated OCCT_LIB_DIR, a Linux .so. MEASURED on a pre-family-A
+#   forge-kernel.node (42 TKOffset symbols): OCCT_LIB_DIR=/nonexistent printed
+#   "TKOffset syms = 0 (ceiling 38) PASS", rc 0. The export set is now REQUIRED:
+#   no libTKOffset, or an empty export list, is exit 2 (tools missing), never a 0.
+TKO_LIB=""
+for cand in "$OCCT_LIB"/libTKOffset.*.*.*.dylib "$OCCT_LIB"/libTKOffset.dylib \
+            "$OCCT_LIB"/libTKOffset.so.*.*.* "$OCCT_LIB"/libTKOffset.so; do
+  if [ -f "$cand" ]; then TKO_LIB="$cand"; break; fi
+done
+if [ -z "$TKO_LIB" ]; then
+  echo "FATAL: libTKOffset not found under $OCCT_LIB (set OCCT_LIB_DIR) — the TKOffset" >&2
+  echo "       ceiling cannot be measured, and an unmeasured count must not read as 0" >&2
+  exit 2
 fi
+TKO_EXP="${TMPDIR:-/tmp}/.tko.exp.$$"
+TKO_UND="${TMPDIR:-/tmp}/.tko.und.$$"
+case "$TKO_LIB" in
+  *.dylib) nm -gU "$TKO_LIB" 2>/dev/null | awk 'NF>=3{print $3} NF==2{print $2}' | sort -u > "$TKO_EXP" ;;
+  *)       nm -D --defined-only "$TKO_LIB" 2>/dev/null | awk 'NF>=3{print $3}' | sort -u > "$TKO_EXP" ;;
+esac
+if [ ! -s "$TKO_EXP" ]; then
+  rm -f "$TKO_EXP"
+  echo "FATAL: no exported symbols read from $TKO_LIB — the TKOffset count would be a fake 0" >&2
+  exit 2
+fi
+nm -u "$BIN" 2>/dev/null | sed 's/^ *//' | sort -u > "$TKO_UND"
+TKO=$(comm -12 "$TKO_UND" "$TKO_EXP" | grep -c . || true)
+rm -f "$TKO_EXP" "$TKO_UND"
 
 # ── the TOTAL, which is the only thing relocation cannot fool ─────────────────
 # TKOffset alone is 38 of 546. MEASURED 2026-09-16: finishing all nine offset families
