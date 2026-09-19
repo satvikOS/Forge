@@ -1335,8 +1335,9 @@ jobs:
           BIN="$(bash forge-kernel/test/build_curve_kind_ab_probe.sh | sed -n 's/^BIN=//p')"
           "$BIN"
       - name: OCCT ledger gate — closure, PHANTOM and TKOffset symbols
-        # --max-symbols / --max-closure / --max-phantom track the ratchet above and
-        # are MAIN's already-measured values, carried through this merge unchanged.
+        # --max-closure 14 and --max-phantom 2 are MAIN's already-measured values,
+        # carried through this merge unchanged: neither moved on this work.
+        # --max-symbols tracks the --assert-symbols ratchet above, and both moved.
         #
         # ★ --max-tkoffset 29 -> 25 and --max-symbols 507 -> 499, BOTH MEASURED on an
         #   addon built from this merged tree (forge-kernel.node, Release, all drop
