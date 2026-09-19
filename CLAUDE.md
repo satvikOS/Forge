@@ -21,8 +21,16 @@ Layer order, and the order work must be built in:
 ## Hard invariants
 
 1. **C++20/23 native product core.** No Electron, no browser app architecture, no
-   JavaScript/TypeScript in the Forge runtime. `frontend/`, `electron/`, `ui/` are
+   JavaScript/TypeScript in the Forge runtime. `frontend/` and `electron/` are
    legacy and are not the product.
+   **`ui/` is NOT legacy — it is `forge_ui`, first-party C++20 and part of the
+   product.** 92 `.cpp` + 51 `.hpp` + 9 `.sh`, **zero JavaScript**; built by
+   `forge-desktop/CMakeLists.txt:177` as `add_library(forge_ui STATIC …)` under
+   `-Wall -Wextra -Werror`, whose own comment reads *"forge::ui is first-party"*;
+   `ForgeFrame.cpp` includes 20 of its headers; 55 files under `ui/test/` run as
+   the `forge::ui workstation gates` CI job (headless, no ImGui, no GPU). It is
+   the kernel-free UI/command layer the native app is built out of. Calling it
+   legacy invites deleting or bypassing the very thing the C++ app is made of.
 2. **Geometry truth is B-Rep/parametric, never a rendered mesh.** A mesh import is
    reference geometry until reconstructed, and reconstruction has a *measured* error.
 3. **Every mutation is a transaction**: prepare → resolve references → dry run →
