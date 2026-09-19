@@ -39,6 +39,7 @@ cd "$ROOT" || { echo "[panel-ratchet] cannot enter repo root $ROOT"; exit 1; }
 
 CXX="${CXX:-clang++}"
 command -v "$CXX" >/dev/null 2>&1 || { echo "[panel-ratchet] no $CXX on PATH"; exit 1; }
+. "$ROOT/tools/gates/forge_cxx_cache.sh"
 command -v python3 >/dev/null 2>&1 || {
   echo "[panel-ratchet] no python3 on PATH; the mutations are applied with it"; exit 1; }
 
@@ -56,16 +57,39 @@ trap cleanup EXIT
 run_against() {
   local tree="$1" tag="$2"
   local bin="$WORK/gate_$tag"
-  if ! $CXX -std=c++20 -O2 -Wall -Wextra -Werror \
-       "-DFORGE_UI_REPO_ROOT=\"$tree\"" \
-       -I "$tree/ui/include" -I "$tree/ui/test" \
-       "$tree/ui/test/panel_content_ratchet_test.cpp" "$tree"/ui/src/*.cpp \
-       -o "$bin" >"$WORK/$tag.build" 2>&1; then
+  FCC_CXX="$CXX"
+  FCC_CFLAGS=(-std=c++20 -O2 -Wall -Wextra -Werror
+              "-DFORGE_UI_REPO_ROOT=\"$tree\""
+              -I "$tree/ui/include" -I "$tree/ui/test")
+  FCC_LDFLAGS=()
+  FCC_SRCS=("$tree/ui/test/panel_content_ratchet_test.cpp" "$tree"/ui/src/*.cpp)
+  FCC_CACHE="$CACHE"
+  if ! fcc_build "$bin" "$WORK/$tag.build"; then
     return 2
   fi
   if "$bin" >"$WORK/$tag.out" 2>&1; then return 0; fi
   return 1
 }
+
+# ── ★ ONE TREE, AT A CONSTANT PATH, RESTORED BETWEEN MUTATIONS (T-160) ──────
+# This used to copy the tree to $WORK/m<n> per mutation, which put the mutation
+# number into -I and into -DFORGE_UI_REPO_ROOT. Those are compile flags, so no
+# two builds shared a single object and every mutation paid for a full 47-unit
+# serial compile. MEASURED on merged head 29070823: this step was 585 s of the
+# forge::ui job's 2,858 s (20.5%).
+#
+# With ONE tree at a fixed path every build has identical flags, so the object
+# cache in tools/gates/forge_cxx_cache.sh reuses the sources a mutation did not
+# touch. It is keyed on file CONTENT, never on a timestamp -- read that file's
+# header for why that distinction is the whole safety argument.
+#
+# The price of a shared path is that a mutation must be UNDONE. fcc_reset_tree
+# rebuilds the tree from the pristine copy and then PROVES the two are identical
+# (diff -rq), so an incomplete restore is a red gate rather than a mutation
+# riding silently into the next round.
+PRISTINE="$WORK/pristine"
+TREE="$WORK/tree"
+CACHE="$WORK/objcache"
 
 # A copy holding exactly what the gate compiles and what it reads.
 copy_tree() {
@@ -77,10 +101,14 @@ copy_tree() {
 
 # ── the clean run comes FIRST ───────────────────────────────────────────────
 # Mutations under a gate that is red anyway prove nothing at all.
-CLEAN="$WORK/clean"
-copy_tree "$CLEAN"
-run_against "$CLEAN" clean
+copy_tree "$PRISTINE"
+fcc_reset_tree "$PRISTINE" "$TREE" || { echo "[panel-ratchet] RED: could not stage the tree"; exit 1; }
+FCC_JOBS="$(fcc_jobs)"
+echo "[panel-ratchet] CXX=$CXX JOBS=$FCC_JOBS  one tree at a constant path, objects cached on content"
+run_against "$TREE" clean
 CLEAN_RC=$?
+echo "[panel-ratchet] clean build: compiled $FCC_COMPILED translation unit(s), reused $FCC_REUSED"
+fcc_report_epoch
 if [ "$CLEAN_RC" -eq 2 ]; then
   echo "[panel-ratchet] RED: the gate does not BUILD"; cat "$WORK/clean.build"; exit 1
 fi
@@ -101,8 +129,10 @@ PROFILE="ui/src/WorkspaceProfile.cpp"
 PIN="ui/test/panel_content_ratchet_test.cpp"
 
 mutate() {
-  local n="$1" tree="$WORK/m$1"
-  copy_tree "$tree"
+  local n="$1" tree="$TREE"
+  # Restore first, and PROVE the restore worked. A mutation applied on top of the
+  # previous one is not the mutation this loop reports.
+  fcc_reset_tree "$PRISTINE" "$TREE" || return 4
   case "$n" in
     1) # A NEW workspace tab that draws nothing and is in no catalogue.
        python3 - "$tree/$PROFILE" <<'PY'
@@ -230,6 +260,11 @@ PY
        ;;
     *) echo "[panel-ratchet] no such mutation: $n"; return 3 ;;
   esac
+  # ★ A mutation that wrote nothing proves nothing. Each python block above
+  # asserts its own anchor, but an assert that fires leaves the tree PRISTINE and
+  # the gate would then be green for the most misleading reason available. Check
+  # the WRITE, not the return code.
+  fcc_assert_mutated "$PRISTINE" "$TREE" || return 5
   run_against "$tree" "m$n"
   return $?
 }
@@ -239,9 +274,13 @@ for m in 1 2 3 4 5; do
   mutate "$m"
   rc=$?
   case "$rc" in
-    1) echo "[panel-ratchet] mutation $m: RED (as required)"
+    1) echo "[panel-ratchet] mutation $m: RED (as required) [compiled $FCC_COMPILED, reused $FCC_REUSED]"
        grep -E '  RED|disagree' "$WORK/m$m.out" | head -3 | sed 's/^/        /' ;;
     0) echo "[panel-ratchet] mutation $m STAYED GREEN -- the ratchet does not watch what it claims"
+       BAD=$((BAD + 1)) ;;
+    4) echo "[panel-ratchet] mutation $m: THE TREE COULD NOT BE RESTORED -- no proof was made"
+       BAD=$((BAD + 1)) ;;
+    5) echo "[panel-ratchet] mutation $m CHANGED NOTHING -- its anchor is gone; fix the mutation"
        BAD=$((BAD + 1)) ;;
     *) echo "[panel-ratchet] mutation $m DID NOT BUILD -- that is not a proof; fix the mutation"
        sed -n '1,15p' "$WORK/m$m.build" 2>/dev/null

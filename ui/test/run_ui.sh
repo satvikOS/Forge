@@ -59,6 +59,26 @@ SRCS=(ui/src/*.cpp)
 HDRS=(ui/include/forge/ui/*.hpp)
 TESTS=(ui/test/*_test.cpp)
 
+# ── ONLY=<typo> is refused BEFORE anything is compiled ───────────────────────
+# The refusal at the bottom of this file is the contract (a filter that matches
+# nothing must never report success, because "0 of 46 gates ran and passed" plus
+# exit 0 is a green a caller cannot tell from a real one). It was being reached
+# only after 48 header checks and 46 source compiles had run for a filter that
+# was already known to match nothing -- 64 s of the forge::ui job, spent by
+# run_ui_contract_test.sh case C on every push to prove a refusal that depends on
+# no build at all. Refusing here is the SAME refusal, with the same exit code and
+# the same words; a filter that DOES match still builds everything.
+if [ -n "$ONLY" ]; then
+  matched=0
+  for t in "${TESTS[@]}"; do
+    case "$(basename "$t" .cpp)" in *"$ONLY"*) matched=$((matched + 1)) ;; esac
+  done
+  if [ "$matched" -eq 0 ]; then
+    echo "[ui] ONLY=$ONLY matched no gate of ${#TESTS[@]} — refusing to report success"
+    exit 1
+  fi
+fi
+
 # portable job cap (bash 3.2+, macOS default shell)
 CAP_PIDS=()
 cap_launch() {

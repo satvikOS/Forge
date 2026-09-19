@@ -58,6 +58,7 @@ echo "[isolation] kernel core: $LIB"
 
 export ASAN_OPTIONS="${ASAN_OPTIONS:-abort_on_error=0:exitcode=1}"
 CXX="${CXX:-clang++}"
+. "$ROOT/tools/gates/forge_cxx_cache.sh"
 OCCT_PREFIX="${OCCT_PREFIX:-$( (brew --prefix opencascade 2>/dev/null) || echo /usr/local )}"
 EIGEN_PREFIX="${EIGEN_PREFIX:-$( (brew --prefix eigen 2>/dev/null) || echo /usr/local )}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/isolation_gate.XXXXXX")"
@@ -96,39 +97,82 @@ INC=(-I "$ROOT/ui/include" -I "$ROOT/forge-kernel/include" -I "$ROOT/forge-deskt
 LINK=("$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib")
 ASAN=(-fsanitize=address -fno-omit-frame-pointer -g)
 
-# $1 = source directory to compile FROM (the tree, or a mutated copy)
-# $2 = output directory
-build_pair() {
-  local SRC="$1" OUT="$2"
-  # The worker: unsanitized, because the gate needs it to die on a real signal.
-  "$CXX" -std=c++20 -O1 -Wall -Wextra -Werror -DFORGE_NATIVE_BREP=1 \
-    -I "$SRC/ui/include" -I "$ROOT/forge-kernel/include" -I "$SRC/forge-desktop/src" \
-    -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
-    "$SRC"/ui/src/*.cpp \
-    "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp" \
-    "$SRC/forge-desktop/src/PartFile.cpp" \
-    "$SRC/forge-desktop/src/kernel_worker_main.cpp" \
-    "${LINK[@]}" -o "$OUT/forge_kernel_worker" 2>"$OUT/worker.err" || return 1
-  # The gate: sanitized.
-  "$CXX" -std=c++20 -O1 -Wall -Wextra -Werror "${ASAN[@]}" -DFORGE_NATIVE_BREP=1 \
-    -I "$SRC/ui/include" -I "$ROOT/forge-kernel/include" -I "$SRC/forge-desktop/src" \
-    -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
-    "$SRC"/ui/src/*.cpp \
-    "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp" \
-    "$SRC/forge-desktop/src/PartFile.cpp" \
-    "$SRC/forge-desktop/src/Camera.cpp" \
-    "$SRC/forge-desktop/test/isolation_gate.cpp" \
-    "${LINK[@]}" -o "$OUT/isolation_gate" 2>"$OUT/gate.err" || return 1
-  return 0
+# ── ★ ONE SOURCE TREE, AT A CONSTANT PATH (T-160) ──────────────────────────
+# MEASURED on merged head 29070823: this step was 1,091 s of the OCCT kernel
+# smoke job's 3,175 s -- 34.4%, the single largest step in either slow job. Of
+# that, 898 s was the six source mutations at ~150 s each and 174 s the base
+# build; the two gate-side mutations, which reuse the base binary, cost 18 s
+# BETWEEN THEM. The whole difference is that a source mutation used to recompile
+# every translation unit from scratch, twice (unsanitized worker + sanitized
+# gate), in two clang++ invocations that the driver runs STRICTLY SERIALLY.
+#
+# Each mutation edits ONE file. The other ~49 are byte-identical to the base
+# build, so they are compiled once and reused -- by CONTENT, never by timestamp.
+# See tools/gates/forge_cxx_cache.sh for why that distinction is the entire
+# safety argument, and note that a stale object could only ever show up here as
+# a mutation printing "STAYED GREEN", which fails this script.
+#
+# The base build now compiles from the same COPY the mutations do, rather than
+# from $ROOT, so that the two share one set of compile flags and therefore one
+# cache. fcc_reset_tree proves the copy is byte-identical to $ROOT's sources
+# (diff -rq) before anything is built from it. The only observable difference is
+# that __FILE__ and ASan frames name $WORK rather than the checkout.
+PRISTINE="$WORK/pristine"
+SRCTREE="$WORK/src"
+CACHE="$WORK/objcache"
+FCC_JOBS="$(fcc_jobs)"
+
+stage_pristine() {
+  mkdir -p "$PRISTINE/ui" "$PRISTINE/forge-desktop"
+  cp -R "$ROOT/ui/include" "$ROOT/ui/src" "$PRISTINE/ui/"
+  cp -R "$ROOT/forge-desktop/src" "$ROOT/forge-desktop/test" "$PRISTINE/forge-desktop/"
 }
 
-echo "[isolation] compiling the worker (unsanitized) and the gate (sanitized)"
+# $1 = source directory to compile FROM (always $SRCTREE; the mutation is in it)
+# $2 = output directory
+build_pair() {
+  local SRC="$1" OUT="$2" rc=0
+  local COMMON=(-std=c++20 -O1 -Wall -Wextra -Werror -DFORGE_NATIVE_BREP=1
+                -I "$SRC/ui/include" -I "$ROOT/forge-kernel/include" -I "$SRC/forge-desktop/src"
+                -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3")
+  FCC_CXX="$CXX"
+  FCC_CACHE="$CACHE"
+  FCC_LDFLAGS=("${LINK[@]}")
+  # The worker: unsanitized, because the gate needs it to die on a real signal.
+  FCC_CFLAGS=("${COMMON[@]}")
+  FCC_SRCS=("$SRC"/ui/src/*.cpp
+            "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp"
+            "$SRC/forge-desktop/src/PartFile.cpp"
+            "$SRC/forge-desktop/src/kernel_worker_main.cpp")
+  fcc_build "$OUT/forge_kernel_worker" "$OUT/worker.err" || return 1
+  local wc="$FCC_COMPILED" wr="$FCC_REUSED"
+  # The gate: sanitized. Different flags, so a separate object namespace -- the
+  # sanitized and unsanitized objects can never be confused for one another.
+  FCC_CFLAGS=("${COMMON[@]}" "${ASAN[@]}")
+  FCC_SRCS=("$SRC"/ui/src/*.cpp
+            "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp"
+            "$SRC/forge-desktop/src/PartFile.cpp"
+            "$SRC/forge-desktop/src/Camera.cpp"
+            "$SRC/forge-desktop/test/isolation_gate.cpp")
+  fcc_build "$OUT/isolation_gate" "$OUT/gate.err" || return 1
+  FCC_COMPILED=$((wc + FCC_COMPILED)); FCC_REUSED=$((wr + FCC_REUSED))
+  return $rc
+}
+
+echo "[isolation] compiling the worker (unsanitized) and the gate (sanitized), JOBS=$FCC_JOBS"
 mkdir -p "$WORK/base"
-if ! build_pair "$ROOT" "$WORK/base"; then
+stage_pristine
+if ! fcc_reset_tree "$PRISTINE" "$SRCTREE"; then
+  echo "[isolation] could not stage the source tree. RED."
+  exit 3
+fi
+if ! build_pair "$SRCTREE" "$WORK/base"; then
   echo "[isolation] the gate did not BUILD. RED."
   cat "$WORK/base/worker.err" "$WORK/base/gate.err" 2>/dev/null | tail -30
   exit 3
 fi
+echo "[isolation] base build: compiled $FCC_COMPILED translation unit(s), reused $FCC_REUSED"
+fcc_report_epoch
 
 run_with_timeout "$TEST_TIMEOUT" "$WORK/base/isolation_gate" \
     --worker "$WORK/base/forge_kernel_worker"
@@ -209,25 +253,28 @@ for entry in "${MUTS[@]}"; do
 
   MDIR="$WORK/$id"
   mkdir -p "$MDIR/out"
-  # Copy only what is compiled, so the copy is cheap and cannot pick up a stale
-  # build tree.
-  mkdir -p "$MDIR/src/ui" "$MDIR/src/forge-desktop"
-  cp -R "$ROOT/ui/include" "$ROOT/ui/src" "$MDIR/src/ui/"
-  cp -R "$ROOT/forge-desktop/src" "$ROOT/forge-desktop/test" "$MDIR/src/forge-desktop/"
+  # ★ RESTORE THE ONE TREE, AND PROVE THE RESTORE WORKED. The tree is at a fixed
+  # path so that every build shares one set of compile flags and one object
+  # cache; the price is that the previous mutation must be undone, and an undo
+  # nobody checked is how a mutation compounds into the next round unnoticed.
+  if ! fcc_reset_tree "$PRISTINE" "$SRCTREE"; then
+    echo "  $id: THE TREE COULD NOT BE RESTORED -- no proof was made. RED."
+    BAD=$((BAD+1)); continue
+  fi
 
-  if ! sed -i '' "$expr" "$MDIR/src/$file"; then
+  if ! sed -i '' "$expr" "$SRCTREE/$file"; then
     echo "  $id: SED FAILED -- the mutation could not be applied. RED."
     BAD=$((BAD+1)); continue
   fi
   # ★ A mutation that changed nothing proves nothing. This is the check that
   # catches a sed expression rotting against a refactor -- silently applying to
   # no lines and leaving a mutation that "passes" because the code is pristine.
-  if diff -q "$ROOT/$file" "$MDIR/src/$file" >/dev/null 2>&1; then
+  if diff -q "$ROOT/$file" "$SRCTREE/$file" >/dev/null 2>&1; then
     echo "  $id: NO-OP -- the sed matched nothing, so this mutation tests NOTHING. RED."
     BAD=$((BAD+1)); continue
   fi
 
-  if ! build_pair "$MDIR/src" "$MDIR/out"; then
+  if ! build_pair "$SRCTREE" "$MDIR/out"; then
     # ★ NOT A PASS. A mutation that does not compile has proven nothing about the
     # gate's ASSERTIONS -- it proved the compiler works. It usually means the sed
     # is wrong (S2's first version matched two sites, one of them a const method
@@ -249,7 +296,7 @@ for entry in "${MUTS[@]}"; do
     first="$(grep -m1 '  FAIL' "$MDIR/out/run.log" | sed 's/^  FAIL: //' | cut -c1-64)"
     if [ "$mrc" -eq 124 ]; then first="HUNG -- killed after ${TEST_TIMEOUT}s"
     elif [ -z "$first" ]; then first="exit $mrc"; fi
-    echo "  $id: RED ($fails checks failed) <- $desc"
+    echo "  $id: RED ($fails checks failed) <- $desc  [compiled $FCC_COMPILED, reused $FCC_REUSED]"
     echo "        first: $first"
   fi
   rm -rf "$MDIR"
