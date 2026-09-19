@@ -3,8 +3,11 @@
 **Branch** `work/T-158-step-rational` · **base** `origin/archdisc` @ `1e49a56b` · **date** 2026-09-18
 **Files changed** `forge-kernel/src/native/brep/StepAnalytic.cpp`,
 `forge-kernel/include/forge/native/brep/StepAnalytic.hpp`,
-`forge-kernel/test/step_rational_roundtrip_gate.cpp` (new), `forge-kernel/CMakeLists.txt` (gate
-registration only), this report.
+`forge-kernel/test/step_rational_roundtrip_gate.cpp` (new, the OCCT oracle),
+`forge-kernel/test/native/brep/step_rational_weights_test.cpp` (new, the in-CI half),
+`forge-kernel/CMakeLists.txt` (gate registration only),
+`forge-kernel/test/gate_registration_ratchet.sh` (ALLOW entry + reason — **a deviation from the
+task's file boundary**, explained in §6), this report.
 **Not touched**: `Nurbs.cpp`, `NurbsCalculus.cpp`, `Primitives.cpp`, `Topology.cpp`,
 `src/native/linalg/**`, `.github/workflows/kernel-tests.yml`, `src/Cam.cpp`, `src/IoExchange.cpp`.
 **No route changed.** `exportStep`'s three routes (`StepAnalytic::write` at
@@ -176,7 +179,36 @@ fix the same probe reports `OCCT mid-parameter radius = 1.5000000` and
 
 ---
 
-## 6. The gate, and its mutation proof
+## 6. The gates, and their mutation proofs
+
+There are **two**, and the split is forced rather than chosen.
+
+* **`forge-kernel/test/step_rational_roundtrip_gate.cpp`** →
+  `kernel.ab.step_rational_roundtrip_gate` in `FORGE_AB_GATES`. The **independent-oracle**
+  half: it reads the file back with OCCT. It *cannot* live under `test/native/brep/`, because
+  `test/native/run_native.sh:126` globs that directory and compiles each file with **no OCCT on
+  the line** — an OCCT-linked file there breaks the whole native suite. But `FORGE_AB_GATES` is
+  reached only through `ctest`, **and no workflow in this repository invokes `ctest`**
+  (`kernel-tests.yml:106`, `:1519`, `:1653` all say so). So on its own it would have compiled,
+  committed, stayed green and never executed once.
+* **`forge-kernel/test/native/brep/step_rational_weights_test.cpp`** — the **in-CI** half, added
+  for exactly that reason. `run_native.sh` globs `test/native/<class>/*.cpp`, so it runs on every
+  PR **by construction**, in the `native C++ kernel gate (pure C++20, no deps)` job. It asserts
+  the emitted **bytes** (no reader involved, so nothing can agree with itself), then re-reads them
+  with `readForeignStep` — a different translation unit — against the **closed form** `|P| == R`,
+  and carries the same sensitivity control.
+
+`gate_registration_ratchet.sh` is what forced this to be discovered rather than shipped: adding
+the OCCT gate to `FORGE_AB_GATES` turned it **RED** ("a NEW CMake-registered gate is not wired
+into CI"), and CI agreed — the check *every forge-kernel gate is executed, not merely built*
+failed on the first push. The OCCT gate is now pinned in that script's `ALLOW_CPP` and
+`ALLOW_CMAKE` with the reason written out; the ratchet was re-proved to still fire (a phantom
+entry added to `FORGE_AB_GATES` → RED, removed → GREEN). **This is a deviation from the task's
+file boundary** — `forge-kernel/test/gate_registration_ratchet.sh` was not on the may-write list —
+taken because the only other remedies the ratchet offers touch `.github/workflows/`, and
+`kernel-tests.yml` is owned by another task.
+
+### The OCCT oracle gate
 
 `forge-kernel/test/step_rational_roundtrip_gate.cpp`, registered as
 `kernel.ab.step_rational_roundtrip_gate` in `FORGE_AB_GATES`.
@@ -255,6 +287,38 @@ step_rational_roundtrip_gate RESULT: 13/20 passed -> RED
 step_rational_roundtrip_gate RESULT: 20/20 passed -> GREEN
 ```
 
+### The in-CI native test, mutation-proved on the same two mutants
+
+`ONLY=brep/step_rational_weights bash forge-kernel/test/native/run_native.sh`
+
+```
+MUTANT A: weights forced to 1.0
+  [FAIL] rational [per-weight]: inside the weight record the exact %.17g text "0.70710678118654757" appears once per non-unit control point (expected 2, got 0)
+  [FAIL] rational [per-surface]: the FULL 3x2 weight grid is present verbatim ...
+  [FAIL] rational [per-weight]: every recovered weight equals the written weight (max err 0.292893)
+  [FAIL] rational [CLOSED FORM]: max | |P|-R | <= 1e-9 mm over 75 samples (got 0.090990)
+step_rational_weights_test RESULT: 11/15 passed -> RED
+
+MUTANT B: silent revert to the non-rational entity
+  [FAIL] rational: the file carries a RATIONAL_B_SPLINE_SURFACE record
+  [FAIL] rational: it is the AP242 COMPLEX instance form
+  [FAIL] rational: the weight record is locatable
+  [FAIL] rational [per-surface]: the FULL 3x2 weight grid is present verbatim ...
+  [FAIL] rational [per-weight]: every recovered weight equals the written weight (max err 0.292893)
+  [FAIL] rational [CLOSED FORM]: max | |P|-R | <= 1e-9 mm over 75 samples (got 0.090990)
+step_rational_weights_test RESULT: 8/14 passed -> RED
+
+RESTORED (source diff-identical)
+step_rational_weights_test RESULT: 15/15 passed -> GREEN
+```
+
+**A defect this test found in itself, worth recording.** Its first version counted the `%.17g`
+weight text over the *whole file* and expected 2; it measured **6** and went red. The fixture's
+chord edge `A->B` has unit direction `(-sqrt2/2, sqrt2/2, 0)`, so the same digits appear in four
+`DIRECTION` components that have nothing to do with weights. The assertion was mis-specified, not
+the writer; it now counts inside the `RATIONAL_B_SPLINE_SURFACE` record only. A whole-file
+substring count would have stayed green on a writer that put the right digits in the wrong place.
+
 ---
 
 ## 7. Byte-identity control on non-rational output
@@ -330,15 +394,31 @@ NOT worked around — no pcurves were invented to make anything pass):
 Total Test time (real) = 137.73 sec
 ```
 
-That is every registered kernel test, including all 47 `FORGE_AB_GATES` and
-`kernel.native_suite` (the 138-test pure-C++20 in-house suite, which compiles every
-`forge::native` source and every test under `test/native/<class>/` with **no OCCT on the line**).
+That is every registered kernel test, including all `FORGE_AB_GATES` and `kernel.native_suite`.
 
-The new gate lives at `forge-kernel/test/`, not `forge-kernel/test/native/brep/`, and that is
-forced: `test/native/run_native.sh:126` globs `forge-kernel/test/native/$d/*.cpp` and compiles
-each file with no OCCT, so an OCCT-linked oracle placed there would break
-`kernel.native_suite`. `forge-kernel/test/` is where every existing native-vs-OCCT oracle in this
-repository already lives.
+The pure-C++20 native suite, run directly and in full:
+
+```
+[native] ALL 143 NATIVE GATES PASS (forge::native — pure C++, no deps, no WASM)
+```
+
+143, one more than before — the new `test/native/brep/step_rational_weights_test.cpp`, picked up
+by `run_native.sh`'s glob.
+
+Both registration ratchets are green:
+
+```
+[gate-registration] shell gates (*_gate.sh) measured=8  pinned=8
+[gate-registration] C++ gates (*_gate.cpp) measured=9  pinned=9
+[gate-registration] CMake-registered (add_test) measured=36  pinned=36
+[gate-registration] GREEN — no unwired gate beyond those pinned.
+[shell-gate-registration] measured=4  pinned=4
+[shell-gate-registration] GREEN — no unwired shell gate beyond the 4 pinned.
+```
+
+and the kernel ratchet was re-proved to still fire after the ALLOW entries were added — a phantom
+`phantom_unwired_gate` in `FORGE_AB_GATES` gives `measured=37 pinned=36 … RED`, removing it gives
+`36/36 … GREEN`.
 
 ---
 
