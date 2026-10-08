@@ -210,6 +210,11 @@ enum class EditCheck : std::uint8_t {
 
 const char* toString(EditCheck check) noexcept;
 
+// A fresh, process-unique document revision. Monotonic across EVERY PartDocument
+// in the process, so a document opened after another can never reuse a revision
+// a plan was bound to (T-181).
+std::uint64_t nextDocumentRevision() noexcept;
+
 // ── the receiver ────────────────────────────────────────────────────────────
 // A headless feature-IR program plus the binding from a UI document-node id
 // (EntityRef::bodyId) to the IR value that node currently IS. The binding is the
@@ -234,6 +239,14 @@ class PartDocument {
   IrValueKind kindOf(int irId) const noexcept;
 
   const std::vector<FeatureRecord>& records() const noexcept { return records_; }
+  // ── WHICH DOCUMENT A PLAN WAS MADE AGAINST (T-181) ────────────────────────
+  // Changes on every successful mutation -- append, parameter edit, restore
+  // (undo/redo), material, parameters -- and on nothing else, so a no-op edit that
+  // pushes no undo step does not invalidate a plan either. ArchieCopilot binds a
+  // request to this value and refuses to apply a plan to any other revision: a
+  // model's answer that arrives after the user edited the part was made against a
+  // document that no longer exists.
+  std::uint64_t revision() const noexcept { return revision_; }
   std::size_t featureCount() const noexcept;   // command-authored records only
   const FeatureRecord* lastFeature() const noexcept;
   std::string irProgram() const;               // every statement, newline-joined
@@ -306,7 +319,10 @@ class PartDocument {
   // recomputing the whole candidate set -- this setter validates nothing, because
   // one record cannot be validated without all the others.
   const ParameterSet& parameters() const noexcept { return parameters_; }
-  void setParameters(ParameterSet value) { parameters_ = std::move(value); }
+  void setParameters(ParameterSet value) {
+    parameters_ = std::move(value);
+    revision_ = nextDocumentRevision();
+  }
 
   // GoF Memento. Small by construction: a record count plus the binding table.
   struct Snapshot {
@@ -323,6 +339,7 @@ class PartDocument {
   EditCheck lastEdit_ = EditCheck::Ok;
   Material material_ = unassignedMaterial();
   ParameterSet parameters_;
+  std::uint64_t revision_ = nextDocumentRevision();
 };
 
 // ── the concrete command ────────────────────────────────────────────────────

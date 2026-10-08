@@ -1,5 +1,6 @@
 #include "forge/ui/PartCommands.hpp"
 
+#include <atomic>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -95,6 +96,11 @@ const char* toString(EditCheck check) noexcept {
 }
 
 // ── PartDocument ────────────────────────────────────────────────────────────
+std::uint64_t nextDocumentRevision() noexcept {
+  static std::atomic<std::uint64_t> counter{0};
+  return ++counter;
+}
+
 int PartDocument::seed(IrValueKind kind, const std::string& nodeId, const std::string& op,
                        std::vector<IrArg> args) {
   FeatureRecord rec;
@@ -163,6 +169,7 @@ bool PartDocument::appendFeature(const FeatureRecord& record,
   records_.push_back(record);
   for (const std::string& node : consumedNodes) bindings_.erase(node);
   if (!producedNode.empty()) bindings_[producedNode] = record.irId;
+  revision_ = nextDocumentRevision();
   return true;
 }
 
@@ -216,6 +223,7 @@ bool PartDocument::editFeatureArgs(int irId, const std::vector<IrArg>& args) {
   }
 
   rec.line = candidate;  // no binding, no id and no produces-kind moved
+  revision_ = nextDocumentRevision();
   return true;
 }
 
@@ -228,12 +236,14 @@ void PartDocument::restore(const Snapshot& state) {
     records_.resize(state.records);
   }
   bindings_ = state.bindings;
+  revision_ = nextDocumentRevision();   // undo/redo IS a new document state
 }
 
 // ── the material ────────────────────────────────────────────────────────────
 bool PartDocument::setMaterial(const Material& value) {
   if (value == material_) return false;  // a no-op is not an edit
   material_ = value;
+  revision_ = nextDocumentRevision();
   return true;
 }
 

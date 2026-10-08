@@ -675,7 +675,8 @@ inline CopilotRun runViaCopilot(const Tree& t, Mutation m = Mutation::None) {
 
   forge::ui::ArchieCopilot copilot;
   const std::uint64_t id = copilot.submit(
-      t.what, forge::ui::planTools(shell.registry(), shell.selection()), "none", t.id);
+      t.what, forge::ui::planTools(shell.registry(), shell.selection()), "none", t.id,
+      doc.revision());
   if (id == 0) {
     run.failure = "the CoPilot refused to open a request";
     return run;

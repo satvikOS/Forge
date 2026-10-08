@@ -173,6 +173,9 @@ std::vector<PlanTool> planTools(const CommandRegistry& registry,
 
 struct PlanRequest {
   std::uint64_t id = 0;  // monotonic; a reply that does not carry it is refused
+  // PartDocument::revision() when the request was made (T-181). A plan is an edit
+  // OF THAT DOCUMENT; ArchieCopilot::apply refuses it against any other revision.
+  std::uint64_t documentRevision = 0;
   std::string intent;
   std::string selectionSummary;
   std::string documentSummary;
@@ -277,6 +280,10 @@ enum class PlanCheck : std::uint8_t {
   // planner learns nothing it can act on, so this value is the CATEGORY and the
   // OpConstraint beside it is the fact.
   OpConstraintRefused,
+  // T-181. Appended, so every value above keeps its number.
+  StaleDocument,             // the document changed after the request was made
+  NotPlannable,              // the step names a command the undo stack cannot revert
+                             // (file I/O and export, undo/redo, app and view commands)
 };
 
 // The machine's spelling ("op_constraint_refused"). Wire name, never drawn.
@@ -375,6 +382,9 @@ struct ApplyOutcome {
   std::size_t requested = 0;
   std::size_t applied = 0;
   std::size_t blocked = 0;  // steps the op-constraint gate refused, never dispatched
+  // T-181: nothing was dispatched because the document is not the one the plan
+  // was made against.
+  bool staleDocument = false;
 
   std::vector<StepOutcome> steps;
 
@@ -421,8 +431,11 @@ class ArchieCopilot {
   // Opens a request for `intent`. Returns 0 and records NOTHING when the intent
   // is blank or a request is already in flight, so a double-press on Send cannot
   // queue two asks against one input line.
+  // `documentRevision` is PartDocument::revision() NOW. Required: a request that
+  // is not bound to a document cannot be checked against the one it lands in.
   std::uint64_t submit(std::string intent, std::vector<PlanTool> tools,
-                       std::string selectionSummary, std::string documentSummary);
+                       std::string selectionSummary, std::string documentSummary,
+                       std::uint64_t documentRevision);
 
   bool requestPending() const noexcept { return pending_; }
   const PlanRequest& request() const noexcept { return request_; }
@@ -509,6 +522,7 @@ class ArchieCopilot {
   std::vector<TranscriptLine> transcript_;
   PlanRequest request_;
   Plan plan_;
+  std::uint64_t planRevision_ = 0;   // the revision plan_ was made against
   PlanVerdict verdict_;
   ApplyOutcome outcome_;
   bool buildChecked_ = false;

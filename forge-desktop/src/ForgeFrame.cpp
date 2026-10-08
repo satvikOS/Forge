@@ -8160,7 +8160,8 @@ void ForgeFrame::runCopilotSubmit() {
 
   const std::uint64_t id =
       copilot_.submit(copilotInput_,
-                      forge::ui::planTools(shell_.registry(), shell_.selection()), picked, doc);
+                      forge::ui::planTools(shell_.registry(), shell_.selection()), picked, doc,
+                      partDoc_.revision());
   if (id == 0) return;  // blank, or a request already in flight
   copilotInput_.clear();
   copilotSource_ = CopilotSource::None;
