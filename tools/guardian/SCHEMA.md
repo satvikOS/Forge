@@ -247,6 +247,19 @@ otherwise the identity is `unverifiable`. Only `ok` identities are signalled or 
 reservations. Dead and mismatched envelopes are reaped by the governor; unverifiable ones are
 kept but never signalled.
 
+**Protected processes — ONE list, applied by every component that can signal or admit.** A pid
+is never signalled (governor) and never admitted as a job (`admit` exits 1, "protected or
+foreign process") when: pid ≤ 1; it is not owned by the calling uid; it is the governor (the
+`guardian.lock` holder), the sensor, or one of the governor's ancestors; or its process name —
+`p_comm`, *decoded* (`pidinfo` prints `comm=` percent-encoded, `%20` for a space, and also prints
+`protected=0|1` computed from this list so no consumer has to re-derive it) — is one of
+`claude`, `node`, `Claude`, any name beginning `Claude Helper`, `WindowServer`, `loginwindow`,
+`Finder`, `Dock`, `SystemUIServer`, `kernel_task`, `launchd`, `sshd`, `forge-guardian`,
+`forge-guardian-sensor` (or its 16-character truncation `forge-guardian-s`). An unknown name is
+protected. Pids are canonical decimal (no sign, no leading zero, ≤ 99999); anything else in an
+envelope is invalid and the envelope is reaped (review 2026-10-08 ACT-1, ACT-3). Shells are NOT on
+the list: `forge-job` wrappers are zsh, and the governor must be able to shed them.
+
 ## 6. Policy — `policy.json` → `policy.env`
 
 `policy.default.json` in this directory is the schema by example (`forge.guardian.policy/1`).
