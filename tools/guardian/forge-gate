@@ -15,7 +15,11 @@ while (( $# )); do
     *) shift ;;
   esac
 done
-rank() { case "$1" in GREEN) print 0;; YELLOW) print 1;; ORANGE) print 2;; RED) print 3;; *) print 9;; esac }
+# UNKNOWN means the governor has no sustained evidence (just started, just stopped,
+# or a required observable is missing). It ranks with RED: only a caller that asked
+# for --need red -- "admit me whatever the machine's state" -- gets in. Any other
+# word still ranks 9, so a state this gate has never heard of denies everything.
+rank() { case "$1" in GREEN) print 0;; YELLOW) print 1;; ORANGE) print 2;; RED|UNKNOWN) print 3;; *) print 9;; esac }
 need_rank=$(rank "${NEED:u}")
 deadline=$(( $(date +%s) + WAIT ))
 while true; do

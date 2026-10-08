@@ -151,6 +151,8 @@ release_lock() {
   return 0
 }
 POLL=${FORGE_GUARDIAN_POLL:-5}
+ESCALATE_N=2      # 2 polls (~10s) to escalate — fast enough to beat an OOM
+DEESCALATE_N=6    # 6 polls (~30s) to relax — slow, so we do not flap
 NCPU=$(sysctl -n hw.ncpu)
 NPERF=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || echo $((NCPU/2)))
 RAM_BYTES=$(sysctl -n hw.memsize)
@@ -175,6 +177,7 @@ publish() {
   "epoch": $(date +%s),
   "build_jobs_max": $jmax,
   "spawn_agents_ok": $([[ "$st" == "GREEN" || "$st" == "YELLOW" ]] && echo true || echo false),
+  "evidence_complete": $([[ "$st" == "UNKNOWN" ]] && echo false || echo true),
   "heavy_jobs_ok": $([[ "$st" == "GREEN" ]] && echo true || echo false),
   "observables": {
     "vm_pressure_level": ${O_VMP:-1},
@@ -323,6 +326,30 @@ build_jobs_for() {
     YELLOW) print $(( NPERF / 2 > 1 ? NPERF / 2 : 1 )) ;;
     ORANGE) print 2 ;;
     RED)    print 1 ;;
+    *)      print 2 ;;   # UNKNOWN: no evidence of health, so no evidence for -j8 either
+  esac
+}
+
+# How many consecutive confirming polls a move from $1 to $2 needs.
+#
+# UNKNOWN is not a rung on the pressure ladder; it means "this governor has no
+# sustained evidence yet". It is published at start, on stop, and (T-173) whenever a
+# required observable is missing. Leaving it for a PRESSURE state is an escalation
+# backed by evidence, so it takes the ordinary escalation count. Leaving it for
+# GREEN or YELLOW is a recovery, so it takes the slow count: the absence of a bad
+# sample is not a healthy sample. Entering UNKNOWN is immediate -- losing evidence
+# must close admission on the poll it is lost, not two polls later.
+#
+# THE BUG THIS REPLACES (measured 2026-09-15): the daemon started in GREEN and
+# published GREEN "armed" before its first classification, so each of 16 launchd
+# respawns during a disk-11GiB RED episode re-opened heavy admission for ~10s.
+confirm_needed() {
+  case "$1:$2" in
+    *:UNKNOWN)                         print 1 ;;
+    UNKNOWN:RED|UNKNOWN:ORANGE)        print $ESCALATE_N ;;
+    UNKNOWN:*)                         print $DEESCALATE_N ;;
+    GREEN:*|YELLOW:ORANGE|YELLOW:RED|ORANGE:RED) print $ESCALATE_N ;;
+    *)                                 print $DEESCALATE_N ;;
   esac
 }
 
@@ -371,10 +398,10 @@ fi
 
 
 # ---- main loop ----------------------------------------------------------------
-STATE=GREEN; CAND=GREEN; CONFIRM=0; CLASS=GREEN; REASON="nominal"
+# Start in UNKNOWN, not GREEN: a governor that has just (re)started has no sustained
+# evidence, and confirm_needed() makes it earn GREEN over DEESCALATE_N polls.
+STATE=UNKNOWN; CAND=UNKNOWN; CONFIRM=0; CLASS=UNKNOWN; REASON="starting: awaiting sustained evidence"
 O_VMP=1; O_FREE=100; O_SWU=0; O_SWT=1; O_PORATE=0; O_DISK=999; O_LOAD=0; O_THERM=100; O_JOBS=0
-ESCALATE_N=2      # 2 polls (~10s) to escalate — fast enough to beat an OOM
-DEESCALATE_N=6    # 6 polls (~30s) to relax — slow, so we do not flap
 RED_STAGE=0
 # ---- eviction grace windows -------------------------------------------------
 # SETTLE: forge-gate ADMITS a job on its declared peak_gb. Evicting it for
@@ -391,9 +418,15 @@ GRACE_SETTLE=${FORGE_GUARDIAN_SETTLE:-180}
 GRACE_TERM=${FORGE_GUARDIAN_TERM_GRACE:-45}
 typeset -A TERMED_AT
 
-trap 'publish "GREEN" "guardian stopped" "$(build_jobs_for GREEN)"; log "guardian stopped"; exit 0' TERM INT
+# A STOPPED GOVERNOR IS NOT EVIDENCE OF A HEALTHY MACHINE. This trap used to publish
+# GREEN "guardian stopped" -- into state.json and, with a fresh ts, into the Law-7
+# status.json the training fleet reads -- so for a full staleness window every
+# consumer saw GREEN from a governor that had just exited. Publish UNKNOWN (heavy
+# admission closed); release_lock then back-dates the state file so forge-gate
+# fails closed at once.
+trap 'publish "UNKNOWN" "guardian stopped" "$(build_jobs_for UNKNOWN)"; log "guardian stopped"; exit 0' TERM INT
 
-reap_dead_jobs; sample; publish "GREEN" "armed" "$(build_jobs_for GREEN)"
+reap_dead_jobs; sample; publish "$STATE" "$REASON" "$(build_jobs_for "$STATE")"
 emit "🛡  FORGE GUARDIAN ARMED $(date '+%Y-%m-%d %H:%M:%S') ram=${RAM_GB}G ncpu=${NCPU} poll=${POLL}s"
 
 while true; do
@@ -412,11 +445,7 @@ while true; do
     CONFIRM=0; CAND="$STATE"
   else
     if [[ "$NEW" == "$CAND" ]]; then (( CONFIRM++ )); else CAND="$NEW"; CONFIRM=1; fi
-    local_need=$ESCALATE_N
-    case "$STATE:$NEW" in
-      GREEN:*|YELLOW:ORANGE|YELLOW:RED|ORANGE:RED) local_need=$ESCALATE_N ;;
-      *) local_need=$DEESCALATE_N ;;
-    esac
+    local_need=$(confirm_needed "$STATE" "$NEW")
     if (( CONFIRM >= local_need )); then
       OLD="$STATE"; STATE="$CAND"; CONFIRM=0
       JMAX=$(build_jobs_for "$STATE")
@@ -426,6 +455,7 @@ while true; do
         ORANGE) emit "🟠 GUARDIAN $OLD→ORANGE ($REASON) — shedding speculative jobs, build -j$JMAX" ;;
         RED)    emit "🔴 GUARDIAN $OLD→RED ($REASON) — halting new work, checkpointing" ;;
         GREEN)  emit "🟢 GUARDIAN $OLD→GREEN (recovered) — build -j$JMAX"; RED_STAGE=0 ;;
+        *)      emit "⚪ GUARDIAN $OLD→$STATE ($REASON) — heavy admission closed, build -j$JMAX"; RED_STAGE=0 ;;
       esac
     fi
   fi
@@ -471,8 +501,12 @@ while true; do
 
           # ONE TERM PER DECISION. A pid already inside its TERM grace is being
           # asked to die; re-signalling it does not make it die faster.
-          if [[ -n "$_jpid" && -n "${TERMED_AT[$_jpid]}" ]] \
-             && (( _now - ${TERMED_AT[$_jpid]} < GRACE_TERM )); then
+          # ${TERMED_AT[$_jpid]:-}, never ${TERMED_AT[$_jpid]}: the key does not exist
+          # until the first TERM, and under this file's `set -u` reading it killed the
+          # daemon the first time stage 3 tried to evict anything -- 16 launchd
+          # respawns on 2026-09-15, each dying at this line ("parameter not set").
+          if [[ -n "$_jpid" && -n "${TERMED_AT[$_jpid]:-}" ]] \
+             && (( _now - ${TERMED_AT[$_jpid]:-0} < GRACE_TERM )); then
             continue
           fi
 
