@@ -44,7 +44,7 @@ a failed or short write is never renamed (the previous good file stays, and goes
 | `sensor.lock` | sensor | `fcntl` single-instance lock for the sensor |
 | `history.jsonl` (+`.1`…) | governor | one compact line per poll (§4.3), rotated, `logs.history_mib` total |
 | `events.jsonl` (+`.1`…) | sensor, governor | discrete events (§7), rotated |
-| `events/inbox/*.jsonl` | any local producer (Forge app, workers) | events to ingest; the sensor moves processed files to `events/done/` and deletes them after ingest |
+| `events/inbox/*.jsonl` | any local producer (Forge app, workers) | events to ingest; the sensor copies valid lines into `events.jsonl` (with `source`) and then deletes the inbox file |
 | `session/current.json`, `session/previous.json`, `session/boots.jsonl` | sensor | §8 |
 | `crashes/<sig>.jsonl` | release | crash ledger per job signature |
 | `quarantine/<sig>.json` | release / ctl | §9 |
@@ -52,6 +52,21 @@ a failed or short write is never renamed (the previous good file stays, and goes
 | `incidents/<UTC>-<kind>/` | sensor `incident` | §10 |
 | `log/guardian.log`, `log/guardian.out`, `log/sensor.log`, `log/launchd.out`, `log/launchd.err` | governor, sensor, launchd | rotated at `logs.rotate_mib`, `logs.generations` kept |
 | `bin/<tool>` | installer | symlinks into the installed release |
+| `guardian.starts` | governor | start epochs for the restart-loop breaker (≤ 32 lines) |
+| `notify/<kind>` | governor | per-kind notification rate-limit stamps |
+| `smart.out` | governor | output of the background SMART probe |
+| `guardian.installed.json` | installer | `{schema "forge.guardian.installed/1", version, release, installed_at, source_commit, plist_sha256, previous}` — distinct from `installed.json`, which belongs to the Forge.app installer |
+| `soak/<UTC>/` | `forge-guardian-soak` | bounded soak: config, samples.jsonl, status.json, summary.json |
+
+Each release under `~/Library/Application Support/ForgeGuardian/releases/<version>/` carries
+`MANIFEST.json` = `{schema "forge.guardian.manifest/1", version, source_commit, built_at,
+version_basis, files {path: sha256}}`. The version is `2.0.0+<12 hex>` over the sorted
+`path sha256` lines; the sensor binary is not byte-reproducible (its ad-hoc signature embeds a
+build-time identifier), so its SOURCES are hashed instead (`version_basis: "sources"`).
+
+The sensor binary is located, by every tool, in this order: `$FORGE_GUARDIAN_SENSOR_BIN`
+(explicit; if set but not executable, admission fails closed), then the tool's own resolved
+directory (`${0:A:h}`), then `$STATE_DIR/bin`.
 
 The aggregate of `log/`, `history.jsonl*`, `events.jsonl*`, `events/` and `incidents/`
 is held under `logs.cap_mib` (default 64 MiB) by the governor's housekeeping, oldest
@@ -87,9 +102,14 @@ poll_s=<int>
 vmp=1|2|4                 vmp_st=…    kern.memorystatus_vm_pressure_level
 pevent=normal|warn|critical|none      pevent_st=…   last DISPATCH_SOURCE_TYPE_MEMORYPRESSURE event
 pevent_ts=<epoch s>  pevent_warn_n=<int>  pevent_crit_n=<int>      (counts since sensor start)
+                          before the first event: pevent=normal, pevent_st=ok, pevent_ts=-1 while the
+                          dispatch source is armed; `unavailable` in a one-shot snapshot (no source)
 freepct=<0..100>          freepct_st=…  kern.memorystatus_level
 mem_total_b=…  mem_avail_b=…  mem_free_b=…  mem_wired_b=…  mem_compressed_b=…  mem_st=…
-                          mem_avail_b = (free + inactive + speculative + purgeable) pages × page size
+                          mem_avail_b = ((free_count − speculative_count) + inactive + speculative + purgeable)
+                          pages × page size. host_statistics64's free_count already contains the
+                          speculative pages (vm_stat's "Pages free" is free_count − speculative_count),
+                          so the plain sum would count them twice.
 swap_used_mb=<int>  swap_total_mb=<int>  swap_growth_mb_min=<float>  swap_st=…
 pageouts_total=<int>  pageout_rate_ps=<float pages/s>  swapout_rate_ps=<float>  pageouts_st=…
 thermal=nominal|fair|serious|critical|none   thermal_st=…   NSProcessInfo.thermalState
@@ -101,8 +121,11 @@ disk_min_avail_gib=<int, floor, over all volumes with st=ok>   disk_st=ok|unavai
 jobs_n=<J>
 job<j>_pid=…  job<j>_name=…  job<j>_identity=ok|dead|mismatch|unverifiable
 job<j>_fp_b=<process-tree phys_footprint>  job<j>_res_b=<process-tree resident>  job<j>_peak_fp_b=<max fp seen>
-job<j>_reserved_b=<declared peak, bytes>  job<j>_hb_age_s=<-1 if no heartbeat declared>
-reserved_b=<Σ reserved over identity-ok jobs>  budget_b=<mem_total_b − os_reserve>  overcommit=0|1
+job<j>_reserved_b=<the reservation: max(declared peak, measured peak footprint), bytes>
+job<j>_declared_b=<declared peak_gb, bytes>  job<j>_sig=<job signature>  job<j>_hb_age_s=<-1 if no heartbeat>
+jobs_st=ok|unavailable
+reserved_b=<Σ job<j>_reserved_b over identity-ok jobs>  budget_b=<mem_total_b − os_reserve>  overcommit=0|1
+inbox_ingested=<lines since start>  inbox_invalid=<lines since start>   (injected=1 only in test mode)
 sleep_n=<int>  last_sleep_ts=<epoch|-1>  last_wake_ts=<epoch|-1>
 self_cpu_s=<float>  self_rss_b=<int>  self_fds=<int>
 errors=<sampling errors since start>
@@ -117,6 +140,11 @@ Signal names: `vm_pressure`, `pressure_event`, `free_pct`, `memory`, `swap`, `pa
 `thermal`, `cpu`, `disk` (aggregate over `volumes`).
 
 ### 3.3 Required evidence
+
+A domain with NO sensor configured (`FORGE_GUARDIAN_SENSOR=0`, or no binary found) may publish
+GREEN from complete fallback evidence. A domain WITH a sensor configured treats a snapshot that is
+not fresh as missing evidence even when fallback sampling could see everything — the sensor is
+part of the required evidence there.
 
 `policy.required_signals` (default `vm_pressure swap pageouts disk thermal`) must all be
 `ok` and the snapshot fresh (`ts` within `sensor_stale_polls × poll_s` of now, and not
@@ -133,18 +161,25 @@ v1 keys, unchanged: `state`, `reason`, `ts`, `epoch`, `build_jobs_max`, `spawn_a
 pageout_rate_pages_per_poll, disk_avail_gb, loadavg, cpu_speed_limit_pct, registered_jobs}`,
 `host{ram_gb, ncpu, nperf}`. An unavailable observable is `-1`.
 
-v2 additions:
+v2 additions (`observables.pageout_rate_pages_per_poll` keeps its v1 name but is normalised to
+pages per **5 s** regardless of the poll interval, so its thresholds mean the same at any POLL):
 
 ```
 "schema": "forge.guardian.state/2",
 "seq": <int>,
 "evidence_complete": true|false,
 "evidence": {"source": "sensor"|"fallback", "sensor_age_s": <int|-1>, "missing": ["thermal", ...]},
+            // -1 = no snapshot; a snapshot more than 5 s in the future is missing evidence.
+            // `missing` may also name the pseudo-signals `sensor` (a sensor is configured but its
+            // snapshot is not fresh) and `restart_loop` (breaker backoff); consumers must treat ANY
+            // entry they do not recognise as missing evidence.
 "critical_now": true|false,          // this poll saw a condition that bypasses hysteresis
 "thermal_state": "nominal|fair|serious|critical|none",
 "admission": {"heavy_open": bool, "reason": "..."},
 "reservations": {"reserved_gb": x, "budget_gb": y, "overcommit": bool, "jobs": n},
 "volumes": [{"mount": "...", "avail_gb": n, "floor_gb": n, "status": "ok|unavailable"}],
+            // floor_gb is the policy floor named by disk_admission_floor (not the effective
+            // floor + outstanding reservations, which admit computes per decision)
 "disk_hardware": "Verified|Failing|Unsupported|UNKNOWN",
 "guardian": {"pid": n, "version": "...", "started": <epoch>}
 ```
@@ -194,7 +229,9 @@ v2 keys (all optional for readers; written by `admit`):
 schema=2
 pstart=<epoch seconds of the process start, proc_pidinfo pbi_start_tvsec>
 boot=<kern.bootsessionuuid at registration>
-sig=<job signature, 16 hex = sha256(name NUL argv joined by NUL)[:16]>
+sig=<job signature, 16 hex>: sha256(name NUL argv joined by NUL)[:16] when the producer knows the argv
+    (forge-job computes it and passes --sig); otherwise admit computes sha256(name NUL cmd)[:16] over
+    the recorded cmd string. Readers use the recorded sig; a changed command line is a new signature.
 threads=<int, CPU threads the job may use>
 disk_gb=<decimal>  disk_path=<abs path>  disk_fsid=<hex>  disk_avail0_b=<avail at admission>
 heartbeat=<abs path whose mtime the job advances>  stall_s=<int>
@@ -224,13 +261,15 @@ disk_floors_gib_yellow=45  disk_floors_gib_orange=25  disk_floors_gib_red=12  di
 thermal_fair=YELLOW  thermal_serious=ORANGE  thermal_critical=RED
 eviction_settle_s=180  eviction_term_grace_s=45
 crash_loop_max_crashes=3  crash_loop_window_s=900  crash_loop_crash_signals=SEGV BUS ILL ABRT FPE TRAP SYS KILL
+disk_volumes=<percent-encoded paths, space-joined, leading ~ expanded by the reader>  policy_source=<file|defaults>
 guardian_restart_loop_max_starts=5  guardian_restart_loop_window_s=900  guardian_restart_loop_backoff_s=300
 logs_cap_mib=64  logs_rotate_mib=4  logs_generations=3  logs_history_mib=6  logs_incident_max_kib=512  logs_retention_days=30
 notifications_enabled=1  notifications_min_interval_s=1800
 reports_scan_interval_s=600  smart_interval_s=21600
 ```
 
-Disk floors are absolute minimums. The effective floor of a volume is the policy floor plus
+Disk floors are whole GiB ≥ 1, and `eviction_term_grace_s` ≥ 1. Unknown keys reject the whole
+`policy.json` (keys beginning with `_` are comments). Disk floors are absolute minimums. The effective floor of a volume is the policy floor plus
 the outstanding disk reservations of live jobs on that volume (§9.2). Policy may raise a
 floor; tools refuse a `policy.json` whose floors are not strictly ordered `red < orange <
 yellow`, and fall back to the defaults with a logged error.
@@ -241,9 +280,9 @@ One JSON object per line: `{"ts": <epoch float>, "kind": "...", ...}`. Kinds:
 `sensor_start`, `sensor_stop` (`orderly`: bool), `pressure` (`level`), `thermal` (`state`),
 `will_sleep`, `did_wake` (`slept_s`), `report` (`category`, `file`, `mtime`, `bug_type`,
 `summary`), `gpu_error` (`source`, `line`), `transition` (`from`, `to`, `reason`),
-`shed` (`sig`, `pid`, `name`), `reap` (`pid`, `why`), `cancel_latency` (`pid`, `s`),
+`shed` (`sig` = the job signature or null, `signal`, `pid`, `name`), `reap` (`pid`, `why`), `cancel_latency` (`pid`, `s`),
 `stall` (`pid`, `name`, `age_s`), `quarantine` (`sig`, `name`, `crashes`), `incident`
-(`dir`, `kind`), `publish_error` (`file`, `errno`), `policy_error`, `guardian_restart_loop`.
+(`dir`, `incident_kind` — not `kind`, which is the event's own key), `publish_error` (`file`, `errno`), `policy_error`, `guardian_restart_loop`.
 
 ## 8. Session continuity — `session/`
 
@@ -262,7 +301,8 @@ At start the sensor moves the old `current.json` to `previous.json`, adds a
 | new boot, no `orderly_stop`, panic report dated in the gap | `kernel_panic` (report path recorded) |
 | new boot, no `orderly_stop`, nothing explaining it | `unclean_unknown` — **never** asserted to be a panic, power loss or a green screen |
 
-The gap (`boot_epoch − last_heartbeat`), any reports dated in it, and whether the last
+The gap (`gap_s = boot_epoch − last_heartbeat`), panic reports correlated over
+`[last_heartbeat, now]` (a panic report is written at the NEXT boot, after boot_epoch), any reports dated in it, and whether the last
 record said the machine was asleep are recorded alongside, as evidence, not as a cause.
 
 ## 9. Admission, reservations, crash loops
@@ -286,7 +326,9 @@ Under `admission.lock` (held only for the decision, never while waiting): quaran
 state freshness (`state` mtime and `state.json` epoch, ≤ 60 s old, ≥ −5 s) → state rank vs
 `--need` (UNKNOWN ranks with RED) → identity-verified registry → memory fit → disk fit →
 write the envelope atomically → release the lock. `--wait` retries every 5 s until the
-deadline, re-taking the lock each time.
+deadline, re-taking the lock each time; it retries on 1 and 75 and returns 2 and 78 at once.
+stdout carries the decision (`--json` for the object); callers that run a job keep the job's own
+stdout clean by sending it to stderr.
 
 Memory fit (bytes; G = `--peak-gb`; jobs with G ≤ `memory_light_job_gb` skip both tests):
 
@@ -310,7 +352,9 @@ Law-7 marker (one heavy GPU job at a time), not a separate pool.
 ### 9.2 `forge-guardian-sensor release`
 
 `release --state-dir D --pid PID [--rc N] [--signal NAME] [--external-term]` removes
-`jobs/PID.job` (only if its pid/pstart match), appends `{sig, name, declared_gb,
+`jobs/PID.job` when its identity is ok, dead or unverifiable, and refuses only a MISMATCH (a reused
+pid's envelope belongs to somebody else); without `--signal`, rc > 128 is read as signal rc − 128
+and recorded with `signal_inferred: true`. It appends `{sig, name, declared_gb,
 measured_peak_gb, wall_s, rc, signal}` to `reservations.history.jsonl`, and when the job
 ended by one of `crash_loop_crash_signals` and the wrapper did not itself forward an external
 TERM/INT, appends to `crashes/<sig>.jsonl`; `max_crashes` within `window_s` writes
@@ -334,7 +378,9 @@ name, mtime, size, category, `bug_type`, and for Jetsam the largest process and 
 reasons), and with `--with-log` a `unified_log.txt` excerpt (`log show` over the window,
 predicate limited to kernel/WindowServer/GPU subsystems, 30 s timeout, 256 KiB cap).
 Kinds: `manual`, `red`, `crash_loop`, `unclean_boot`, `report`, `gpu_error`.
-Automatic kinds are rate-limited to one per kind per 10 min. Inaccessible evidence is
+Automatic kinds are rate-limited to one per key per 10 min, where the key is `crash_loop:<sig>`
+(one job's quarantine never suppresses another's bundle), `report:<category>`, and the kind itself
+for `red`, `unclean_boot` and `gpu_error`. Inaccessible evidence is
 recorded as inaccessible, never requested with elevated privilege.
 
 ### Report categories (DiagnosticReports, user and system directories)

@@ -28,10 +28,12 @@ step being unable to run*. The zero was the instrument, not the system. If the
 symlinks are missing, restore them and do nothing else this tick:
 
 ```sh
-for t in forge-job forge-gate forge-nproc forge-guardian-ctl; do
-  ln -sfn "$HOME/.forge-health/bin/$t" "$HOME/.local/bin/$t"
-done
+zsh tools/guardian/forge-guardian-install install   # recreates ~/.forge-health/bin + ~/.local/bin links
+forge-guardian-ctl diagnose                          # proves the links, the agent and the sensor
 ```
+
+(Before Guardian v2 this was a hand-written `ln -sfn` loop; the installer now owns those links,
+creates them when missing and refuses to replace a regular file there.)
 
 Note that `forge-job` calls `forge-gate` by absolute path, so only `forge-job`'s own
 resolution ever blocks; and job files are deleted on exit, so a `registered jobs: 0`

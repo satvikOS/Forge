@@ -113,7 +113,9 @@ if [[ -n "${FORGE_GUARDIAN_SENSOR_BIN:-}" ]]; then
     exit 75
   fi
 else
-  for _c in "$STATE_DIR/bin/forge-guardian-sensor" "${0:A:h}/forge-guardian-sensor"; do
+  # SCHEMA §1 lookup order, the same as forge-guardian and forge-gate: the explicit
+  # binary, then this tool's own (resolved) directory, then the domain's bin/.
+  for _c in "${0:A:h}/forge-guardian-sensor" "$STATE_DIR/bin/forge-guardian-sensor"; do
     if [[ -f $_c && -x $_c ]]; then SENSOR=$_c; break; fi
   done
 fi

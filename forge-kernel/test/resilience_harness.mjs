@@ -147,6 +147,28 @@ function mktemp(tag) {
 function write(p, s, mode) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s); if (mode) fs.chmodSync(p, mode); }
 const cleanups = [];
 function onCleanup(fn) { cleanups.push(fn); }
+
+// A probe script that DIES (as D5 did on a governor crash) leaves the processes it
+// spawned running for ever: 21 orphaned victim.sh loops were found on the workstation
+// after one such run. Every spawned process is written to $W/spawned.pids by the script
+// itself as "pid|start-time", and reaped here only when that pid still has that start
+// time -- an identity, not a number (a reused pid, e.g. one now owned by the LIVE
+// governor, has a different start time and is left alone).
+function reapSpawned(W) {
+  let lines = [];
+  try { lines = fs.readFileSync(path.join(W, 'spawned.pids'), 'utf8').split('\n').filter(Boolean); } catch { return; }
+  for (const line of lines) {
+    const [p, start] = line.split('|');
+    if (!/^\d+$/.test(p || '') || !(start || '').trim()) continue;
+    let now = '';
+    try {
+      now = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', p], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+    } catch { continue; }                                   // gone already
+    if (now.trim() === start.trim()) {
+      try { process.kill(Number(p), 'SIGKILL'); } catch { /* raced to exit */ }
+    }
+  }
+}
 function runCleanups() { while (cleanups.length) { try { cleanups.pop()(); } catch { /* best effort */ } } }
 process.on('exit', runCleanups);
 process.on('SIGINT', () => { runCleanups(); process.exit(130); });
@@ -343,6 +365,7 @@ print "LEAKED=$c"
 function runGuardianPhase(TOOLS, { settle, termGrace, seconds, tag }) {
   const W = mktemp(`gd-${tag}`);
   if (!KEEP) onCleanup(() => fs.rmSync(W, { recursive: true, force: true }));
+  onCleanup(() => reapSpawned(W));
   for (const d of ['bin', 'jobs', 'log', 'stub']) fs.mkdirSync(path.join(W, d), { recursive: true });
   const obs = path.join(W, 'obs');
   fs.writeFileSync(obs, OBS_NOMINAL);
@@ -365,6 +388,7 @@ function runGuardianPhase(TOOLS, { settle, termGrace, seconds, tag }) {
 set -u
 "${TOOLS}/forge-guardian" >${W}/guardian.out 2>&1 &
 GP=$!
+print "$GP|$(LC_ALL=C ps -o lstart= -p $GP)" >> ${W}/spawned.pids
 # wait for the private domain to be published before registering anything
 n=0; while (( n < 40 )); do [[ -f ${W}/state ]] && break; sleep 0.25; n=$(( n + 1 )); done
 print "GUARDIAN_UP=$([[ -f ${W}/state ]] && print 1 || print 0)"
@@ -379,6 +403,7 @@ print "ADMIT_RC=$?"
 # wrapper that dies on the first TERM would hide the repeat-TERM defect entirely.
 "${victim}" "${vlog}" &
 VP=$!
+print "$VP|$(LC_ALL=C ps -o lstart= -p $VP)" >> ${W}/spawned.pids
 START=$(date +%s)
 { print "pid=$VP"; print "name=settling-probe"; print "priority=9"; print "can_restart=1";
   print "peak_gb=25"; print "gpu=0"; print "started=$START"; print "cmd=victim"; } > ${W}/jobs/probe.job
@@ -400,7 +425,7 @@ kill -TERM $GP 2>/dev/null; sleep 0.6; kill -KILL $GP 2>/dev/null
 kill -KILL $VP 2>/dev/null
 print "@@VICTIM@@"; cat "${vlog}" 2>/dev/null
 print "@@GLOG@@"; cat ${W}/log/guardian.log 2>/dev/null
-print "@@GOUT@@"; cat ${W}/guardian.out 2>/dev/null
+print "@@GOUT@@"; cat ${W}/guardian.out ${W}/log/guardian.out 2>/dev/null   # v2 redirects its own stdout/stderr to log/
 `;
   const r = zsh(script, { timeout: (seconds + 40) * 1000, env });
   const grab = (k) => { const m = r.out.match(new RegExp(`^${k}=(.*)$`, 'm')); return m ? m[1].trim() : ''; };
@@ -617,6 +642,7 @@ function d5_shed_targeting(TOOLS) {
   const checks = [];
   const W = mktemp('target');
   if (!KEEP) onCleanup(() => fs.rmSync(W, { recursive: true, force: true }));
+  onCleanup(() => reapSpawned(W));
   for (const d of ['bin', 'jobs', 'log']) fs.mkdirSync(path.join(W, d), { recursive: true });
   const victim = path.join(W, 'victim.sh'); write(victim, VICTIM_RECORDER, 0o755);
 
@@ -631,6 +657,7 @@ unset FORGE_GUARDIAN_LIB
 "${victim}" ${W}/spec.log &  SPEC=$!
 "${victim}" ${W}/crit.log &  CRIT=$!
 "${victim}" ${W}/unreg.log & UNREG=$!
+for _p in $SPEC $CRIT $UNREG; do print "$_p|$(LC_ALL=C ps -o lstart= -p $_p)" >> ${W}/spawned.pids; done
 # A registered entry pointing at a PROTECTED comm. PROTECTED_RE matches 'node', and
 # this harness is node — a governor that signals it takes the measurement with it.
 PROT=$$
@@ -844,7 +871,12 @@ const MUTATIONS = [
   {
     id: 'd_green_unreachable', file: 'forge-guardian',
     why: 'a ladder whose GREEN is unreachable: the disk rung raised above any attainable free space.',
-    apply: (s) => s.replace(/O_DISK < 45/, 'O_DISK < 4500'),
+    // v1 compared the literal `O_DISK < 45`; v2 (T-173) reads the floor from the policy
+    // defaults the governor embeds (POL_DEF `disk_floors_gib_yellow 45`). Either anchor
+    // reintroduces the same defect; a tree carrying neither makes the mutation NOT
+    // APPLICABLE, which fails the run below rather than passing silently.
+    apply: (s) => s.replace(/O_DISK < 45\b/, 'O_DISK < 4500')
+                   .replace(/disk_floors_gib_yellow 45\b/, 'disk_floors_gib_yellow 4500'),
   },
 ];
 
@@ -861,6 +893,10 @@ const MUTATIONS = [
 // Repair (one line, twice): ${TERMED_AT[$_jpid]:-}. Applied HERE only, at runtime, so
 // the falsifiability matrix measures the RUBRIC instead of that bug — never silently:
 // the matrix prints the repair and the unrepaired branch is scored beside it.
+// FIXED IN THE TREE by T-172 (7c92f106), after it was found to have crashed the
+// installed daemon 16 times on 2026-09-15 (guardian.err, line 474). The repair is now a
+// no-op on the shipped tree ("repaired: false"); the regression has its own gate,
+// tools/guardian/test/guardian_red_survival_gate.sh.
 const NOUNSET_REPAIR = {
   file: 'forge-guardian',
   note: 'TERMED_AT[$_jpid] -> TERMED_AT[$_jpid]:-  (nounset crash SHIPPED at origin/archdisc and INSTALLED live)',
@@ -930,9 +966,13 @@ function reintroduceFromTree(root) {
   for (const r of mutRuns) {
     const d = r.composite - base.composite;
     const lower = r.composite < base.composite - 1e-9;
-    const verdict = !r.applied ? 'ALREADY PRESENT in this tree (defect is shipped)'
+    // A mutation whose anchor text is absent is NOT evidence the defect is shipped: the
+    // anchor may simply have moved (T-173 moved d's floor into policy defaults, and this
+    // line called that "ALREADY PRESENT"). Either way the defect is no longer being
+    // falsified, so it fails -- a shipped defect also fails the score floor.
+    const verdict = !r.applied ? 'NOT APPLICABLE — anchor absent (defect shipped, or the mutation needs re-anchoring) ✗'
       : lower ? 'discriminated ✓' : 'INDISTINGUISHABLE ✗';
-    if (r.applied && !lower) ok = false;
+    if (!r.applied || !lower) ok = false;
     console.log(pad(r.mutation.id, 40) + pad(f3(r.composite), 9) + pad((d >= 0 ? '+' : '') + f3(d), 12) + verdict);
   }
   console.log(rule(78));

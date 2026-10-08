@@ -1,0 +1,264 @@
+#!/bin/zsh
+# ============================================================================
+# forge-guardian-soak — the bounded soak of the INSTALLED Guardian (doc 06 "Soak gate").
+#
+#   forge-guardian-soak start  [--hours H] [--interval S] [--probe-every S]
+#   forge-guardian-soak status [DIR]
+#   forge-guardian-soak stop   [DIR]
+#
+# WHAT IT MEASURES. Not "did not crash once". The trends doc 06 asks for, on the
+# governor and its sensor, over hours, at the machine's ordinary load:
+#   CPU seconds (slope -> mean % of one core), resident memory (slope), open fds,
+#   instance counts (exactly one governor and one sensor per domain), publication
+#   freshness, state transitions, evidence completeness, and the bytes the Guardian
+#   keeps on disk against its own cap.
+# And it EXERCISES the admission path at a harmless scale every --probe-every
+# seconds: one registered no-op job (peak 0.05 GiB, `sleep 2`) that must be
+# admitted and released, and one dry-run admission for more memory than the machine
+# has, which must be DENIED. A governor that stops admitting, or starts admitting
+# the impossible, is a regression a quiet soak would never show.
+#
+# WHAT IT WILL NOT DO. It creates no memory, disk, CPU or GPU load. It never
+# signals the Guardian, the sensor or any registered job. It skips its probes while
+# the state is not GREEN (it must not add work to a stressed machine).
+#
+# BOUNDED. Hard deadline (default 8 h, max 24 h); stop conditions below; one status
+# file rewritten atomically every sample; samples capped at 20 000 lines. It runs
+# detached (nohup), NOT under launchd: a reboot ends it, and the status file then
+# says INCOMPLETE rather than pretending it finished.
+#
+# STOP CONDITIONS (any one ends the soak with STOPPED and the reason):
+#   - the governor has not published for > 120 s
+#   - more than one governor or sensor process for the domain on 3 consecutive samples
+#   - the Guardian's on-disk evidence exceeds its own cap (logs_cap_mib) by > 10 %
+#   - free disk on the home volume < 25 GiB (the ORANGE floor) — stop adding files
+#   - the soak's own deadline
+# ============================================================================
+set -u
+setopt NULL_GLOB 2>/dev/null || true
+zmodload zsh/datetime zsh/stat 2>/dev/null
+umask 077
+
+STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+SOAK_ROOT="$STATE_DIR/soak"
+BIN="$STATE_DIR/bin"
+MAX_LINES=20000
+
+usage() {
+  print -r -- "usage: forge-guardian-soak start [--hours H(1-24, default 8)] [--interval S(default 60)] [--probe-every S(default 1800)]"
+  print -r -- "       forge-guardian-soak status [DIR]     (default: the latest soak)"
+  print -r -- "       forge-guardian-soak stop [DIR]"
+}
+
+latest() { local -a d; d=("$SOAK_ROOT"/*(/Nom)); print -r -- "${d[1]:-}" }   # newest first
+
+jget() { # jget FILE KEY -> first "KEY": value (string or number), no fork for the read
+  local f=$1 k=$2 line
+  [[ -r "$f" ]] || return 1
+  while IFS= read -r line; do
+    if [[ "$line" == *\"$k\":* ]]; then
+      line=${line#*\"$k\":}; line=${line## }; line=${line%%,*}; line=${line%\}}; line=${line//\"/}
+      print -r -- "${line## }"; return 0
+    fi
+  done < "$f"
+  return 1
+}
+
+envget() { # envget FILE KEY
+  local f=$1 k=$2 line
+  [[ -r "$f" ]] || return 1
+  while IFS= read -r line; do
+    [[ "$line" == "$k="* ]] && { print -r -- "${line#*=}"; return 0 }
+  done < "$f"
+  return 1
+}
+
+cpu_seconds() { # cumulative CPU seconds of a pid from ps TIME ([[dd-]hh:]mm:ss.cc)
+  local t; t=$(ps -o time= -p "$1" 2>/dev/null | tr -d ' ') || return 1
+  [[ -n "$t" ]] || return 1
+  local d=0 h=0 m=0 s=0
+  [[ "$t" == *-* ]] && { d=${t%%-*}; t=${t#*-} }
+  local -a p; p=(${(s.:.)t})
+  case ${#p} in
+    3) h=${p[1]}; m=${p[2]}; s=${p[3]} ;;
+    2) m=${p[1]}; s=${p[2]} ;;
+    1) s=${p[1]} ;;
+  esac
+  print -r -- $(( d*86400 + h*3600 + m*60 + s ))
+}
+
+domain_pids() { # $1 = guardian|sensor : pids whose argv names this domain's tool
+  local which=$1
+  if [[ "$which" == guardian ]]; then
+    pgrep -f '/forge-guardian$' 2>/dev/null
+  else
+    pgrep -f "forge-guardian-sensor run --state-dir $STATE_DIR" 2>/dev/null
+  fi
+}
+
+write_status() { # write_status DIR STATUS REASON
+  local d=$1 st=$2 why=$3
+  print -r -- "{\"status\": \"$st\", \"reason\": \"${why//\"/'}\", \"ts\": $EPOCHSECONDS, \"pid\": $$, \"deadline\": ${DEADLINE:-0}, \"samples\": ${NS:-0}, \"probes_ok\": ${PROBE_OK:-0}, \"probes_bad\": ${PROBE_BAD:-0}}" > "$d/status.json.tmp" \
+    && mv -f "$d/status.json.tmp" "$d/status.json"
+}
+
+evidence_bytes() { # bytes the Guardian keeps (log/ history events incidents)
+  local -i tot=0; local f
+  for f in "$STATE_DIR"/log/*(.N) "$STATE_DIR"/history.jsonl*(.N) "$STATE_DIR"/events.jsonl*(.N) \
+           "$STATE_DIR"/events/**/*(.N) "$STATE_DIR"/incidents/**/*(.N); do
+    tot+=$(zstat +size "$f" 2>/dev/null || print 0)
+  done
+  print -r -- $tot
+}
+
+run_soak() {
+  local DIR=$1 HOURS=$2 INTERVAL=$3 PROBE_EVERY=$4
+  DEADLINE=$(( EPOCHSECONDS + HOURS * 3600 ))
+  NS=0; PROBE_OK=0; PROBE_BAD=0
+  local -i dup_streak=0 last_probe=0
+  local cap_mib; cap_mib=$(envget "$STATE_DIR/policy.env" logs_cap_mib 2>/dev/null); cap_mib=${cap_mib:-64}
+  trap 'write_status "$DIR" STOPPED "signalled"; exit 0' TERM INT
+  write_status "$DIR" RUNNING "started"
+  print -r -- "$$" > "$DIR/pid"
+  while (( EPOCHSECONDS < DEADLINE )); do
+    local -a gp sp
+    gp=($(domain_pids guardian)); sp=($(domain_pids sensor))
+    local age=-1 st="" ev="" mt
+    if [[ -f "$STATE_DIR/state" ]]; then
+      mt=$(zstat +mtime "$STATE_DIR/state" 2>/dev/null || print 0); age=$(( EPOCHSECONDS - mt ))
+      st=$(<"$STATE_DIR/state")
+    fi
+    ev=$(jget "$STATE_DIR/state.json" evidence_complete 2>/dev/null || print "?")
+    local gcpu=-1 grss=-1 gfd=-1 scpu=-1 srss=-1
+    if (( ${#gp} >= 1 )); then
+      gcpu=$(cpu_seconds "${gp[1]}" || print -1)
+      grss=$(ps -o rss= -p "${gp[1]}" 2>/dev/null | tr -d ' '); grss=${grss:--1}
+      (( NS % 10 == 0 )) && { gfd=$(lsof -p "${gp[1]}" 2>/dev/null | wc -l | tr -d ' '); gfd=${gfd:--1} }
+    fi
+    if (( ${#sp} >= 1 )); then
+      scpu=$(cpu_seconds "${sp[1]}" || print -1)
+      srss=$(ps -o rss= -p "${sp[1]}" 2>/dev/null | tr -d ' '); srss=${srss:--1}
+    fi
+    local evb; evb=$(evidence_bytes)
+    local diskg; diskg=$(df -g "$HOME" 2>/dev/null | awk 'NR==2{print $4}'); diskg=${diskg:--1}
+    print -r -- "{\"t\":$EPOCHSECONDS,\"state\":\"$st\",\"age\":$age,\"ev\":\"$ev\",\"ng\":${#gp},\"ns\":${#sp},\"gcpu\":$gcpu,\"grss_kb\":$grss,\"gfd\":$gfd,\"scpu\":$scpu,\"srss_kb\":$srss,\"evidence_b\":$evb,\"disk_gib\":$diskg}" >> "$DIR/samples.jsonl"
+    (( NS++ ))
+
+    # ---- stop conditions ----
+    if (( age < 0 || age > 120 )); then write_status "$DIR" STOPPED "governor not publishing (age=${age}s)"; return 1; fi
+    if (( ${#gp} > 1 || ${#sp} > 1 )); then (( dup_streak++ )); else dup_streak=0; fi
+    if (( dup_streak >= 3 )); then write_status "$DIR" STOPPED "duplicate instances: governors=${#gp} sensors=${#sp}"; return 1; fi
+    if (( evb > cap_mib * 1048576 * 11 / 10 )); then write_status "$DIR" STOPPED "evidence ${evb}B exceeds cap ${cap_mib}MiB by >10%"; return 1; fi
+    if (( diskg >= 0 && diskg < 25 )); then write_status "$DIR" STOPPED "home volume free ${diskg}GiB < 25"; return 1; fi
+    if (( NS >= MAX_LINES )); then write_status "$DIR" STOPPED "sample cap reached"; return 1; fi
+
+    # ---- harmless admission probes, only on a GREEN machine ----
+    if [[ "$st" == GREEN ]] && (( EPOCHSECONDS - last_probe >= PROBE_EVERY )); then
+      last_probe=$EPOCHSECONDS
+      local prc drc
+      "$BIN/forge-job" --name soak-probe --priority 9 --peak-gb 0.05 --restartable --wait 30 -- /bin/sleep 2 \
+        > "$DIR/probe.last" 2>&1; prc=$?
+      "$BIN/forge-gate" --need green --peak-gb 100000 --why soak-deny-probe > "$DIR/deny.last" 2>&1; drc=$?
+      if (( prc == 0 && drc != 0 )); then (( PROBE_OK++ )); else (( PROBE_BAD++ )); fi
+      print -r -- "{\"t\":$EPOCHSECONDS,\"probe\":{\"admit_rc\":$prc,\"deny_rc\":$drc}}" >> "$DIR/samples.jsonl"
+    fi
+    write_status "$DIR" RUNNING "sampling"
+    sleep "$INTERVAL" & wait $!
+  done
+  write_status "$DIR" COMPLETED "deadline reached after ${HOURS}h"
+  return 0
+}
+
+summarize() { # summarize DIR -> summary.json via python3 (offline analysis only)
+  local d=$1
+  /usr/bin/python3 -I - "$d" <<'PY' 2>/dev/null
+import json, sys, os
+d = sys.argv[1]
+rows = [json.loads(l) for l in open(os.path.join(d, "samples.jsonl")) if l.strip()]
+s = [r for r in rows if "gcpu" in r]
+p = [r["probe"] for r in rows if "probe" in r]
+def slope(xs, ys):
+    pts = [(x, y) for x, y in zip(xs, ys) if y is not None and y >= 0]
+    if len(pts) < 3: return None
+    n = len(pts); mx = sum(x for x, _ in pts) / n; my = sum(y for _, y in pts) / n
+    den = sum((x - mx) ** 2 for x, _ in pts)
+    return None if den == 0 else sum((x - mx) * (y - my) for x, y in pts) / den
+out = {"samples": len(s), "span_h": round((s[-1]["t"] - s[0]["t"]) / 3600, 2) if len(s) > 1 else 0}
+for who in ("g", "s"):
+    c = [(r["t"], r[f"{who}cpu"]) for r in s if r[f"{who}cpu"] >= 0]
+    if len(c) > 1 and c[-1][0] > c[0][0]:
+        out[f"{who}_cpu_pct_of_one_core"] = round(100 * (c[-1][1] - c[0][1]) / (c[-1][0] - c[0][0]), 3)
+    rss = [r[f"{who}rss_kb"] for r in s if r[f"{who}rss_kb"] >= 0]
+    if rss:
+        out[f"{who}_rss_mib_max"] = round(max(rss) / 1024, 1)
+        sl = slope([r["t"] for r in s], [r[f"{who}rss_kb"] for r in s])
+        out[f"{who}_rss_kib_per_hour"] = None if sl is None else round(sl * 3600, 2)
+ev = [r["evidence_b"] for r in s]
+out["evidence_mib_max"] = round(max(ev) / 1048576, 2) if ev else None
+sl = slope([r["t"] for r in s], ev); out["evidence_kib_per_hour"] = None if sl is None else round(sl * 3600 / 1024, 1)
+fds = [r["gfd"] for r in s if r["gfd"] >= 0]; out["guardian_fds_min_max"] = [min(fds), max(fds)] if fds else None
+states = {}
+for r in s: states[r["state"]] = states.get(r["state"], 0) + 1
+out["state_samples"] = states
+out["max_publish_age_s"] = max((r["age"] for r in s), default=None)
+out["instances_max"] = {"guardian": max((r["ng"] for r in s), default=None), "sensor": max((r["ns"] for r in s), default=None)}
+out["probes"] = {"n": len(p), "ok": sum(1 for x in p if x["admit_rc"] == 0 and x["deny_rc"] != 0)}
+st = json.load(open(os.path.join(d, "status.json")))
+out["status"] = st.get("status"); out["reason"] = st.get("reason")
+json.dump(out, open(os.path.join(d, "summary.json"), "w"), indent=1)
+print(json.dumps(out, indent=1))
+PY
+}
+
+case "${1:-}" in
+  start)
+    shift
+    HOURS=8 INTERVAL=60 PROBE_EVERY=1800
+    while (( $# )); do
+      case "$1" in
+        --hours) HOURS=$2; shift 2 ;;
+        --interval) INTERVAL=$2; shift 2 ;;
+        --probe-every) PROBE_EVERY=$2; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) print -u2 "forge-guardian-soak: unknown option '$1'"; usage >&2; exit 2 ;;
+      esac
+    done
+    [[ "$HOURS" == <-> ]] && (( HOURS >= 1 && HOURS <= 24 )) || { print -u2 -r -- "--hours must be 1..24"; exit 2 }
+    [[ "$INTERVAL" == <-> ]] && (( INTERVAL >= 5 )) || { print -u2 -r -- "--interval must be >= 5"; exit 2 }
+    [[ "$PROBE_EVERY" == <-> ]] && (( PROBE_EVERY >= 60 )) || { print -u2 -r -- "--probe-every must be >= 60"; exit 2 }
+    L=$(latest)
+    if [[ -n "$L" && -f "$L/pid" ]] && kill -0 "$(<$L/pid)" 2>/dev/null; then
+      print -u2 "a soak is already running: $L (pid $(<$L/pid))"; exit 3
+    fi
+    DIR="$SOAK_ROOT/$(strftime '%Y%m%dT%H%M%S' $EPOCHSECONDS)"
+    mkdir -p "$DIR" || exit 1
+    print -r -- "{\"hours\": $HOURS, \"interval\": $INTERVAL, \"probe_every\": $PROBE_EVERY, \"started\": $EPOCHSECONDS, \"host\": \"$(sysctl -n hw.model)\", \"boot\": \"$(sysctl -n kern.bootsessionuuid)\"}" > "$DIR/config.json"
+    ( run_soak "$DIR" "$HOURS" "$INTERVAL" "$PROBE_EVERY"; summarize "$DIR" > /dev/null ) > "$DIR/soak.out" 2>&1 < /dev/null &!
+    print -r -- "soak started: $DIR (deadline in ${HOURS}h; status: forge-guardian-soak status)"
+    ;;
+  status)
+    DIR=${2:-$(latest)}
+    [[ -n "$DIR" && -d "$DIR" ]] || { print "no soak found under $SOAK_ROOT"; exit 1 }
+    st=$(jget "$DIR/status.json" status); pid=$(<"$DIR/pid" 2>/dev/null)
+    if [[ "$st" == RUNNING ]] && ! kill -0 "${pid:-0}" 2>/dev/null; then
+      print "soak $DIR: INCOMPLETE — the soak process is gone (reboot/logout/kill) while status said RUNNING"
+    else
+      print "soak $DIR: $st — $(jget "$DIR/status.json" reason)"
+    fi
+    print "  samples: $(grep -c '"gcpu"' "$DIR/samples.jsonl" 2>/dev/null || print 0)  probes ok/bad: $(jget "$DIR/status.json" probes_ok)/$(jget "$DIR/status.json" probes_bad)"
+    summarize "$DIR"
+    ;;
+  stop)
+    DIR=${2:-$(latest)}
+    [[ -n "$DIR" && -f "$DIR/pid" ]] || { print "no soak to stop"; exit 1 }
+    pid=$(<"$DIR/pid")
+    # Only ever signal the soak's OWN recorded pid, and only if it is this script.
+    if ps -o args= -p "$pid" 2>/dev/null | grep -q 'forge-guardian-soak'; then
+      kill -TERM "$pid" && print "stopped soak pid $pid"
+    else
+      print "soak pid $pid is not running"
+    fi
+    ;;
+  -h|--help|help|"") usage; [[ -n "${1:-}" ]] && exit 0 || exit 2 ;;
+  *) print -u2 "forge-guardian-soak: unknown command '$1'"; usage >&2; exit 2 ;;
+esac
