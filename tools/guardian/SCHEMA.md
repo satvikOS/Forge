@@ -269,7 +269,41 @@ reports_scan_interval_s=600  smart_interval_s=21600
 ```
 
 Disk floors are whole GiB ≥ 1, and `eviction_term_grace_s` ≥ 1. Unknown keys reject the whole
-`policy.json` (keys beginning with `_` are comments). Disk floors are absolute minimums. The effective floor of a volume is the policy floor plus
+`policy.json` (keys beginning with `_` are comments). Disk floors are absolute minimums.
+
+**Bounds — ONE table, enforced identically by the sensor (policy.json → policy.env) and the
+governor (policy.env, defensively).** A value outside its range rejects that key (sensor: the
+whole file → defaults + `policy_error`; governor: that key → default + `policy_error`). The bounds
+exist because an accepted-but-absurd value is a denial of service on the governor itself
+(review 2026-10-08: `logs.generations=1e9` wedged both processes at 100 % CPU; `poll_s=1e9` was
+accepted by the governor and refused by the sensor, so the sensor never started again).
+
+| key | range | key | range |
+|---|---|---|---|
+| poll_s | 1–60 | escalate_polls | 1–10 |
+| deescalate_polls | 1–60 | sensor_stale_polls | 2–12 |
+| memory.os_reserve_gb | 2 – RAM/2 | memory.instant_margin_gb | 0–16 |
+| memory.light_job_gb | 0–2 | disk.floors_gib.* | 1–10000, red < orange < yellow |
+| eviction.settle_s | 0–3600 | eviction.term_grace_s | 1–600 |
+| crash_loop.max_crashes | 1–100 | crash_loop.window_s | 60–86400 |
+| guardian_restart_loop.max_starts | 2–100 | guardian_restart_loop.window_s | 60–86400 |
+| guardian_restart_loop.backoff_s | 10–3600 | logs.cap_mib | 8–1024 |
+| logs.rotate_mib | 1–64 | logs.generations | 1–10 |
+| logs.history_mib | 1–64 | logs.incident_max_kib | 64–4096 |
+| logs.retention_days | 1–365 | notifications.min_interval_s | 60–86400 |
+| reports.scan_interval_s | 60–86400 | smart.interval_s | 600–604800 |
+
+`required_signals` must be a set drawn from `vm_pressure swap pageouts disk thermal` and must
+contain at least `vm_pressure swap pageouts disk`: an empty or core-less list would let the
+governor publish GREEN with no evidence at all (review FO-3). `thermal` may be omitted only on a
+platform whose sensor reports it `unavailable` by design; doing so is logged at every start.
+
+**Registry limits.** A health domain holds at most 1024 envelopes (`*.job`, regular files only;
+FIFOs, directories, symlinks and anything else are never opened). Above the limit — or when an
+envelope cannot be read — `admit` exits 75 (cannot decide) and the governor publishes
+`jobs_st=unavailable`; a silently truncated registry under-counts reservations (review R4).
+An envelope larger than 64 KiB is not deleted: it is `unverifiable` (never signalled, its
+declared reservation still counted when its pid is alive), and the writers cap `cmd=` at 4 KiB. The effective floor of a volume is the policy floor plus
 the outstanding disk reservations of live jobs on that volume (§9.2). Policy may raise a
 floor; tools refuse a `policy.json` whose floors are not strictly ordered `red < orange <
 yellow`, and fall back to the defaults with a logged error.
