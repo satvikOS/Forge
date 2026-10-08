@@ -258,6 +258,8 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
+    # The app's view of Forge Guardian (T-179): ForgeFrame's status strip reads it.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GuardianStatus.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -328,7 +330,17 @@ foreach(_tk IN LISTS FORGE_DESKTOP_OCCT_LIBS)
     list(APPEND FORGE_DESKTOP_OCCT_PATHS "${OCCT_PREFIX}/lib/lib${_tk}.dylib")
 endforeach()
 
-target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
+# ── forge_json: the strict, bounded JSON reader (retrieval/src/Json.cpp) ──────
+# ONE copy, shared by every local-service client in the app: the Archie sidecar
+# client (forge_archie) and the Forge Guardian state reader (GuardianStatus.cpp in
+# forge_desktop_core). Before T-179 forge_archie compiled Json.cpp into itself;
+# compiling it into the core as well would have put two copies of the same objects
+# into one link.
+add_library(forge_json STATIC "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/Json.cpp")
+target_include_directories(forge_json PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/include")
+target_compile_options(forge_json PRIVATE -Wall -Wextra -Werror)
+
+target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui forge_json
                       "${FORGE_KERNEL_CORE_LIB}")
 
 # ---------------------------------------------------------------- the app
@@ -353,13 +365,12 @@ target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
 add_library(forge_archie STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../archie/src/ArchieLink.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../archie/src/RemotePlanner.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/HttpTransport.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/Json.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/HttpTransport.cpp")
 target_include_directories(forge_archie PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../archie/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/include")
 target_compile_options(forge_archie PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_archie PUBLIC forge_ui)
+target_link_libraries(forge_archie PUBLIC forge_ui forge_json)
 
 # ------------------------------------------------------- the GPU-side viewport
 # ★ ViewportRenderer.cpp USED TO BE AN APPLICATION SOURCE AND NOTHING ELSE.
@@ -900,6 +911,8 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
+    # The app's view of Forge Guardian (T-179): ForgeFrame's status strip reads it.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GuardianStatus.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core_asan PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -909,8 +922,12 @@ target_compile_definitions(forge_desktop_core_asan PRIVATE FORGE_NATIVE_BREP=1)
 target_compile_options(forge_desktop_core_asan PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
 # FORGE_DESKTOP_OCCT_PATHS dropped here too — see the note above. It is now unset,
 # so leaving it would expand to nothing while reading as though it linked something.
+add_library(forge_json_asan STATIC "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/Json.cpp")
+target_include_directories(forge_json_asan PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/include")
+target_compile_options(forge_json_asan PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
+
 target_link_libraries(forge_desktop_core_asan
-    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}")
+    PUBLIC forge_ui_asan forge_imgui_asan forge_json_asan "${FORGE_KERNEL_CORE_LIB}")
 
 add_executable(forge_desktop_click_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/click_gate.cpp")

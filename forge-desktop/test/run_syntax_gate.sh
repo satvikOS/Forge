@@ -224,6 +224,10 @@ CHECKED=(
   #    it went RED at 52 present / 50 classified.
   forge-desktop/src/CalculatorHost.cpp
   forge-desktop/test/calculator_value_gate.cpp
+  # -- ADDED 2026-10-08 (T-179). The app's Forge Guardian reader and its gate: a
+  #    bounded file read and the strict retrieval/ JSON parser. No OCCT, no SDK.
+  forge-desktop/src/GuardianStatus.cpp
+  forge-desktop/test/guardian_status_test.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(

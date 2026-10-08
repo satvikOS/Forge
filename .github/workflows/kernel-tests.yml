@@ -455,6 +455,13 @@ jobs:
           persist-credentials: false
       - name: forge::ui gates
         run: bash ui/test/run_ui.sh
+      - name: The app never shows Forge Guardian's state as healthy without evidence (T-179)
+        # forge-desktop/src/GuardianStatus.cpp + retrieval/src/Json.cpp + its gate: a
+        # missing, malformed, stale, future-dated, unknown or v1 (evidence-less) state,
+        # or one published with evidence_complete=false, must never render healthy or
+        # claim heavy work is admitted. Headless, seconds; 43 checks, and three
+        # fail-open mutations each turn it red.
+        run: bash forge-desktop/test/run_guardian_status_gate.sh
       - name: run_ui.sh self-protection contracts
         # run_ui.sh gates forge::ui; this gates run_ui.sh. All three cases are
         # silent-green failures -- an unresolvable repo root that keeps going, a
