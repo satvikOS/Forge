@@ -137,8 +137,16 @@ print "== 2. RED stage 3 eviction does not kill the governor =="
 VP=$!
 sleep 0.3
 # Started 1000s ago: well past the settling grace, so stage 3 MUST try to evict it.
+# v2 (T-173): identity is checked before every signal (SCHEMA §5), and a process
+# that started AFTER its envelope's `started` + 5 is by definition a reused pid --
+# the governor must refuse it. So the back-dated `started` (which is what skips the
+# settling grace) travels with a TRUTHFUL `pstart`, the v2 key identity checks
+# first, exactly as `forge-guardian-sensor admit` writes it.
+vps=$(LC_ALL=C ps -o lstart= -p $VP 2>/dev/null); vps=${(j: :)${=vps}}
+zmodload zsh/datetime; LC_ALL=C strftime -r -s vpstart '%a %b %d %H:%M:%S %Y' "$vps" 2>/dev/null || vpstart=""
 { print "pid=$VP"; print "name=red-probe"; print "priority=9"; print "can_restart=1"
-  print "peak_gb=1"; print "gpu=0"; print "started=$(( $(date +%s) - 1000 ))"; print "cmd=victim"
+  print "peak_gb=1"; print "gpu=0"; print "started=$(( $(date +%s) - 1000 ))"
+  [[ -n $vpstart ]] && print "pstart=$vpstart"; print "cmd=victim"
 } > "$ROOT/jobs/$VP.job"
 set_obs 4 200
 sleep 14
@@ -150,8 +158,10 @@ terms=$(grep -c '^TERM' "$ROOT/victim.log" 2>/dev/null); terms=${terms:-0}
 ck "exactly ONE TERM inside the 30s grace (one eviction decision, one signal)" $(( terms == 1 ? 0 : 1 )) "TERMs=$terms"
 usr1=$(grep -c '^USR1' "$ROOT/victim.log" 2>/dev/null); usr1=${usr1:-0}
 ck "cooperative USR1 came before the TERM" $(( usr1 >= 1 ? 0 : 1 )) "USR1s=$usr1"
-crash=$(grep -c 'parameter not set' "$ROOT/guardian.out" 2>/dev/null); crash=${crash:-0}
-ck "no nounset crash in the daemon's stderr" $(( crash == 0 ? 0 : 1 )) "$(grep -m1 'parameter not set' "$ROOT/guardian.out" 2>/dev/null)"
+# v2 redirects its own stdout/stderr into $ROOT/log/guardian.out once it holds the
+# lock; read both, or this check would go vacuous on exactly the tree it guards.
+crash=$(cat "$ROOT/guardian.out" "$ROOT/log/guardian.out" 2>/dev/null | grep -c 'parameter not set'); crash=${crash:-0}
+ck "no nounset crash in the daemon's stderr" $(( crash == 0 ? 0 : 1 )) "$(cat "$ROOT/guardian.out" "$ROOT/log/guardian.out" 2>/dev/null | grep -m1 'parameter not set')"
 
 print "== 3. a stop publishes no GREEN =="
 # Independent of section 2: a governor that died there would make "stop" vacuous

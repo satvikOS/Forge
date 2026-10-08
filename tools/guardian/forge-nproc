@@ -1,14 +1,89 @@
 #!/bin/zsh
 # forge-nproc — the ONLY sanctioned source of build parallelism.
 # Never hardcode -j. Guardian lowers this under pressure.
+#
+# Contract (SCHEMA §4.1, §9.1): print build_jobs_max from a FRESH state.json -- its
+# mtime and its `epoch` both <= 60 s old and not more than 5 s in the future, the
+# same freshness forge-gate demands -- else 2. Then, best effort, subtract the CPU
+# threads (`threads=`) reserved by OTHER live jobs: envelopes whose process is
+# alive, identity-verified (SCHEMA §5), and not this caller or one of its
+# ancestors (a job asking for its own -j must not be charged for itself). Never
+# below 1, never above build_jobs_max. Fork-light: no fork at all unless some
+# envelope declares threads, and then one `ps` (plus one sysctl if an envelope
+# carries a boot id).
 set -u
+umask 077
+setopt NULL_GLOB EXTENDED_GLOB
+zmodload zsh/datetime 2>/dev/null
+zmodload -F zsh/stat b:zstat 2>/dev/null
 STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
-if [[ -f "$STATE_DIR/state.json" ]]; then
-  age=$(( $(date +%s) - $(stat -f %m "$STATE_DIR/state.json") ))
-  if (( age <= 60 )); then
-    j=$(sed -n 's/.*"build_jobs_max": *\([0-9]*\).*/\1/p' "$STATE_DIR/state.json" | head -1)
-    [[ -n "$j" ]] && { print -r -- "$j"; exit 0; }
-  fi
-fi
+SJ="$STATE_DIR/state.json"
 # Fail SAFE, not fast: with no guardian, assume we must be conservative.
-print -r -- 2
+fallback() { print -r -- 2; exit 0; }
+
+[[ -f $SJ && -r $SJ ]] || fallback
+typeset -A st
+zstat -H st -- "$SJ" 2>/dev/null || fallback
+age=$(( EPOCHSECONDS - st[mtime] ))
+(( age <= 60 && age >= -5 )) || fallback
+c=$(<"$SJ")
+[[ $c == (#b)*'"epoch":'[[:space:]]#([0-9]##)* ]] && (( ${#match[1]} <= 12 )) || fallback
+age=$(( EPOCHSECONDS - match[1] ))
+(( age <= 60 && age >= -5 )) || fallback
+[[ $c == (#b)*'"build_jobs_max":'[[:space:]]#([0-9]##)* ]] && (( ${#match[1]} <= 4 )) || fallback
+jmax=$match[1]
+(( jmax >= 1 )) || fallback
+
+# ---- threads reserved by other live jobs (best effort) ------------------------
+typeset -a want
+for f in "$STATE_DIR"/jobs/*.job(N.); do
+  zstat -H st -- "$f" 2>/dev/null && (( st[size] <= 65536 )) || continue
+  pid="" thr="" pst="" stt="" bt=""
+  while IFS= read -r line || [[ -n $line ]]; do
+    case $line in
+      pid=*)     [[ -z $pid ]] && pid=${line#*=} ;;
+      threads=*) [[ -z $thr ]] && thr=${line#*=} ;;
+      pstart=*)  [[ -z $pst ]] && pst=${line#*=} ;;
+      started=*) [[ -z $stt ]] && stt=${line#*=} ;;
+      boot=*)    [[ -z $bt  ]] && bt=${line#*=} ;;
+      cmd=*)     break ;;
+    esac
+  done 2>/dev/null < "$f"
+  # digits bounded BEFORE arithmetic: a 25-digit value would be truncated, not rejected
+  [[ $pid == <-> && $thr == <-> ]] && (( ${#pid} <= 9 && ${#thr} <= 6 )) && (( pid > 1 && thr > 0 )) || continue
+  kill -0 "$pid" 2>/dev/null || continue
+  want+=("$pid $thr ${pst:--} ${stt:--} ${bt:--}")
+done
+if (( ${#want} == 0 )); then print -r -- $jmax; exit 0; fi
+
+# One `ps` gives the ancestry of this process and every start time we need.
+typeset -A ppid lstart
+while IFS= read -r line; do
+  w=(${=line})
+  (( ${#w} >= 7 )) || continue
+  ppid[$w[1]]=$w[2]; lstart[$w[1]]="$w[3] $w[4] $w[5] $w[6] $w[7]"
+done < <(LC_ALL=C ps -axo pid=,ppid=,lstart= 2>/dev/null)
+typeset -A anc
+p=$$; d=0
+while [[ $p == <-> ]] && (( p > 1 && d++ < 64 )); do anc[$p]=1; p=${ppid[$p]:-}; done
+pstart_of() { local LC_ALL=C; REPLY=""; [[ -n ${lstart[$1]:-} ]] && strftime -r -s REPLY '%a %b %d %H:%M:%S %Y' "${lstart[$1]}" 2>/dev/null }
+BOOT=""
+reserved=0
+for e in $want; do
+  w=(${=e}); pid=$w[1]; thr=$w[2]; pst=$w[3]; stt=$w[4]; bt=$w[5]
+  (( ${+anc[$pid]} )) && continue                                   # the caller's own job
+  if [[ $bt != - ]]; then
+    [[ -n $BOOT ]] || BOOT=$(sysctl -n kern.bootsessionuuid 2>/dev/null)
+    [[ -n $BOOT && $bt != $BOOT ]] && continue                       # another boot's envelope
+  fi
+  pstart_of $pid; ps_now=$REPLY
+  [[ $ps_now == <-> ]] || continue                                  # unverifiable: not counted
+  if [[ $pst == <-> ]] && (( ${#pst} <= 12 )); then (( ps_now - pst <= 1 && pst - ps_now <= 1 )) || continue
+  elif [[ $stt == <-> ]] && (( ${#stt} <= 12 )); then (( ps_now <= stt + 5 )) || continue
+  else continue; fi
+  (( reserved += thr ))
+done
+j=$(( jmax - reserved ))
+(( j < 1 )) && j=1
+(( j > jmax )) && j=$jmax
+print -r -- $j

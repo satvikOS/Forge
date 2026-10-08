@@ -1,43 +1,125 @@
 #!/bin/zsh
 # forge-gate — admission control. A heavy job calls this BEFORE it starts.
-#   forge-gate [--need green|yellow] [--wait SECONDS] [--why "text"]
-# Exit 0 = admitted. Exit 1 = denied (caller must not start).
+#   forge-gate [--need green|yellow|orange|red] [--wait SECONDS] [--why "text"]
+#              [--peak-gb G] [--disk-gb X --disk-path P] [--threads T] [--gpu]
+# Exit 0 = admitted. Exit 1 = denied (caller must not start). Exit 2 = usage.
 # Also fails CLOSED if the guardian is not running or its state is stale: an
 # absent instrument is not evidence of a healthy machine.
+#
+# FRESHNESS FROM BOTH CLOCKS (SCHEMA §9.1). The `state` file's mtime AND the
+# `epoch` inside state.json must each be <= 60 s old and not more than 5 s in the
+# future. One alone can lie: a copied or restored state file keeps a fresh mtime
+# with an old epoch, and a skewed clock makes an old file look new.
+#
+# The resource flags are optional. With any of them the state check is followed by
+# `forge-guardian-sensor admit --dry-run` -- the same memory/disk fit the admission
+# engine applies, without registering anything -- and a non-zero exit denies.
+# Without them the CLI and behaviour are the v1 gate's.
 set -u
+umask 077
+zmodload zsh/datetime 2>/dev/null
+zmodload -F zsh/stat b:zstat 2>/dev/null
 STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
 NEED=green; WAIT=0; WHY=""
+typeset -a ADMIT_ARGS
+usage() { print -u2 "usage: forge-gate [--need green|yellow|orange|red] [--wait S] [--why TEXT] [--peak-gb G] [--disk-gb X --disk-path P] [--threads T] [--gpu]"; exit 2; }
 while (( $# )); do
   case "$1" in
-    --need) NEED="${2:l}"; shift 2 ;;
-    --wait) WAIT="$2"; shift 2 ;;
-    --why)  WHY="$2"; shift 2 ;;
+    --need|--wait|--why|--peak-gb|--disk-gb|--disk-path|--threads)
+      (( $# >= 2 )) || { print -u2 "forge-gate: $1 needs a value"; usage; }   # v1 looped for ever here
+      case "$1" in
+        --need) NEED="${2:l}" ;;
+        --wait) WAIT="$2" ;;
+        --why)  WHY="$2" ;;
+        *)      ADMIT_ARGS+=("$1" "$2") ;;
+      esac
+      shift 2 ;;
+    --gpu) ADMIT_ARGS+=(--gpu); shift ;;
     *) shift ;;
   esac
 done
+[[ $WAIT == <-> ]] && (( ${#WAIT} <= 9 )) || { print -u2 "forge-gate: --wait takes whole seconds, got '$WAIT'"; usage; }
 # UNKNOWN means the governor has no sustained evidence (just started, just stopped,
 # or a required observable is missing). It ranks with RED: only a caller that asked
 # for --need red -- "admit me whatever the machine's state" -- gets in. Any other
 # word still ranks 9, so a state this gate has never heard of denies everything.
-rank() { case "$1" in GREEN) print 0;; YELLOW) print 1;; ORANGE) print 2;; RED|UNKNOWN) print 3;; *) print 9;; esac }
-need_rank=$(rank "${NEED:u}")
-deadline=$(( $(date +%s) + WAIT ))
-while true; do
+rank() { case "$1" in GREEN) REPLY=0;; YELLOW) REPLY=1;; ORANGE) REPLY=2;; RED|UNKNOWN) REPLY=3;; *) REPLY=9;; esac }
+rank "${NEED:u}"; need_rank=$REPLY
+
+# The sensor: the same lookup forge-guardian and forge-job use.
+SENSOR=""
+if [[ -n ${FORGE_GUARDIAN_SENSOR_BIN:-} ]]; then
+  [[ -x $FORGE_GUARDIAN_SENSOR_BIN ]] && SENSOR=$FORGE_GUARDIAN_SENSOR_BIN
+else
+  for c in "${0:A:h}/forge-guardian-sensor" "$STATE_DIR/bin/forge-guardian-sensor"; do
+    [[ -f $c && -x $c ]] && { SENSOR=$c; break; }
+  done
+fi
+
+state_fresh() { # -> 0, or 1 with DENY_WHY
+  setopt localoptions extendedglob
+  local now=$EPOCHSECONDS age c ep
+  local -A st
   if [[ ! -f "$STATE_DIR/state" ]]; then
-    print -u2 "forge-gate: DENY — guardian not running (no state file). Start it: forge-guardian-ctl start"
-    exit 1
+    DENY_WHY="guardian not running (no state file). Start it: forge-guardian-ctl start"; return 1
   fi
-  age=$(( $(date +%s) - $(stat -f %m "$STATE_DIR/state") ))
+  zstat -H st -- "$STATE_DIR/state" 2>/dev/null || { DENY_WHY="cannot stat $STATE_DIR/state"; return 1; }
+  age=$(( now - st[mtime] ))
   if (( age > 60 )); then
-    print -u2 "forge-gate: DENY — guardian state is ${age}s stale (guardian dead?). Restart: forge-guardian-ctl start"
+    DENY_WHY="guardian state is ${age}s stale (guardian dead?). Restart: forge-guardian-ctl start"; return 1
+  fi
+  if (( age < -5 )); then
+    DENY_WHY="guardian state mtime is $(( -age ))s in the future (clock skew)"; return 1
+  fi
+  c=""; [[ -r "$STATE_DIR/state.json" ]] && c=$(<"$STATE_DIR/state.json")
+  if [[ $c != (#b)*'"epoch":'[[:space:]]#([0-9]##)* ]] || (( ${#match[1]} > 12 )); then
+    DENY_WHY="state.json missing or has no epoch: freshness cannot be verified"; return 1
+  fi
+  ep=$match[1]; age=$(( now - ep ))
+  if (( age > 60 )); then
+    DENY_WHY="state.json epoch is ${age}s old (a stale or restored state file)"; return 1
+  fi
+  if (( age < -5 )); then
+    DENY_WHY="state.json epoch is $(( -age ))s in the future (clock skew)"; return 1
+  fi
+  return 0
+}
+
+resource_fit() { # -> 0 admitted; 1 refused (retryable); 2 refused for good. FIT_WHY says why.
+  local out rc
+  local -a args
+  args=("${ADMIT_ARGS[@]}")
+  (( ${args[(Ie)--peak-gb]} )) || args=(--peak-gb 0 "${args[@]}")   # admit requires it; 0 = light
+  if [[ -z $SENSOR ]]; then
+    FIT_WHY="resource check requested (${ADMIT_ARGS[*]}) but no forge-guardian-sensor was found -- failing closed"
+    return 2
+  fi
+  out=$("$SENSOR" admit --dry-run --state-dir "$STATE_DIR" --pid $$ --name "${WHY:-gate}" --need "$NEED" "${args[@]}" 2>&1); rc=$?
+  (( rc == 0 )) && return 0
+  FIT_WHY="resource admission refused (forge-guardian-sensor admit exit $rc): ${${out//$'\n'/ }[1,400]}"
+  (( rc == 2 || rc == 78 )) && return 2      # usage / quarantined: waiting changes nothing
+  return 1
+}
+
+deadline=$(( EPOCHSECONDS + WAIT ))
+while true; do
+  if ! state_fresh; then
+    print -u2 "forge-gate: DENY — $DENY_WHY"
     exit 1
   fi
-  st=$(cat "$STATE_DIR/state")
-  if (( $(rank "$st") <= need_rank )); then
-    exit 0
+  st=$(<"$STATE_DIR/state")
+  rank "$st"
+  if (( REPLY <= need_rank )); then
+    (( ${#ADMIT_ARGS} )) || exit 0
+    resource_fit; rc=$?
+    (( rc == 0 )) && exit 0
+    if (( rc == 2 )); then print -u2 "forge-gate: DENY — $FIT_WHY${WHY:+ for: $WHY}"; exit 1; fi
+    why_now=$FIT_WHY
+  else
+    why_now="state=$st (need <=${NEED:u})"
   fi
-  if (( $(date +%s) >= deadline )); then
-    print -u2 "forge-gate: DENY — state=$st (need <=${NEED:u})${WHY:+ for: $WHY}"
+  if (( EPOCHSECONDS >= deadline )); then
+    print -u2 "forge-gate: DENY — $why_now${WHY:+ for: $WHY}"
     exit 1
   fi
   sleep 5

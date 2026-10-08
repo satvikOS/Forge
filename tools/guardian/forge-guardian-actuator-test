@@ -3,13 +3,53 @@
 # suite tests the shipped code, not a re-extracted copy of it.
 # The failure being prevented is real and measured: a machine-wide pkill once
 # killed every parallel agent's server at once.
+#
+# PRIVATE DOMAIN. This suite used to `mv` the LIVE registry (~/.forge-health/jobs)
+# aside while it ran -- so for its duration the live governor could not see, shed
+# or count the real jobs (the archie-sidecar among them), and a crash mid-suite
+# left them hidden. It now plants envelopes only in a private FORGE_HEALTH_DIR
+# (made here when the caller did not set one) and refuses to run in the live one.
+#   which daemon: $FORGE_GUARDIAN_UNDER_TEST, else the forge-guardian beside this script.
 set -u
 setopt NULL_GLOB
+zmodload zsh/datetime
+G=${FORGE_GUARDIAN_UNDER_TEST:-${0:A:h}/forge-guardian}
+PRIV=""
+if [[ -z ${FORGE_HEALTH_DIR:-} ]]; then
+  PRIV=$(mktemp -d "${TMPDIR:-/tmp}/fg_actuator.XXXXXX") || exit 1
+  export FORGE_HEALTH_DIR=$PRIV
+fi
+if [[ ${FORGE_HEALTH_DIR:A} == ${HOME:A}/.forge-health ]]; then
+  print -u2 "forge-guardian-actuator-test: refusing to plant test envelopes in the LIVE domain ($FORGE_HEALTH_DIR)."
+  print -u2 "  unset FORGE_HEALTH_DIR (a private domain is made for you) or point it at a scratch dir."
+  exit 2
+fi
+export ARCHIE_HEALTH_DIR=${ARCHIE_HEALTH_DIR:-$FORGE_HEALTH_DIR/archie_health}
 export FORGE_GUARDIAN_LIB=1
-source "${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian"
+source "$G" || { print "  FAIL  could not source $G"; exit 1; }
 unset FORGE_GUARDIAN_LIB
 PASS=0; FAIL=0
 chk() { if [[ "$2" == "$3" ]]; then print "  PASS  $1"; (( PASS++ )); else print "  FAIL  $1 -> got '$3' want '$2'"; (( FAIL++ )); fi }
+print "daemon under test: $G"
+print "private domain:    $FORGE_HEALTH_DIR"
+
+# Every process this suite starts, in a FILE (a command substitution cannot append
+# to the parent's array), and every envelope it plants -- nothing else is touched.
+PIDS="$FORGE_HEALTH_DIR/.actuator.pids"; : > "$PIDS"
+PLANTED=()
+O1=$(mktemp); O2=$(mktemp); O3=$(mktemp); O4=$(mktemp); VICT=$(mktemp)
+cleanup() {
+  local p
+  while read -r p; do [[ -n $p ]] && kill -9 "$p" 2>/dev/null; done < "$PIDS"
+  for p in $PLANTED; do rm -f -- "$JOBS_DIR/$p"; done
+  rm -f "$O1" "$O2" "$O2.un" "$O3" "$O4" "$VICT" 2>/dev/null
+  [[ -n $PRIV ]] && rm -rf "$PRIV"
+  kill -9 $WD 2>/dev/null
+}
+{ sleep 120; print -u2 "[actuator] WALL-CLOCK EXCEEDED"; kill -TERM $$ } &!
+WD=$!
+trap cleanup EXIT
+trap 'exit 143' TERM INT
 
 # Find the supervising claude PID robustly: pgrep -x matches comm exactly, which
 # can miss it; fall back to a full-cmdline match. If we cannot identify it we
@@ -18,8 +58,6 @@ CLAUDEPID=$(pgrep -x claude 2>/dev/null | head -1)
 [[ -z "$CLAUDEPID" ]] && CLAUDEPID=$(pgrep -f '(^|/)claude( |$)' 2>/dev/null | head -1)
 [[ -z "$CLAUDEPID" ]] && CLAUDEPID=$(ps -Ao pid=,comm= | awk '$2 ~ /\/claude$|^claude$/ {print $1; exit}')
 
-SAVED=$(mktemp -d); mv "$JOBS_DIR"/*.job "$SAVED"/ 2>/dev/null
-O1=$(mktemp); O2=$(mktemp); VICT=$(mktemp)
 cat > "$VICT" <<'V'
 #!/bin/zsh
 trap 'print USR1 >> "$1"' USR1
@@ -27,13 +65,21 @@ trap 'print TERM >> "$1"; exit 0' TERM
 while true; do sleep 0.2; done
 V
 chmod +x "$VICT"
-"$VICT" "$O1" & SPEC=$!
-"$VICT" "$O2" & CRIT=$!
+spawn() { "$VICT" "$1" & REPLY=$!; print $REPLY >> "$PIDS" }
+# An envelope the way forge-job writes it: v1 keys in order, started=, cmd LAST.
+plant() { # plant FILE PID NAME PRIORITY CAN_RESTART [STARTED]
+  { print "pid=$2"; print "name=$3"; print "priority=$4"; print "can_restart=$5"; print "peak_gb=1"; print "gpu=0"
+    [[ -n ${6:-} ]] && print "started=$6"; print "cmd=victim"; } > "$JOBS_DIR/$1"
+  PLANTED+=("$1")
+}
+spawn "$O1"; SPEC=$REPLY
+spawn "$O2"; CRIT=$REPLY
 sleep 0.4
-{ print "pid=$SPEC"; print "name=speculative"; print "priority=8"; print "can_restart=1"; print "peak_gb=1"; } > "$JOBS_DIR/spec.job"
-{ print "pid=$CRIT"; print "name=critical-ui"; print "priority=0"; print "can_restart=0"; print "peak_gb=1"; } > "$JOBS_DIR/crit.job"
+NOW=$EPOCHSECONDS
+plant spec.job "$SPEC" speculative 8 1 $NOW
+plant crit.job "$CRIT" critical-ui 0 0 $NOW
 if [[ -n "$CLAUDEPID" ]]; then
-  { print "pid=$CLAUDEPID"; print "name=BOGUS-claude-entry"; print "priority=9"; print "can_restart=1"; print "peak_gb=1"; } > "$JOBS_DIR/bogus.job"
+  plant bogus.job "$CLAUDEPID" BOGUS-claude-entry 9 1 $NOW
 fi
 
 print "== shed order: most speculative first =="
@@ -64,7 +110,7 @@ chk "critical job STILL alive after RED" "alive" "$(kill -0 $CRIT 2>/dev/null &&
 [[ -n "$CLAUDEPID" ]] && chk "claude STILL alive after RED" "alive" "$(kill -0 $CLAUDEPID 2>/dev/null && print alive || print DEAD)"
 
 print "== unregistered processes are invisible to Guardian =="
-"$VICT" "$O2.un" & UNREG=$!
+spawn "$O2.un"; UNREG=$REPLY
 sleep 0.3
 for f in $(shed_order); do signal_job "$f" TERM >/dev/null 2>&1; done
 sleep 0.5
@@ -75,9 +121,41 @@ kill -9 $CRIT $UNREG 2>/dev/null; sleep 0.3
 reap_dead_jobs
 chk "dead job files reaped" "0" "$(ls $JOBS_DIR/spec.job $JOBS_DIR/crit.job 2>/dev/null | wc -l | tr -d ' ')"
 
-kill -9 $SPEC $CRIT $UNREG 2>/dev/null
-rm -f "$JOBS_DIR"/*.job "$O1" "$O2" "$O2.un" "$VICT"
-mv "$SAVED"/*.job "$JOBS_DIR"/ 2>/dev/null; rmdir "$SAVED" 2>/dev/null
+print "== IDENTITY (SCHEMA §5): a number is not a process =="
+# A REUSED pid: the envelope says its process was registered an hour ago, but the
+# process now holding that pid started seconds ago -- a stranger that inherited
+# the number. It must never be signalled, and the envelope must be reaped.
+spawn "$O3"; REUSED=$REPLY
+spawn "$O4"; UNVER=$REPLY
+sleep 0.4
+plant reused.job "$REUSED" reused-pid 9 1 $(( EPOCHSECONDS - 3600 ))
+plant unver.job "$UNVER" no-identity 9 1          # neither started= nor pstart=
+signal_job "$JOBS_DIR/reused.job" TERM >/dev/null 2>&1; r1=$?
+signal_job "$JOBS_DIR/unver.job" TERM >/dev/null 2>&1; r2=$?
+signal_job "$JOBS_DIR/unver.job" USR1 >/dev/null 2>&1
+sleep 0.6
+chk "reused pid: signal_job refuses"                  1 "$r1"
+chk "reused pid: the stranger received nothing"       "" "$(cat $O3 2>/dev/null)"
+chk "reused pid: the stranger is alive"               alive "$(kill -0 $REUSED 2>/dev/null && print alive || print DEAD)"
+chk "reused pid: the envelope was reaped"             0 "$(ls $JOBS_DIR/reused.job 2>/dev/null | wc -l | tr -d ' ')"
+chk "reused pid: the refusal names the identity"      1 "$(grep -c "pid=$REUSED .*identity mismatch" "$LOG" 2>/dev/null)"
+chk "unverifiable: signal_job refuses"                1 "$r2"
+chk "unverifiable: neither TERM nor USR1 delivered"   "" "$(cat $O4 2>/dev/null)"
+reap_dead_jobs
+chk "unverifiable: the envelope is KEPT (not reaped)" 1 "$(ls $JOBS_DIR/unver.job 2>/dev/null | wc -l | tr -d ' ')"
+plant launchd.job 1 BOGUS-launchd 9 1 $EPOCHSECONDS
+signal_job "$JOBS_DIR/launchd.job" TERM >/dev/null 2>&1; r3=$?
+chk "pid 1 is never signalled"                        1 "$r3"
+ROOTPID=$(ps -axo pid=,uid=,comm= | awk '$2 == 0 && $1 > 1 && $3 !~ /kernel_task|launchd/ {print $1; exit}')
+if [[ -n $ROOTPID ]]; then
+  plant root.job "$ROOTPID" BOGUS-root 9 1 $EPOCHSECONDS
+  signal_job "$JOBS_DIR/root.job" USR1 >/dev/null 2>&1; r4=$?
+  chk "another uid's pid ($ROOTPID) is refused before kill" 1 "$r4"
+  chk "  ...and the refusal says why"                 1 "$(grep -c "pid=$ROOTPID .*owned by uid 0" "$LOG" 2>/dev/null)"
+else
+  print "  SKIP  other-uid refusal: no root-owned process found (NOT a pass)"
+fi
+
 print ""
 print "RESULT: $PASS passed, $FAIL failed"
 (( FAIL == 0 ))

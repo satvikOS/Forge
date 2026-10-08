@@ -2,17 +2,28 @@
 # Fault-injection suite for Forge Guardian (doc 06 "Fault injection tests").
 # Falsifies the classifier and the actuator against synthetic pressure, so the
 # governor is proven to FIRE — an unfired monitor is an unverified monitor.
+#
+# The daemon under test is SOURCED in library mode (FORGE_GUARDIAN_LIB=1): this
+# suite calls the shipped classify() / thermal_pct() / evidence_step() / decide()
+# themselves. It used to `sed`-extract classify() and build_jobs_for() and eval the
+# text, which tests a copy and silently tests NOTHING the moment a function grows a
+# dependency the extraction did not carry (v2's policy floors, for one).
+#   which daemon: $FORGE_GUARDIAN_UNDER_TEST, else the forge-guardian beside this
+#   script (the repo tree, or the installed release), else the domain's bin/.
+# Library mode never writes to the domain; the liveness checks below only READ it.
 set -u
-G=${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian
+G=${FORGE_GUARDIAN_UNDER_TEST:-${0:A:h}/forge-guardian}
+[[ -f $G ]] || G=${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian
 PASS=0; FAIL=0
 chk() { # chk <desc> <expected> <actual>
   if [[ "$2" == "$3" ]]; then print "  PASS  $1 -> $3"; (( PASS++ ))
   else print "  FAIL  $1 -> got '$3' want '$2'"; (( FAIL++ )); fi
 }
 
-# Extract classify() and build_jobs_for() from the daemon and drive them directly.
-eval "$(sed -n '/^classify() {/,/^}/p' "$G")"
-eval "$(sed -n '/^build_jobs_for() {/,/^}/p' "$G")"
+export FORGE_GUARDIAN_LIB=1
+source "$G" || { print "  FAIL  could not source $G in library mode"; exit 1; }
+unset FORGE_GUARDIAN_LIB
+print "daemon under test: $G"
 NPERF=10
 
 set_obs() { O_VMP=$1; O_FREE=$2; O_SWU=$3; O_SWT=$4; O_PORATE=$5; O_DISK=$6; O_THERM=$7; }
@@ -43,6 +54,31 @@ chk "YELLOW -j" 5 "$(build_jobs_for YELLOW)"
 chk "ORANGE -j" 2 "$(build_jobs_for ORANGE)"
 chk "RED -j"    1 "$(build_jobs_for RED)"
 
+if (( ! ${+functions[thermal_pct]} || ! ${+functions[evidence_step]} || ! ${+functions[decide]} )); then
+  # A pre-v2 daemon (no sensor words, no evidence step): these 8 checks cannot pass.
+  print "== thermal words / evidence step =="
+  print "  FAIL  $G has no thermal_pct/evidence_step/decide (pre-v2): 8 checks fail"; (( FAIL += 8 ))
+else
+  print "== thermal: the sensor's WORD lands on the same ladder (T-173) =="
+  # On Apple Silicon `pmset -g therm` has no CPU_Speed_Limit; the sensor reports
+  # NSProcessInfo.thermalState as nominal/fair/serious/critical instead.
+  for w want in nominal GREEN fair YELLOW serious ORANGE critical RED; do
+    thermal_pct $w; set_obs 1 91 0 1024 0 174 $REPLY
+    chk "thermal $w (-> ${REPLY}%)" $want "$(classify; print $CLASS)"
+  done
+
+  print "== evidence step: missing evidence never reads healthy, never hides pressure =="
+  all_ok() { O_ST_VMP=ok; O_ST_SWAP=ok; O_ST_PAGEOUTS=ok; O_ST_DISK=ok; O_ST_THERMAL=ok; SENSOR_ENABLED=0; SENSOR_FRESH=0; CRITICAL_NOW=0 }
+  all_ok; set_obs 1 91 0 1024 0 174 100; classify; evidence_step; decide
+  chk "complete evidence, idle vector (control)" GREEN "$NEW"
+  all_ok; O_ST_THERMAL=unavailable; set_obs 1 91 0 1024 0 174 100; classify; evidence_step; decide
+  chk "thermal UNAVAILABLE at an otherwise-GREEN vector" UNKNOWN "$NEW"
+  chk "  ...and the evidence names it" thermal "${MISSING[*]}"
+  all_ok; O_ST_THERMAL=unavailable; set_obs 4 30 900 1024 100 174 100; classify; evidence_step; decide
+  chk "thermal UNAVAILABLE + vm_pressure CRITICAL" RED "$NEW"
+
+fi
+
 print "== LIVENESS: the daemon must survive polls, not just start =="
 CTL=${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian-ctl
 SD=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
@@ -57,10 +93,10 @@ SD=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
 # deployment teaches its reader to skip the red line.
 guardian_publishing() {
   [[ -f "$SD/state.json" ]] || return 1
-  (( $(date +%s) - $(stat -f %m "$SD/state.json") <= 60 ))
+  (( $(date +%s) - $(/usr/bin/stat -f %m "$SD/state.json") <= 60 ))
 }
 if guardian_publishing; then
-  a1=$(stat -f %m "$SD/state.json"); sleep 12; a2=$(stat -f %m "$SD/state.json")
+  a1=$(/usr/bin/stat -f %m "$SD/state.json"); sleep 12; a2=$(/usr/bin/stat -f %m "$SD/state.json")
   if (( a2 > a1 )); then print "  PASS  daemon alive and republishing (mtime $a1 -> $a2)"; (( PASS++ ))
   else print "  FAIL  state.json is NOT being refreshed — daemon is dead or wedged"; (( FAIL++ )); fi
     # grep -c PRINTS 0 and EXITS 1, so `$(grep -c ... || echo 0)` yields "0\n0"

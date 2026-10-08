@@ -24,9 +24,23 @@
 #      only after M. A flapping governor is worse than none.
 #   5. Cooperative before coercive: publish -> SIGUSR1 (checkpoint+shed) ->
 #      SIGTERM -> SIGKILL, in that order, with grace periods.
+#
+# v2 (T-173..T-176). The binding contract is tools/guardian/SCHEMA.md; every file,
+# key and exit code a consumer reads is defined there. In one paragraph: a native
+# sensor (`forge-guardian-sensor run`, a CHILD of this daemon) samples the machine
+# and writes sensor.env; this governor supervises it, classifies, applies
+# hysteresis, publishes, and is the only thing that signals registered jobs. While
+# the sensor is down the governor samples for itself and marks every signal it
+# cannot sample `unavailable`. An unavailable signal is NEVER given a value that
+# reads as healthy. That was T-173's core defect: `pmset -g therm` prints no
+# CPU_Speed_Limit line on Apple Silicon, and the v1 sampler defaulted thermal to
+# 100% -- "healthy, forever" -- on the very machine this governs.
 # ============================================================================
 set -u
 setopt NULL_GLOB 2>/dev/null || true
+# Everything this governor creates is private to its user (SCHEMA §2: dirs 0700,
+# files 0600). In library mode this also applies to the sourcing shell -- a test.
+umask 077
 
 # ---- argv: this program takes no arguments ------------------------------------
 # Guardian IS the daemon, not a CLI. Until 2026-09-11 every argument was silently
@@ -50,6 +64,18 @@ STATE_J="$STATE_DIR/state.json"
 AH_DIR=${ARCHIE_HEALTH_DIR:-/tmp/archie_health}
 AH_F="$AH_DIR/status.json"
 mkdir -p "$JOBS_DIR" "$STATE_DIR/log"
+
+# ---- zsh modules: the steady state forks nothing but its poll sleep ------------
+# v1 forked ~30 processes per poll (date, sed, awk, cat, mv, sysctl...). A governor
+# that is itself a fork storm is measured by the thing it is supposed to protect.
+# `-F ... b:zstat` and the zf_ names load ONLY those builtins: a test that sources
+# this file keeps /usr/bin/stat, /bin/mv and /bin/rm under their usual names.
+zmodload zsh/datetime 2>/dev/null                               # EPOCHSECONDS, EPOCHREALTIME, strftime
+zmodload -F zsh/stat b:zstat 2>/dev/null
+zmodload -F zsh/files b:zf_mv b:zf_rm b:zf_mkdir 2>/dev/null
+(( ${+builtins[zf_mv]} ))    || zf_mv()    { command mv "$@" }
+(( ${+builtins[zf_rm]} ))    || zf_rm()    { command rm "$@" }
+(( ${+builtins[zf_mkdir]} )) || zf_mkdir() { command mkdir "$@" }
 
 # ---- single instance ----------------------------------------------------------
 # THE BUG (measured 2026-09-11): argv was ignored, so `forge-guardian status`
@@ -158,42 +184,338 @@ NPERF=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || echo $((NCPU/2)))
 RAM_BYTES=$(sysctl -n hw.memsize)
 RAM_GB=$(( RAM_BYTES / 1073741824 ))
 PAGE=$(sysctl -n hw.pagesize)
+GUARDIAN_VERSION=2.0.0
 
 # Processes Guardian must NEVER signal, even if they somehow appear registered.
+# (v1's regex, kept for anything that reads it; is_protected_comm is the v2 list.)
 PROTECTED_RE='(^|/)(claude|node|WindowServer|loginwindow|Finder|kernel_task|launchd|forge-guardian)$'
 
-log() { print -r -- "$(date '+%Y-%m-%dT%H:%M:%S') $1" >> "$LOG"; }
+log() { local _t; strftime -s _t '%Y-%m-%dT%H:%M:%S' $EPOCHSECONDS; print -r -- "$_t $1" 2>/dev/null >> "$LOG"; }
 emit() { print -r -- "$1"; log "$1"; }
 
-# ---- atomic state publication -------------------------------------------------
+# ---- small pure helpers (no forks) ---------------------------------------------
+# REPLY carries every helper's result: make sure it is a plain scalar, whatever the
+# sourcing shell (or a builtin like `strftime -r -s`) did to it before.
+typeset -g +i +F +E REPLY 2>/dev/null; REPLY=""
+is_uint() { [[ $1 == <-> ]] && (( ${#1} <= 18 )) }
+is_int()  { [[ $1 == (|-)<-> ]] && (( ${#1} <= 19 )) }
+is_udec() { [[ $1 == <->(|.<->) ]] && (( ${#1} <= 32 )) }
+# A signal status is one of four words (SCHEMA §3). Anything else is `invalid`.
+st_norm() { case $1 in ok|unavailable|stale|invalid) REPLY=$1 ;; *) REPLY=invalid ;; esac }
+# decimal string -> integer thousandths, without floating point or the locale
+to_milli() {
+  local v=$1 i f=""
+  i=${v%%.*}; [[ $v == *.* ]] && f=${v#*.}
+  f=${f[1,3]}; while (( ${#f} < 3 )); do f+=0; done
+  REPLY=$(( 10#$i * 1000 + 10#$f ))
+}
+# integer thousandths -> "x.y" (one decimal)
+milli_1dp() { local t=$(( $1 / 100 )); (( t < 0 )) && t=0; REPLY="$(( t / 10 )).$(( t % 10 ))" }
+json_esc() {
+  local s=$1
+  s=${s//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\n'/\\n}; s=${s//$'\t'/\\t}; s=${s//$'\r'/\\r}
+  REPLY=${s//[[:cntrl:]]/}
+}
+utc_iso() { local TZ=UTC; strftime -s REPLY '%Y-%m-%dT%H:%M:%SZ' $1 }
+event() { # event KIND ['"k": v, ...'] -> one line of events.jsonl (SCHEMA §7)
+  setopt localoptions extendedglob
+  local t=$EPOCHREALTIME
+  [[ $t == (#b)(<->).(<->) ]] && t="$match[1].${match[2][1,3]}"
+  print -r -- "{\"ts\": $t, \"kind\": \"$1\"${2:+, $2}}" 2>/dev/null >> "$STATE_DIR/events.jsonl"
+}
+
+# ---- policy (SCHEMA §6) -------------------------------------------------------
+# policy.env is the sensor's flattening of policy.json. Read with a builtin loop;
+# every value is validated by type; a missing file means the built-in defaults,
+# which equal tools/guardian/policy.default.json. The env vars the gates use
+# (FORGE_GUARDIAN_POLL / _SETTLE / _TERM_GRACE) keep overriding.
+typeset -gA POL POL_DEF
+POL_DEF=(
+  poll_s 5  escalate_polls 2  deescalate_polls 6  sensor_stale_polls 3
+  required_signals "vm_pressure swap pageouts disk thermal"
+  memory_os_reserve_gb 6  memory_instant_margin_gb 2  memory_enforce_instant_fit 1  memory_light_job_gb 0.5
+  disk_floors_gib_yellow 45  disk_floors_gib_orange 25  disk_floors_gib_red 12  disk_admission_floor yellow
+  disk_volumes "~ /private/tmp"
+  thermal_fair YELLOW  thermal_serious ORANGE  thermal_critical RED
+  eviction_settle_s 180  eviction_term_grace_s 45
+  crash_loop_max_crashes 3  crash_loop_window_s 900  crash_loop_crash_signals "SEGV BUS ILL ABRT FPE TRAP SYS KILL"
+  guardian_restart_loop_max_starts 5  guardian_restart_loop_window_s 900  guardian_restart_loop_backoff_s 300
+  logs_cap_mib 64  logs_rotate_mib 4  logs_generations 3  logs_history_mib 6  logs_incident_max_kib 512  logs_retention_days 30
+  notifications_enabled 1  notifications_min_interval_s 1800
+  reports_scan_interval_s 600  smart_interval_s 21600
+)
+typeset -ga POL_POSITIVE POL_NONNEG
+POL_POSITIVE=(poll_s escalate_polls deescalate_polls sensor_stale_polls disk_floors_gib_yellow disk_floors_gib_orange
+  disk_floors_gib_red eviction_term_grace_s crash_loop_max_crashes crash_loop_window_s guardian_restart_loop_max_starts
+  guardian_restart_loop_window_s logs_cap_mib logs_rotate_mib logs_history_mib logs_incident_max_kib logs_retention_days
+  reports_scan_interval_s smart_interval_s)
+POL_NONNEG=(eviction_settle_s guardian_restart_loop_backoff_s logs_generations notifications_min_interval_s)
+POLICY_ERRORS=""; POLICY_MTIME=-1; POLICY_SOURCE=defaults; POLL_SET=0
+policy_value() { # policy_value KEY VALUE -> REPLY normalised, or 1 when the value is wrong for the key
+  local k=$1 v=$2
+  if (( ${POL_POSITIVE[(Ie)$k]} )); then is_uint "$v" && (( v >= 1 )) && { REPLY=$v; return 0 }; return 1; fi
+  if (( ${POL_NONNEG[(Ie)$k]} )); then is_uint "$v" && { REPLY=$v; return 0 }; return 1; fi
+  case $k in
+    memory_*_gb) is_udec "$v" && { REPLY=$v; return 0 }; return 1 ;;
+    memory_enforce_instant_fit|notifications_enabled)
+      case $v in 1|true) REPLY=1 ;; 0|false) REPLY=0 ;; *) return 1 ;; esac; return 0 ;;
+    thermal_fair|thermal_serious|thermal_critical) [[ $v == (GREEN|YELLOW|ORANGE|RED) ]] && { REPLY=$v; return 0 }; return 1 ;;
+    disk_admission_floor) [[ $v == (yellow|orange|red) ]] && { REPLY=$v; return 0 }; return 1 ;;
+    required_signals) [[ $v != *[^a-z_\ ]* ]] && { REPLY=$v; return 0 }; return 1 ;;
+    *) [[ -n $v ]] && { REPLY=$v; return 0 }; return 1 ;;
+  esac
+}
+load_policy() {
+  local f="$STATE_DIR/policy.env" line k v n=0
+  local -a bad
+  POL=("${(@kv)POL_DEF}")
+  POLICY_SOURCE=defaults
+  if [[ -f $f && -r $f ]]; then
+    POLICY_SOURCE=$f
+    while IFS= read -r line || [[ -n $line ]]; do
+      (( ++n > 2000 )) && break
+      [[ $line == [a-z]*=* ]] || continue
+      k=${line%%=*}; v=${line#*=}
+      (( ${+POL_DEF[$k]} )) || continue          # keys this governor does not interpret
+      if policy_value "$k" "$v"; then POL[$k]=$REPLY; else bad+=("$k=$v"); fi
+    done < "$f"
+  fi
+  # SCHEMA §6: floors must be strictly ordered red < orange < yellow, else defaults.
+  if ! (( POL[disk_floors_gib_red] < POL[disk_floors_gib_orange] && POL[disk_floors_gib_orange] < POL[disk_floors_gib_yellow] )); then
+    bad+=("disk floors not strictly ordered red<orange<yellow (${POL[disk_floors_gib_red]}/${POL[disk_floors_gib_orange]}/${POL[disk_floors_gib_yellow]})")
+    POL[disk_floors_gib_red]=$POL_DEF[disk_floors_gib_red]
+    POL[disk_floors_gib_orange]=$POL_DEF[disk_floors_gib_orange]
+    POL[disk_floors_gib_yellow]=$POL_DEF[disk_floors_gib_yellow]
+  fi
+  POLICY_ERRORS=${(j:; :)bad}
+  apply_policy
+}
+class_pct() { case $1 in GREEN) REPLY=100 ;; YELLOW) REPLY=85 ;; ORANGE) REPLY=65 ;; RED) REPLY=30 ;; *) REPLY=100 ;; esac }
+# The sensor reports NSProcessInfo.thermalState as a WORD. classify() is a pure
+# function of a percentage (v1's CPU_Speed_Limit), so the word is mapped onto the
+# same ladder: nominal 100, fair 85 (<90 YELLOW), serious 65 (<70 ORANGE),
+# critical 30 (<40 RED) -- or wherever policy thermal_* puts each word.
+thermal_pct() {
+  case $1 in
+    nominal)  REPLY=100 ;;
+    fair)     class_pct "${POL[thermal_fair]}" ;;
+    serious)  class_pct "${POL[thermal_serious]}" ;;
+    critical) class_pct "${POL[thermal_critical]}" ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+thermal_word() { # CPU_Speed_Limit % -> the same four words
+  if (( $1 < 40 )); then REPLY=critical; elif (( $1 < 70 )); then REPLY=serious; elif (( $1 < 90 )); then REPLY=fair; else REPLY=nominal; fi
+}
+apply_policy() {
+  if (( ! POLL_SET )); then
+    if is_uint "${FORGE_GUARDIAN_POLL:-}" && (( FORGE_GUARDIAN_POLL >= 1 )); then POLL=$FORGE_GUARDIAN_POLL
+    else POLL=$POL[poll_s]; fi
+  fi
+  ESCALATE_N=$POL[escalate_polls]; DEESCALATE_N=$POL[deescalate_polls]
+  STALE_POLLS=$POL[sensor_stale_polls]
+  DISK_FLOOR_YELLOW=$POL[disk_floors_gib_yellow]
+  DISK_FLOOR_ORANGE=$POL[disk_floors_gib_orange]
+  DISK_FLOOR_RED=$POL[disk_floors_gib_red]
+  case $POL[disk_admission_floor] in
+    red) ADM_FLOOR=$DISK_FLOOR_RED ;; orange) ADM_FLOOR=$DISK_FLOOR_ORANGE ;; *) ADM_FLOOR=$DISK_FLOOR_YELLOW ;;
+  esac
+  REQUIRED_SIGNALS=(${=POL[required_signals]})
+  # (a non-numeric override would reach arithmetic under `set -u` and kill the daemon)
+  is_uint "${FORGE_GUARDIAN_SETTLE:-}" && GRACE_SETTLE=$FORGE_GUARDIAN_SETTLE || GRACE_SETTLE=$POL[eviction_settle_s]
+  is_uint "${FORGE_GUARDIAN_TERM_GRACE:-}" && GRACE_TERM=$FORGE_GUARDIAN_TERM_GRACE || GRACE_TERM=$POL[eviction_term_grace_s]
+  local v; DISK_VOLUMES=()
+  for v in ${=POL[disk_volumes]}; do
+    case $v in "~") v=$HOME ;; "~/"*) v=$HOME/${v#\~/} ;; esac
+    DISK_VOLUMES+=("$v")
+  done
+  (( ${#DISK_VOLUMES} )) || DISK_VOLUMES=(/)
+}
+load_policy
+POLL_SET=1
+
+# ---- observation state ---------------------------------------------------------
+# O_* are classify()'s inputs. When a signal is not `ok` its O_* holds the value
+# that triggers NOTHING (so missing evidence never fabricates pressure), its O_ST_*
+# says why, and every publisher prints -1 for it (so it never reads as healthy
+# either). The evidence step, not classify(), turns "missing" into UNKNOWN.
+O_VMP=1; O_FREE=100; O_SWU=0; O_SWT=1; O_PORATE=0; O_DISK=999; O_LOAD=0; O_THERM=100; O_JOBS=0
+O_SWT_RAW=0; O_THERM_STATE=none; O_PEVENT=none
+O_ST_VMP=unavailable; O_ST_FREE=unavailable; O_ST_SWAP=unavailable; O_ST_PAGEOUTS=unavailable
+O_ST_DISK=unavailable; O_ST_THERMAL=unavailable; O_ST_PEVENT=unavailable; O_ST_MEM=unavailable; O_ST_CPU=unavailable
+CRITICAL_NOW=0; CRIT_WHY=""; PEVENT_CRIT_NEW=0; PUBLISH_FAILED=0; PUB_FAIL=""
+EVIDENCE_COMPLETE=0; MISSING=(); MISSING_DESC=""
+EV_SOURCE=fallback; SENSOR_AGE=-1; SENSOR_FRESH=0; SENSOR_ENABLED=0; SENSOR_PID=0; SENSOR_WHY="not started"
+SENSOR_STARTED=0; SENSOR_LAST_FRESH=0; SENSOR_GIVEUP_UNTIL=0; SENSOR_STARTS=(); SNAP_TS=0
+SNAP_PID=""; LAST_CRIT_N=0; PREV_POLL_EPOCH=0
+GPU_JOBS=0; ENV_RESERVED_MILLI=0; ENV_JOBS_OK=0
+RES_FROM=envelopes; RES_RESERVED_MILLI=0; RES_BUDGET_MILLI=0; RES_OVERCOMMIT=0; RES_JOBS=0
+VOL_MOUNT=(); VOL_AVAIL=(); VOL_ST=()
+DISK_HW=UNKNOWN; SEQ=0; GUARD_STARTED=$EPOCHSECONDS; LAW7_REFUSED=""; BOOT_UUID=""
+STATE=UNKNOWN; CAND=UNKNOWN; CONFIRM=0; CLASS=UNKNOWN; REASON="starting: awaiting sustained evidence"
+NEW=UNKNOWN; NEED=1; OLD=UNKNOWN; TRANSITIONED=0; JMAX=2; WOKE=0; WAKE_STREAK=0; POLL_T0=$EPOCHREALTIME
+PREV_PO=""; PREV_PO_T=""
+typeset -gA SV SJOB_ID SJOB_HB EV IDCACHE ANCESTORS CANCEL_T0 STALLED UNVERIFIABLE_NOTED
+ANCESTORS_DONE=0; ENV_MTIME=0
+SENSOR_ENV="$STATE_DIR/sensor.env"
+OUT_F="$STATE_DIR/log/guardian.out"; PUB_ERRNO=0; STARTS_IN_WINDOW=0; HK_NEXT=0; PUB_REASON=""
+
+# ---- the sensor binary ---------------------------------------------------------
+# One lookup, shared with forge-gate / forge-job: $FORGE_GUARDIAN_SENSOR_BIN, else
+# beside this script (the installed release), else the domain's bin/.
+SENSOR_BIN=""
+if [[ -n ${FORGE_GUARDIAN_SENSOR_BIN:-} ]]; then
+  [[ -f $FORGE_GUARDIAN_SENSOR_BIN && -x $FORGE_GUARDIAN_SENSOR_BIN ]] && SENSOR_BIN=$FORGE_GUARDIAN_SENSOR_BIN
+else
+  for _c in "${GUARD_SELF:h}/forge-guardian-sensor" "$STATE_DIR/bin/forge-guardian-sensor"; do
+    [[ -f $_c && -x $_c ]] && { SENSOR_BIN=$_c; break; }
+  done
+  unset _c
+fi
+
+# ---- atomic writes -------------------------------------------------------------
+# SCHEMA §2: `<name>.tmp.<pid>` then rename(2). A failed or short write is never
+# renamed: the previous good file stays (and goes stale, which consumers handle).
+# The tmp name carries the pid because two writers once shared `status.json.tmp`
+# and the live guardian.err filled with "mv: rename ... No such file or directory".
+write_atomic() { # write_atomic PATH CONTENT -> 0, or 1 with PUB_ERRNO set
+  local f=$1 tmp="$1.tmp.$$"
+  if ! { print -r -- "$2" } 2>/dev/null >| "$tmp"; then
+    zf_rm -f -- "$tmp" 2>/dev/null
+    errno_of_write "$tmp" "$2"; PUB_ERRNO=$REPLY
+    return 1
+  fi
+  if ! zf_mv -f -- "$tmp" "$f" 2>/dev/null; then
+    PUB_ERRNO=-1; zf_rm -f -- "$tmp" 2>/dev/null; return 1
+  fi
+  return 0
+}
+# WHY did a write fail? zsh 5.9 here never sets $ERRNO -- and reading it under
+# `set -u` KILLED the governor on its first failed publication (measured with the
+# runtime gate's full-volume scenario). So, on the failure path only: repeat the
+# write once in a subshell, capture zsh's own message ("no space left on device"),
+# and map it back to a number with zsh/system's syserror. -1 when unknown.
+errno_of_write() { # errno_of_write TMPPATH CONTENT -> REPLY
+  local msg reason m i
+  REPLY=-1
+  # the OUTER group's 2>&1 is what captures it: zsh reports a failed redirection
+  # on the stderr in force around the command whose redirection failed
+  msg=$( { { print -r -- "$2" } >| "$1" } 2>&1 ); zf_rm -f -- "$1" 2>/dev/null
+  msg=${msg%": $1"}; reason=${msg##*: }
+  [[ -n $reason ]] || return 0
+  zmodload zsh/system 2>/dev/null || return 0
+  for i in {1..127}; do
+    syserror -e m $i 2>/dev/null && [[ ${m:l} == ${reason:l} ]] && { REPLY=$i; return 0; }
+  done
+  return 0
+}
+
+# The Law-7 directory (default /tmp/archie_health) lives in a world-writable
+# parent. Write into it only when it is a real directory, owned by us, and not a
+# symlink -- otherwise another user could aim our writes anywhere. Refusing is
+# logged once per reason; it is a deliberate refusal, not a publication failure.
+law7_dir_ok() {
+  local why=""
+  local -A st
+  if [[ -L $AH_DIR ]]; then why="is a symlink"
+  else
+    [[ -e $AH_DIR ]] || zf_mkdir -m 700 -- "$AH_DIR" 2>/dev/null
+    if [[ ! -d $AH_DIR ]]; then why="is not a directory (and could not be created)"
+    elif ! zstat -L -H st -- "$AH_DIR" 2>/dev/null; then why="cannot be inspected"
+    elif (( st[uid] != UID )); then why="is owned by uid $st[uid], not $UID"
+    fi
+  fi
+  if [[ -n $why ]]; then
+    [[ $LAW7_REFUSED == "$why" ]] || { log "REFUSING to write the Law-7 signal: $AH_DIR $why"; LAW7_REFUSED=$why; }
+    return 1
+  fi
+  LAW7_REFUSED=""
+  return 0
+}
+
+# ---- publication (SCHEMA §4) ---------------------------------------------------
+# P_* are the PUBLISHED observables: -1 for anything not `ok`. Shared by state.json,
+# the Law-7 status.json and history.jsonl so the three can never disagree.
+pub_values() {
+  P_VMP=-1; P_FREE=-1; P_SWU=-1; P_SWT=-1; P_PO=-1; P_DISK=-1; P_THERM=-1; P_LOAD=-1
+  [[ $O_ST_VMP == ok ]]      && P_VMP=$O_VMP
+  [[ $O_ST_FREE == ok ]]     && P_FREE=$O_FREE
+  [[ $O_ST_SWAP == ok ]]     && { P_SWU=$O_SWU; P_SWT=$O_SWT_RAW; }
+  [[ $O_ST_PAGEOUTS == ok ]] && P_PO=$O_PORATE
+  [[ $O_ST_DISK == ok ]]     && P_DISK=$O_DISK
+  [[ $O_ST_THERMAL == ok ]]  && P_THERM=$O_THERM
+  is_udec "$O_LOAD"          && P_LOAD=$O_LOAD
+  if [[ $RES_FROM == sensor ]]; then
+    P_RES_MILLI=$RES_RESERVED_MILLI; P_BUDGET_MILLI=$RES_BUDGET_MILLI; P_OVERCOMMIT=$RES_OVERCOMMIT; P_RES_JOBS=$RES_JOBS
+  else
+    to_milli "${POL[memory_os_reserve_gb]}"
+    P_RES_MILLI=$ENV_RESERVED_MILLI
+    P_BUDGET_MILLI=$(( RAM_BYTES * 1000 / 1073741824 - REPLY ))
+    P_OVERCOMMIT=$(( P_RES_MILLI > P_BUDGET_MILLI ))
+    P_RES_JOBS=$O_JOBS
+  fi
+  milli_1dp $P_RES_MILLI; P_RES_GB=$REPLY
+  milli_1dp $P_BUDGET_MILLI; P_BUDGET_GB=$REPLY
+}
+
 publish() {
   local st="$1" reason="$2" jmax="$3"
-  print -r -- "$st" > "$STATE_F.tmp" && mv -f "$STATE_F.tmp" "$STATE_F"
-  cat > "$STATE_J.tmp" <<JSON
-{
-  "state": "$st",
-  "reason": "$reason",
-  "ts": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-  "epoch": $(date +%s),
-  "build_jobs_max": $jmax,
-  "spawn_agents_ok": $([[ "$st" == "GREEN" || "$st" == "YELLOW" ]] && echo true || echo false),
-  "evidence_complete": $([[ "$st" == "UNKNOWN" ]] && echo false || echo true),
-  "heavy_jobs_ok": $([[ "$st" == "GREEN" ]] && echo true || echo false),
-  "observables": {
-    "vm_pressure_level": ${O_VMP:-1},
-    "free_pct": ${O_FREE:-0},
-    "swap_used_mb": ${O_SWU:-0},
-    "swap_total_mb": ${O_SWT:-0},
-    "pageout_rate_pages_per_poll": ${O_PORATE:-0},
-    "disk_avail_gb": ${O_DISK:-0},
-    "loadavg": "${O_LOAD:-0}",
-    "cpu_speed_limit_pct": ${O_THERM:-100},
-    "registered_jobs": ${O_JOBS:-0}
+  local now=$EPOCHSECONDS iso r fail="" ec=false heavy=false spawn=false crit=false oc=false
+  utc_iso $now; iso=$REPLY
+  (( SEQ++ ))
+  pub_values
+  (( EVIDENCE_COMPLETE )) && ec=true
+  [[ $st == GREEN && $ec == true ]] && heavy=true
+  [[ ( $st == GREEN || $st == YELLOW ) && $ec == true ]] && spawn=true
+  (( CRITICAL_NOW )) && crit=true
+  (( P_OVERCOMMIT )) && oc=true
+  json_esc "$reason"; r=$REPLY
+  local miss="" s vols="" i adm
+  for s in $MISSING; do miss+="${miss:+, }\"$s\""; done
+  for (( i = 1; i <= ${#VOL_MOUNT}; i++ )); do
+    json_esc "$VOL_MOUNT[i]"
+    vols+="${vols:+, }{\"mount\": \"$REPLY\", \"avail_gb\": $VOL_AVAIL[i], \"floor_gb\": $ADM_FLOOR, \"status\": \"$VOL_ST[i]\"}"
+  done
+  if [[ $heavy == true ]]; then adm="GREEN with complete evidence"
+  elif [[ $ec == false ]]; then adm="state $st; evidence incomplete: ${MISSING_DESC:-starting}"
+  else adm="state $st"; fi
+  json_esc "$adm"; adm=$REPLY
+  local sage=$SENSOR_AGE
+  local body="{
+  \"schema\": \"forge.guardian.state/2\",
+  \"state\": \"$st\",
+  \"reason\": \"$r\",
+  \"ts\": \"$iso\",
+  \"epoch\": $now,
+  \"seq\": $SEQ,
+  \"build_jobs_max\": $jmax,
+  \"spawn_agents_ok\": $spawn,
+  \"evidence_complete\": $ec,
+  \"heavy_jobs_ok\": $heavy,
+  \"evidence\": {\"source\": \"$EV_SOURCE\", \"sensor_age_s\": $sage, \"missing\": [$miss]},
+  \"critical_now\": $crit,
+  \"thermal_state\": \"$O_THERM_STATE\",
+  \"admission\": {\"heavy_open\": $heavy, \"reason\": \"$adm\"},
+  \"reservations\": {\"reserved_gb\": $P_RES_GB, \"budget_gb\": $P_BUDGET_GB, \"overcommit\": $oc, \"jobs\": $P_RES_JOBS},
+  \"volumes\": [$vols],
+  \"disk_hardware\": \"$DISK_HW\",
+  \"guardian\": {\"pid\": $$, \"version\": \"$GUARDIAN_VERSION\", \"started\": $GUARD_STARTED},
+  \"observables\": {
+    \"vm_pressure_level\": $P_VMP,
+    \"free_pct\": $P_FREE,
+    \"swap_used_mb\": $P_SWU,
+    \"swap_total_mb\": $P_SWT,
+    \"pageout_rate_pages_per_poll\": $P_PO,
+    \"disk_avail_gb\": $P_DISK,
+    \"loadavg\": \"$P_LOAD\",
+    \"cpu_speed_limit_pct\": $P_THERM,
+    \"registered_jobs\": $O_JOBS
   },
-  "host": {"ram_gb": $RAM_GB, "ncpu": $NCPU, "nperf": $NPERF}
-}
-JSON
-  mv -f "$STATE_J.tmp" "$STATE_J"
+  \"host\": {\"ram_gb\": $RAM_GB, \"ncpu\": $NCPU, \"nperf\": $NPERF}
+}"
+  write_atomic "$STATE_F" "$st"   || fail+="${fail:+ }state(errno $PUB_ERRNO)"
+  write_atomic "$STATE_J" "$body" || fail+="${fail:+ }state.json(errno $PUB_ERRNO)"
 
   # ---- Law-7 producer -------------------------------------------------------
   # /tmp/archie_health/status.json had SEVENTEEN consumers across archdisc-Models
@@ -205,94 +527,611 @@ JSON
   # gpu_jobs counts REGISTERED jobs that declared --gpu. GPU work that never
   # registered an envelope is invisible here, and consumers must not read a 0 as
   # proof the GPU is idle.
-  local gpu=0 f
-  for f in "$JOBS_DIR"/*.job(N); do
-    [[ "$(job_field "$f" gpu)" == "1" ]] && (( gpu++ ))
-  done
-  local halt=false
+  local halt=false swg=-1
   [[ -f "$AH_DIR/HALT" ]] && halt=true
-  mkdir -p "$AH_DIR" 2>/dev/null
-  cat > "$AH_F.tmp" <<AHJSON
-{
-  "state": "$st",
-  "reason": "$reason",
-  "swap_gib": $(( O_SWU / 1024 )).$(printf '%02d' $(( (O_SWU % 1024) * 100 / 1024 ))),
-  "halt": $halt,
-  "gpu_jobs": $gpu,
-  "registered_jobs": ${O_JOBS:-0},
-  "free_pct": ${O_FREE:-0},
-  "pageout_rate": ${O_PORATE:-0},
-  "disk_avail_gb": ${O_DISK:-0},
-  "producer": "forge-guardian",
-  "ts": $(date +%s),
-  "iso": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  [[ $O_ST_SWAP == ok ]] && printf -v swg '%d.%02d' $(( O_SWU / 1024 )) $(( (O_SWU % 1024) * 100 / 1024 ))
+  if law7_dir_ok; then
+    write_atomic "$AH_F" "{
+  \"state\": \"$st\",
+  \"reason\": \"$r\",
+  \"swap_gib\": $swg,
+  \"halt\": $halt,
+  \"gpu_jobs\": $GPU_JOBS,
+  \"registered_jobs\": $O_JOBS,
+  \"free_pct\": $P_FREE,
+  \"pageout_rate\": $P_PO,
+  \"disk_avail_gb\": $P_DISK,
+  \"producer\": \"forge-guardian\",
+  \"ts\": $now,
+  \"iso\": \"$iso\",
+  \"evidence_complete\": $ec
+}" || fail+="${fail:+ }${AH_F:t}(errno $PUB_ERRNO)"
+  fi
+  if [[ -n $fail ]]; then
+    # A governor that cannot publish is invisible: consumers go stale and fail
+    # closed, but nothing has been TOLD anything. SCHEMA §4.4 makes a failed
+    # publication a CRITICAL_NOW condition on the next decision.
+    PUBLISH_FAILED=1; PUB_FAIL=$fail
+    log "PUBLISH FAILED: $fail -- previous files left in place; CRITICAL_NOW on the next decision"
+    local f1=${fail%% *}; json_esc "${f1%%\(*}"
+    event publish_error "\"file\": \"$REPLY\", \"errno\": ${PUB_ERRNO:-0}"
+  fi
+  [[ -z $fail ]]
 }
-AHJSON
-  mv -f "$AH_F.tmp" "$AH_F"
+
+history_append() { # SCHEMA §4.3: one compact line per poll
+  local r rs
+  json_esc "$REASON"; r=$REPLY
+  print -r -- "{\"t\":$EPOCHSECONDS,\"s\":\"$STATE\",\"r\":\"$r\",\"vmp\":$P_VMP,\"pe\":\"$O_PEVENT\",\"fp\":$P_FREE,\"sw\":[$P_SWU,$P_SWT],\"po\":$P_PO,\"th\":\"$O_THERM_STATE\",\"dk\":$P_DISK,\"rs\":[$P_RES_GB,$P_BUDGET_GB],\"j\":$O_JOBS,\"ev\":$EVIDENCE_COMPLETE}" \
+    2>/dev/null >> "$STATE_DIR/history.jsonl"
 }
 
 # ---- registered-job helpers ---------------------------------------------------
-# A job file is KEY=VALUE lines: pid, name, priority(0=critical..9=speculative),
-# can_restart(0/1), peak_gb, started
-job_field() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1; }
+# A job file is KEY=VALUE lines (SCHEMA §5): pid, name, priority(0=critical..
+# 9=speculative), can_restart(0/1), peak_gb, gpu, started, [v2 keys], cmd LAST.
+# Readers take the FIRST occurrence of a key. Builtin reads: no sed per field.
+job_field() {
+  local line
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line == "$2="* ]] && { print -r -- "${line#*=}"; return 0; }
+  done 2>/dev/null < "$1"
+  return 0
+}
+read_envelope() { # read_envelope FILE -> EV[key]=value, ENV_MTIME; 1 if unreadable or > 64 KiB
+  local f=$1 line k
+  local -i n=0
+  local -A st
+  EV=()
+  zstat -H st -- "$f" 2>/dev/null || return 1
+  (( st[size] <= 65536 )) || return 1
+  ENV_MTIME=$st[mtime]
+  while IFS= read -r line || [[ -n $line ]]; do
+    (( ++n > 512 )) && break
+    [[ $line == [a-z]*=* ]] || continue
+    k=${line%%=*}
+    (( ${+EV[$k]} )) || EV[$k]=${line#*=}
+    [[ $k == cmd ]] && break
+  done 2>/dev/null < "$f"
+  return 0
+}
+job_prio() { read_envelope "$1"; REPLY=${EV[priority]:-5}; is_uint "$REPLY" && (( REPLY <= 9 )) || REPLY=5 }
 
-reap_dead_jobs() {
-  local f pid
-  for f in "$JOBS_DIR"/*.job; do
-    pid=$(job_field "$f" pid)
-    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || rm -f "$f"
+# Envelope paths sorted by priority DESC (most speculative first) -- shed order.
+# Pure zsh: v1 piped through sort|awk, and awk's $2 cut every path at its first
+# space, so a domain under a path with a space in it could never shed anything.
+shed_list() {
+  local f r; local -a rows
+  SHED_LIST=()
+  for f in "$JOBS_DIR"/*.job(N); do job_prio "$f"; rows+=("$REPLY $f"); done
+  for r in ${(On)rows}; do SHED_LIST+=("${r#* }"); done
+}
+shed_order() { shed_list; (( ${#SHED_LIST} )) && print -rl -- $SHED_LIST; return 0 }
+
+# ---- process identity (SCHEMA §5) ----------------------------------------------
+# An envelope names a PROCESS, not a number: pids are reused. proc_info asks the
+# sensor's `pidinfo` (proc_pidinfo, exact start second) when the binary exists,
+# else `ps -o lstart=`. Called only on the actuation path, the reaper's fallback
+# path, and once per new envelope (cached) -- never per poll in the steady state.
+# NEVER `strftime -r -s REPLY`: when REPLY does not exist yet, strftime CREATES it as
+# an INTEGER, and the next `REPLY=speculative` is then evaluated arithmetically --
+# fatal under `set -u`. resilience_harness.mjs D5 died exactly so (json_esc:3:
+# speculative: parameter not set), mid-shed, leaving its victims orphaned.
+parse_lstart() { local LC_ALL=C v=""; strftime -r -s v '%a %b %d %H:%M:%S %Y' "$1" 2>/dev/null || return 1; REPLY=$v }
+proc_info() { # proc_info PID -> PI_ALIVE PI_PPID PI_PSTART PI_UID PI_COMM; 0 when alive
+  local pid=$1 out kv
+  local -a w
+  PI_ALIVE=0; PI_PPID=""; PI_PSTART=""; PI_UID=""; PI_COMM=""
+  is_uint "$pid" || return 1
+  if [[ -n $SENSOR_BIN ]]; then
+    out=$("$SENSOR_BIN" pidinfo "$pid" 2>/dev/null)
+    if [[ $out == *identity=alive* ]]; then
+      for kv in ${=out}; do
+        case $kv in ppid=*) PI_PPID=${kv#*=} ;; pstart=*) PI_PSTART=${kv#*=} ;; uid=*) PI_UID=${kv#*=} ;; esac
+      done
+      PI_COMM=${${out#*comm=}% identity=*}
+      is_uint "$PI_PSTART" || PI_PSTART=""
+      PI_ALIVE=1; return 0
+    fi
+    [[ $out == *identity=dead* ]] && return 1
+  fi
+  out=$(LC_ALL=C ps -o ppid=,uid=,lstart=,comm= -p "$pid" 2>/dev/null)
+  w=(${=out})
+  (( ${#w} >= 8 )) || return 1
+  PI_PPID=$w[1]; PI_UID=$w[2]
+  parse_lstart "$w[3] $w[4] $w[5] $w[6] $w[7]" && is_uint "$REPLY" && PI_PSTART=$REPLY
+  PI_COMM=${(j: :)w[8,-1]}
+  PI_ALIVE=1
+  return 0
+}
+boot_uuid() {
+  [[ -n $BOOT_UUID ]] || BOOT_UUID=$(sysctl -n kern.bootsessionuuid 2>/dev/null)
+  REPLY=$BOOT_UUID
+}
+# identity_verdict: uses EV (the envelope) and PI_* (the process) -> ID_VERDICT
+# ok|dead|mismatch|unverifiable and ID_WHY, in exactly SCHEMA §5's order.
+identity_verdict() {
+  ID_VERDICT=unverifiable; ID_WHY=""
+  (( PI_ALIVE )) || { ID_VERDICT=dead; ID_WHY="pid not running"; return 0; }
+  local b=${EV[boot]:-} ps_=${EV[pstart]:-} stt=${EV[started]:-}
+  if [[ -n $b ]]; then
+    boot_uuid
+    if [[ -n $REPLY && $b != "$REPLY" ]]; then ID_VERDICT=mismatch; ID_WHY="registered in boot $b, this is boot $REPLY"; return 0; fi
+  fi
+  is_uint "$PI_PSTART" || { ID_WHY="process start time unavailable"; return 0; }
+  if is_uint "$ps_"; then
+    if (( PI_PSTART - ps_ <= 1 && ps_ - PI_PSTART <= 1 )); then ID_VERDICT=ok
+    else ID_VERDICT=mismatch; ID_WHY="pstart=$ps_ but the process started at $PI_PSTART (pid reused)"; fi
+  elif is_uint "$stt"; then
+    if (( PI_PSTART <= stt + 5 )); then ID_VERDICT=ok
+    else ID_VERDICT=mismatch; ID_WHY="the process started at $PI_PSTART, after the envelope was written (started=$stt): pid reused"; fi
+  else
+    ID_WHY="envelope has neither pstart nor started"
+  fi
+  return 0
+}
+guardian_ancestors() { # walk our own ppid chain ONCE: never signal what runs us
+  (( ANCESTORS_DONE )) && return 0
+  ANCESTORS_DONE=1
+  local p=$PPID out
+  local -i d=0
+  while is_uint "$p" && (( p > 1 && d++ < 64 )); do
+    ANCESTORS[$p]=1
+    out=$(ps -o ppid= -p "$p" 2>/dev/null); p=${out//[[:space:]]/}
   done
+  return 0
 }
-
-# Return job files sorted by priority DESC (most speculative first) — shed order.
-shed_order() {
-  local f p
-  for f in "$JOBS_DIR"/*.job; do
-    p=$(job_field "$f" priority); print -r -- "${p:-5} $f"
-  done | sort -rn | awk '{print $2}'
-}
-
-is_protected() {
-  local pid="$1" comm
-  comm=$(ps -o comm= -p "$pid" 2>/dev/null)
-  [[ -z "$comm" ]] && return 0                      # unknown -> treat as protected
-  [[ "${comm:t}" =~ $PROTECTED_RE ]] && return 0
+is_protected_comm() {
+  local c=${1:t}
+  case $c in
+    claude|node|Claude|Claude\ Helper*|WindowServer|loginwindow|Finder|Dock|SystemUIServer|kernel_task|launchd|sshd) return 0 ;;
+    forge-guardian|forge-guardian-sensor|forge-guardian-s*) return 0 ;;   # p_comm truncates to 16 chars
+  esac
+  [[ "$c" =~ $PROTECTED_RE ]] && return 0
   return 1
+}
+is_protected_pid() { # is_protected_pid PID COMM
+  local pid=$1 comm=$2
+  (( pid <= 1 || pid == $$ )) && return 0
+  (( SENSOR_PID > 0 && pid == SENSOR_PID )) && return 0
+  guardian_ancestors
+  (( ${+ANCESTORS[$pid]} )) && return 0
+  [[ -z $comm ]] && return 0                      # unknown -> treat as protected
+  is_protected_comm "$comm"
+}
+is_protected() { # v1 name: is_protected PID -> 0 when the pid must never be signalled
+  local pid="$1"
+  is_uint "$pid" || return 0
+  proc_info "$pid" || return 0
+  is_protected_pid "$pid" "$PI_COMM"
+}
+
+reap_one() { # reap_one FILE PID WHY
+  local f=$1 pid=$2 why=$3
+  zf_rm -f -- "$f" 2>/dev/null
+  unset "IDCACHE[$f]"
+  log "reaped envelope ${f:t} pid=$pid: $why"
+  json_esc "$why"
+  is_uint "$pid" || pid=-1
+  event reap "\"pid\": $pid, \"why\": \"$REPLY\""
+}
+
+# envelope_identity FILE PID (EV loaded) -> ID_VERDICT [ok|dead|mismatch|unverifiable|deferred]
+# With a fresh sensor the verdict is the sensor's (it recomputes identity every
+# tick): no fork. An envelope newer than the snapshot is DEFERRED to the next one
+# -- acting on an older snapshot could delete a brand-new envelope that merely
+# reused the file name. Without a sensor: one proc_info per envelope, cached.
+envelope_identity() {
+  local f=$1 pid=$2 key c
+  local -a w
+  ID_VERDICT=unverifiable; ID_WHY=""
+  if (( SENSOR_FRESH )); then
+    if (( ${+SJOB_ID[$pid]} )) && (( ENV_MTIME < SNAP_TS )); then
+      ID_VERDICT=${SJOB_ID[$pid]}; ID_WHY="sensor verdict"
+      [[ $ID_VERDICT == (ok|dead|mismatch|unverifiable) ]] || ID_VERDICT=unverifiable
+    else
+      ID_VERDICT=deferred
+    fi
+    return 0
+  fi
+  key="$ENV_MTIME:$pid"
+  c=${IDCACHE[$f]:-}
+  if [[ $c == "$key "* ]]; then
+    w=(${=c})
+    if (( EPOCHSECONDS - w[3] < 60 )); then ID_VERDICT=$w[2]; ID_WHY="cached"; return 0; fi
+  fi
+  proc_info "$pid"
+  identity_verdict
+  IDCACHE[$f]="$key $ID_VERDICT $EPOCHSECONDS"
+  return 0
+}
+
+# The reaper, and the ONE pass that counts the registry. registered_jobs, gpu_jobs
+# and the envelope reservations are all taken here, after reaping, so two fields
+# describing one set are always computed on the same side of the thing that
+# changes it (v1 once published registered_jobs=1 beside gpu_jobs=0 for one set).
+reap_dead_jobs() {
+  local f pid now=$EPOCHSECONDS hb ss age
+  local -A seen hst
+  O_JOBS=0; GPU_JOBS=0; ENV_RESERVED_MILLI=0; ENV_JOBS_OK=0
+  for f in "$JOBS_DIR"/*.job(N); do
+    if ! read_envelope "$f"; then
+      [[ -e $f ]] && reap_one "$f" "" "unreadable or larger than 64 KiB"
+      continue
+    fi
+    pid=${EV[pid]:-}
+    if ! is_uint "$pid" || (( pid <= 1 )); then
+      # A legacy writer creates the file before filling it: give it 10 s.
+      if (( now - ENV_MTIME > 10 )); then reap_one "$f" "$pid" "no valid pid"; continue; fi
+      (( O_JOBS++ )); continue
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then reap_one "$f" "$pid" "dead"; continue; fi
+    envelope_identity "$f" "$pid"
+    case $ID_VERDICT in
+      dead|mismatch) reap_one "$f" "$pid" "$ID_VERDICT${ID_WHY:+: $ID_WHY}"; continue ;;
+      ok) (( ENV_JOBS_OK++ )) ;;
+      unverifiable)
+        if (( ! ${+UNVERIFIABLE_NOTED[$f]} )); then
+          UNVERIFIABLE_NOTED[$f]=1
+          log "envelope ${f:t} pid=$pid is UNVERIFIABLE (${ID_WHY}): kept, never signalled"
+        fi ;;
+    esac
+    seen[$f]=1
+    (( O_JOBS++ ))
+    [[ ${EV[gpu]:-} == 1 ]] && (( GPU_JOBS++ ))
+    if is_udec "${EV[peak_gb]:-}"; then to_milli "${EV[peak_gb]}"; (( ENV_RESERVED_MILLI += REPLY )); fi
+    # stall: a declared heartbeat older than its declared stall_s
+    hb=${EV[heartbeat]:-}; ss=${EV[stall_s]:-}
+    if [[ -n $hb ]] && is_uint "$ss"; then
+      age=-1
+      if (( SENSOR_FRESH )) && is_int "${SJOB_HB[$pid]:-x}"; then age=${SJOB_HB[$pid]}
+      elif zstat -H hst -- "$hb" 2>/dev/null; then age=$(( now - hst[mtime] )); fi
+      if (( age > ss )); then
+        if (( ! ${+STALLED[$pid]} )); then
+          STALLED[$pid]=1
+          json_esc "${EV[name]:-}"
+          event stall "\"pid\": $pid, \"name\": \"$REPLY\", \"age_s\": $age"
+          log "STALL: job '${EV[name]:-}' pid=$pid heartbeat ${age}s old > stall_s=$ss"
+        fi
+      elif (( age >= 0 )); then
+        unset "STALLED[$pid]"
+      fi
+    fi
+  done
+  # forget cache entries for envelopes that are gone
+  for f in ${(k)IDCACHE}; do (( ${+seen[$f]} )) || unset "IDCACHE[$f]"; done
+  for f in ${(k)UNVERIFIABLE_NOTED}; do (( ${+seen[$f]} )) || unset "UNVERIFIABLE_NOTED[$f]"; done
+  return 0
 }
 
 # Cooperative shed: SIGUSR1 means "checkpoint now and reduce your footprint".
+# IDENTITY BEFORE EVERY SIGNAL (SCHEMA §5): the pid must be alive, ours, not
+# protected, and provably the process that registered -- a reused pid is a
+# stranger that inherited a number.
 signal_job() {
   local f="$1" sig="$2" pid name
-  pid=$(job_field "$f" pid); name=$(job_field "$f" name)
+  read_envelope "$f" || return 1
+  pid=${EV[pid]:-}; name=${EV[name]:-}
   [[ -z "$pid" ]] && return 1
-  if is_protected "$pid"; then
+  if ! is_uint "$pid" || (( pid <= 1 )); then
+    log "REFUSED to signal protected pid=$pid name=$name (sig=$sig): not a user pid"
+    return 1
+  fi
+  if ! proc_info "$pid"; then
+    log "not signalling pid=$pid name=$name (sig=$sig): not running"
+    return 1
+  fi
+  if is_protected_pid "$pid" "$PI_COMM"; then
     log "REFUSED to signal protected pid=$pid name=$name (sig=$sig)"
     return 1
   fi
-  kill -"$sig" "$pid" 2>/dev/null && emit "🛡  GUARDIAN shed sig=$sig -> job='$name' pid=$pid" && return 0
-  return 1
+  if [[ $PI_UID != "$UID" ]]; then
+    log "REFUSED to signal pid=$pid name=$name (sig=$sig): owned by uid ${PI_UID:-?}, not $UID"
+    return 1
+  fi
+  identity_verdict
+  case $ID_VERDICT in
+    ok) ;;
+    dead|mismatch)
+      log "REFUSED to signal pid=$pid name=$name (sig=$sig): identity $ID_VERDICT -- $ID_WHY"
+      reap_one "$f" "$pid" "$ID_VERDICT: $ID_WHY"
+      return 1 ;;
+    *)
+      log "REFUSED to signal pid=$pid name=$name (sig=$sig): identity unverifiable -- $ID_WHY"
+      return 1 ;;
+  esac
+  kill -"$sig" "$pid" 2>/dev/null || return 1
+  emit "🛡  GUARDIAN shed sig=$sig -> job='$name' pid=$pid"
+  local js=null; [[ -n ${EV[sig]:-} ]] && { json_esc "${EV[sig]}"; js="\"$REPLY\""; }
+  json_esc "$name"
+  event shed "\"sig\": $js, \"signal\": \"$sig\", \"pid\": $pid, \"name\": \"$REPLY\""
+  [[ $sig == TERM ]] && CANCEL_T0[$pid]=$EPOCHREALTIME
+  return 0
 }
 
-# ---- observation --------------------------------------------------------------
-PREV_PO=""
-sample() {
-  O_VMP=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null || echo 1)
-  O_FREE=$(memory_pressure 2>/dev/null | sed -n 's/.*free percentage: \([0-9]*\)%.*/\1/p'); O_FREE=${O_FREE:-100}
-  local sw; sw=$(sysctl -n vm.swapusage 2>/dev/null)
-  O_SWU=$(print -r -- "$sw" | sed -n 's/.*used = \([0-9.]*\)M.*/\1/p'); O_SWU=${O_SWU%%.*}; O_SWU=${O_SWU:-0}
-  O_SWT=$(print -r -- "$sw" | sed -n 's/.*total = \([0-9.]*\)M.*/\1/p'); O_SWT=${O_SWT%%.*}; O_SWT=${O_SWT:-1}
-  (( O_SWT > 0 )) || O_SWT=1
-  local po; po=$(vm_stat 2>/dev/null | awk '/Pageouts/{gsub(/\./,"",$NF); print $NF}'); po=${po:-0}
-  O_PORATE=$(( po - ${PREV_PO:-$po} )); (( O_PORATE < 0 )) && O_PORATE=0
-  PREV_PO=$po
-  O_DISK=$(df -g / 2>/dev/null | awk 'NR==2{print $4}'); O_DISK=${O_DISK:-999}
-  O_LOAD=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'); O_LOAD=${O_LOAD:-0}
-  O_THERM=$(pmset -g therm 2>/dev/null | sed -n 's/.*CPU_Speed_Limit *= *\([0-9]*\).*/\1/p' | tail -1); O_THERM=${O_THERM:-100}
-  # NULL_GLOB makes an unmatched glob VANISH, and `ls` with no arguments then lists
-  # the daemon's CWD — under launchd that is "/", so an empty jobs dir published a
-  # double-digit registered_jobs count into the telemetry every poll. Count the
-  # array; never a command whose argument list can disappear.
-  local -a _jobs; _jobs=("$JOBS_DIR"/*.job(N)); O_JOBS=${#_jobs[@]}
+# Cancel latency (SCHEMA §7): TERM sent -> pid gone, measured at poll resolution.
+cancel_latency_check() {
+  setopt localoptions extendedglob
+  local pid t s
+  for pid in ${(k)CANCEL_T0}; do
+    t=${CANCEL_T0[$pid]}
+    if ! kill -0 "$pid" 2>/dev/null; then
+      s=$(( EPOCHREALTIME - t ))
+      [[ $s == (#b)(<->).(<->)* ]] && s="$match[1].${match[2][1,3]}"
+      event cancel_latency "\"pid\": $pid, \"s\": $s"
+      log "cancel latency: pid=$pid gone ${s}s after TERM"
+      unset "CANCEL_T0[$pid]"
+    elif (( EPOCHREALTIME - t > 3600 )); then
+      unset "CANCEL_T0[$pid]"
+    fi
+  done
+}
+
+# ---- observation: the sensor ---------------------------------------------------
+read_sensor_env() { # builtin loop: parsing sensor.env forks nothing
+  local line
+  local -i n=0
+  SV=()
+  [[ -f $SENSOR_ENV && -r $SENSOR_ENV ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    (( ++n > 20000 )) && break
+    [[ $line == [a-z]*=* ]] || continue
+    SV[${line%%=*}]=${line#*=}
+  done 2>/dev/null < "$SENSOR_ENV"
+  (( ${#SV} > 0 ))
+}
+# Fresh = right schema, ts within sensor_stale_polls x POLL of now and not more
+# than 5 s in the future (SCHEMA §3.3), and the writer still alive.
+sensor_fresh_check() {
+  local now=$1 ts=${SV[ts_s]:-} pid=${SV[pid]:-} age lim
+  if [[ ${SV[schema]:-} != forge.guardian.sensor/1 ]]; then SENSOR_WHY="schema '${SV[schema]:-none}'"; SENSOR_AGE=-1; return 1; fi
+  if ! is_uint "$ts"; then SENSOR_WHY="unparseable ts"; SENSOR_AGE=-1; return 1; fi
+  age=$(( now - ts )); lim=$(( STALE_POLLS * POLL ))
+  SENSOR_AGE=$age
+  if (( age > lim )); then SENSOR_WHY="stale ${age}s > ${lim}s"; return 1; fi
+  if (( age < -5 )); then SENSOR_WHY="clock skew: snapshot $(( -age ))s in the future"; return 1; fi
+  if ! is_uint "$pid" || ! kill -0 "$pid" 2>/dev/null; then SENSOR_WHY="sensor pid ${pid:-?} not running"; return 1; fi
+  (( age < 0 )) && SENSOR_AGE=0
+  SENSOR_FRESH=1; SENSOR_WHY=fresh
+  return 0
+}
+# Map one snapshot onto O_*. Every number is validated with a pattern BEFORE any
+# arithmetic: a malformed value makes THAT signal `invalid`, never a crash and
+# never a number.
+map_sensor() {
+  local v st u t i j n pid crit pts
+  st_norm "${SV[vmp_st]:-unavailable}"; st=$REPLY; v=${SV[vmp]:-}
+  if [[ $st == ok ]]; then [[ $v == (1|2|4) ]] && O_VMP=$v || st=invalid; fi
+  O_ST_VMP=$st; [[ $st == ok ]] || O_VMP=1
+
+  st_norm "${SV[freepct_st]:-unavailable}"; st=$REPLY; v=${SV[freepct]:-}
+  if [[ $st == ok ]]; then if is_uint "$v" && (( v <= 100 )); then O_FREE=$v; else st=invalid; fi; fi
+  O_ST_FREE=$st; [[ $st == ok ]] || O_FREE=100
+
+  st_norm "${SV[swap_st]:-unavailable}"; st=$REPLY; u=${SV[swap_used_mb]:-}; t=${SV[swap_total_mb]:-}
+  if [[ $st == ok ]]; then
+    if is_uint "$u" && is_uint "$t" && (( u <= t )); then O_SWU=$u; O_SWT_RAW=$t; O_SWT=$(( t > 0 ? t : 1 ))
+    else st=invalid; fi
+  fi
+  O_ST_SWAP=$st; [[ $st == ok ]] || { O_SWU=0; O_SWT=1; O_SWT_RAW=0; }
+
+  st_norm "${SV[pageouts_st]:-unavailable}"; st=$REPLY; v=${SV[pageout_rate_ps]:-}
+  if [[ $st == ok ]]; then
+    if is_udec "$v"; then local -i r; (( r = v * 5 )); O_PORATE=$r; else st=invalid; fi   # pages per 5 s, whatever POLL is
+  fi
+  O_ST_PAGEOUTS=$st; [[ $st == ok ]] || O_PORATE=0
+
+  st_norm "${SV[disk_st]:-unavailable}"; st=$REPLY; v=${SV[disk_min_avail_gib]:-}
+  if [[ $st == ok ]]; then is_uint "$v" && O_DISK=$v || st=invalid; fi
+  O_ST_DISK=$st; [[ $st == ok ]] || O_DISK=999
+  VOL_MOUNT=(); VOL_AVAIL=(); VOL_ST=()
+  n=${SV[vol_n]:-0}; is_uint "$n" && (( n <= 64 )) || n=0
+  for (( i = 0; i < n; i++ )); do
+    VOL_MOUNT+=("${SV[vol${i}_mount]:-${SV[vol${i}_path]:-?}}")
+    st_norm "${SV[vol${i}_st]:-unavailable}"; st=$REPLY; v=${SV[vol${i}_avail_b]:-}
+    if [[ $st == ok ]] && is_uint "$v"; then VOL_AVAIL+=($(( v / 1073741824 ))); VOL_ST+=(ok)
+    else VOL_AVAIL+=(-1); [[ $st == ok ]] && VOL_ST+=(invalid) || VOL_ST+=($st); fi
+  done
+
+  st_norm "${SV[thermal_st]:-unavailable}"; st=$REPLY; v=${SV[thermal]:-none}
+  if [[ $st == ok ]]; then
+    if thermal_pct "$v"; then O_THERM=$REPLY; O_THERM_STATE=$v; else st=invalid; fi
+  fi
+  O_ST_THERMAL=$st; [[ $st == ok ]] || { O_THERM=100; O_THERM_STATE=none; }
+
+  st_norm "${SV[pevent_st]:-unavailable}"; O_ST_PEVENT=$REPLY
+  O_PEVENT=${SV[pevent]:-none}; [[ $O_PEVENT == (normal|warn|critical|none) ]] || O_PEVENT=none
+  # A critical pressure event SINCE THE PREVIOUS POLL: pevent_crit_n counts since
+  # this sensor process started, so compare against the last snapshot of the SAME
+  # sensor pid; a new sensor's count only matters for events since our last poll.
+  crit=${SV[pevent_crit_n]:-0}; is_uint "$crit" || crit=0
+  pts=${SV[pevent_ts]:-}; is_uint "$pts" || pts=0
+  PEVENT_CRIT_NEW=0
+  if [[ ${SV[pid]:-} == "$SNAP_PID" ]]; then
+    (( crit > LAST_CRIT_N )) && PEVENT_CRIT_NEW=1
+  else
+    (( crit > 0 && pts >= PREV_POLL_EPOCH - POLL && PREV_POLL_EPOCH > 0 )) && PEVENT_CRIT_NEW=1
+  fi
+  SNAP_PID=${SV[pid]:-}; LAST_CRIT_N=$crit
+
+  st_norm "${SV[mem_st]:-unavailable}"; O_ST_MEM=$REPLY
+  st_norm "${SV[cpu_st]:-unavailable}"; O_ST_CPU=$REPLY
+  v=${SV[load1]:-}; is_udec "$v" && O_LOAD=$v || O_LOAD=-1
+
+  # reservations (SCHEMA §9.1) and per-job identity from the same snapshot
+  u=${SV[reserved_b]:-}; t=${SV[budget_b]:-}
+  if is_uint "$u" && is_int "$t"; then
+    RES_FROM=sensor
+    RES_RESERVED_MILLI=$(( u * 1000 / 1073741824 )); RES_BUDGET_MILLI=$(( t * 1000 / 1073741824 ))
+    [[ ${SV[overcommit]:-0} == 1 ]] && RES_OVERCOMMIT=1 || RES_OVERCOMMIT=0
+  else
+    RES_FROM=envelopes
+  fi
+  SJOB_ID=(); SJOB_HB=(); RES_JOBS=0
+  n=${SV[jobs_n]:-0}; is_uint "$n" && (( n <= 4096 )) || n=0
+  for (( j = 0; j < n; j++ )); do
+    pid=${SV[job${j}_pid]:-}; is_uint "$pid" || continue
+    SJOB_ID[$pid]=${SV[job${j}_identity]:-unverifiable}
+    SJOB_HB[$pid]=${SV[job${j}_hb_age_s]:--1}
+    [[ ${SJOB_ID[$pid]} == ok ]] && (( RES_JOBS++ ))
+  done
+  SNAP_TS=${SV[ts_s]}
+}
+
+# ---- observation: the fallback sampler -------------------------------------------
+# Used only while the sensor is down or stale, with EXACTLY the commands the gates
+# shadow on PATH (sysctl, memory_pressure, vm_stat, df, pmset). Every parse
+# failure makes that signal unavailable. Never a default that reads as healthy.
+sample_fallback() {
+  setopt localoptions extendedglob
+  local out line v m mt now_r el
+  local -a w lines
+  local -A seenm
+  # vm pressure: the OS's own verdict, 1 / 2 / 4
+  out=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null); out=${out//[[:space:]]/}
+  if [[ $out == (1|2|4) ]]; then O_VMP=$out; O_ST_VMP=ok
+  else O_VMP=1; [[ -n $out ]] && O_ST_VMP=invalid || O_ST_VMP=unavailable; fi
+  # free percentage: the sysctl memory_pressure itself reads; else memory_pressure
+  out=$(sysctl -n kern.memorystatus_level 2>/dev/null); out=${out//[[:space:]]/}
+  if ! { is_uint "$out" && (( out <= 100 )); }; then
+    out=$(memory_pressure 2>/dev/null)
+    [[ $out == (#b)*'free percentage: '(<->)'%'* ]] && out=$match[1] || out=""
+  fi
+  if is_uint "$out" && (( out <= 100 )); then O_FREE=$out; O_ST_FREE=ok; else O_FREE=100; O_ST_FREE=unavailable; fi
+  # swap: "total = 19456.00M  used = 18022.06M  free = ..."
+  out=$(sysctl -n vm.swapusage 2>/dev/null)
+  if [[ $out == (#b)*total\ =\ ([0-9]##)(|.[0-9]#)M*used\ =\ ([0-9]##)(|.[0-9]#)M* ]] \
+     && is_uint "$match[1]" && is_uint "$match[3]" && (( match[3] <= match[1] )); then
+    O_SWT_RAW=$match[1]; O_SWU=$match[3]; O_SWT=$(( O_SWT_RAW > 0 ? O_SWT_RAW : 1 )); O_ST_SWAP=ok
+  else
+    O_SWU=0; O_SWT=1; O_SWT_RAW=0; [[ -n $out ]] && O_ST_SWAP=invalid || O_ST_SWAP=unavailable
+  fi
+  # pageouts: a RATE over the MEASURED elapsed time, in pages per 5 s whatever POLL
+  # is. v1 published the raw per-poll delta, so a poll that ran late -- or a
+  # governor that was stopped or asleep -- reported every page moved during the gap
+  # as one poll's traffic: a spurious spike. A gap of a minute or more is not a
+  # rate at all (sleep, SIGSTOP): rebaseline instead, as the sensor does on wake.
+  out=$(vm_stat 2>/dev/null); v=""
+  for line in ${(f)out}; do
+    [[ $line == Pageouts:* ]] && { v=${${line##*[[:space:]]}%.}; break; }
+  done
+  now_r=$EPOCHREALTIME
+  if is_uint "$v"; then
+    O_ST_PAGEOUTS=ok; O_PORATE=0
+    if is_uint "$PREV_PO" && [[ -n $PREV_PO_T ]]; then
+      el=$(( now_r - PREV_PO_T ))
+      if (( v < PREV_PO || el <= 0 )); then
+        :                                           # counter reset or clock step: rebaseline
+      elif (( el > (6 * POLL > 60 ? 6 * POLL : 60) )); then
+        log "pageout sample gap of ${el%%.*}s (sleep or stop): rate rebaselined, not reported as a burst"
+      else
+        local -i r; (( r = (v - PREV_PO) * 5 / el )); O_PORATE=$r
+      fi
+    fi
+    PREV_PO=$v; PREV_PO_T=$now_r
+  else
+    O_PORATE=0; [[ -n $out ]] && O_ST_PAGEOUTS=invalid || O_ST_PAGEOUTS=unavailable
+    PREV_PO=""; PREV_PO_T=""
+  fi
+  # disk: every policy volume; ok only when every one of them is (SCHEMA §3.1)
+  VOL_MOUNT=(); VOL_AVAIL=(); VOL_ST=(); O_DISK=999; O_ST_DISK=ok
+  for v in $DISK_VOLUMES; do
+    out=$(df -g "$v" 2>/dev/null); lines=(${(f)out})
+    w=(${=lines[-1]:-})
+    if (( ${#lines} >= 2 && ${#w} >= 4 )) && is_uint "$w[4]"; then
+      m=$w[-1]
+      (( ${+seenm[$m]} )) && continue
+      seenm[$m]=1
+      VOL_MOUNT+=("$m"); VOL_AVAIL+=($w[4]); VOL_ST+=(ok)
+      (( w[4] < O_DISK )) && O_DISK=$w[4]
+    else
+      VOL_MOUNT+=("$v"); VOL_AVAIL+=(-1); VOL_ST+=(unavailable); O_ST_DISK=unavailable
+    fi
+  done
+  [[ $O_ST_DISK == ok ]] || O_DISK=999
+  # thermal: CPU_Speed_Limit. ABSENT on Apple Silicon -> UNAVAILABLE (T-173). v1
+  # defaulted this to 100, and the governor called a machine it could not measure
+  # thermally healthy for every poll it ever ran on this Mac.
+  out=$(pmset -g therm 2>/dev/null); v=""
+  for line in ${(f)out}; do
+    [[ $line == *CPU_Speed_Limit*=* ]] && { m=${line##*=}; m=${m//[[:space:]]/}; is_uint "$m" && (( m <= 100 )) && v=$m; }
+  done
+  if [[ -n $v ]]; then O_THERM=$v; O_ST_THERMAL=ok; thermal_word $v; O_THERM_STATE=$REPLY
+  else O_THERM=100; O_ST_THERMAL=unavailable; O_THERM_STATE=none; fi
+  # load average (published only)
+  out=$(sysctl -n vm.loadavg 2>/dev/null); w=(${=out})
+  is_udec "${w[2]:-}" && O_LOAD=$w[2] || O_LOAD=-1
+  O_ST_PEVENT=unavailable; O_PEVENT=none; PEVENT_CRIT_NEW=0
+  O_ST_MEM=unavailable; O_ST_CPU=unavailable
+  RES_FROM=envelopes
+}
+
+observe() {
+  local now=$EPOCHSECONDS
+  SENSOR_FRESH=0
+  if (( SENSOR_ENABLED )); then
+    if read_sensor_env; then sensor_fresh_check $now
+    else SENSOR_WHY="no snapshot"; SENSOR_AGE=-1; fi
+  else
+    SENSOR_AGE=-1
+  fi
+  if (( SENSOR_FRESH )); then
+    EV_SOURCE=sensor; SENSOR_LAST_FRESH=$now
+    map_sensor
+  else
+    EV_SOURCE=fallback; SJOB_ID=(); SJOB_HB=()
+    sample_fallback
+  fi
+}
+
+# ---- sensor supervision (the sensor is this daemon's CHILD) ----------------------
+sensor_start() {
+  (( SENSOR_ENABLED )) || return 1
+  "$SENSOR_BIN" run --state-dir "$STATE_DIR" --parent $$ --poll $POLL >>"$STATE_DIR/log/sensor.log" 2>&1 </dev/null &
+  SENSOR_PID=$!
+  SENSOR_STARTED=$EPOCHSECONDS
+  SENSOR_STARTS+=($EPOCHSECONDS)
+  log "sensor started pid=$SENSOR_PID ($SENSOR_BIN, poll ${POLL}s)"
+}
+sensor_stop() { # orderly: TERM, wait <= 2 s
+  (( SENSOR_PID > 0 )) || return 0
+  if kill -0 "$SENSOR_PID" 2>/dev/null; then
+    kill -TERM "$SENSOR_PID" 2>/dev/null
+    local i
+    for i in {1..40}; do kill -0 "$SENSOR_PID" 2>/dev/null || break; sleep 0.05; done
+    kill -0 "$SENSOR_PID" 2>/dev/null && log "sensor pid=$SENSOR_PID still running 2s after TERM (it exits with its parent)"
+  fi
+  SENSOR_PID=0
+}
+SENSOR_RESTART_MIN_S=30
+sensor_supervise() {
+  (( SENSOR_ENABLED )) || return 0
+  local now=$EPOCHSECONDS lim pp s
+  local -a keep
+  if (( SENSOR_PID > 0 )); then
+    if kill -0 "$SENSOR_PID" 2>/dev/null; then
+      lim=$(( STALE_POLLS * POLL + 10 ))
+      (( SENSOR_FRESH || now - SENSOR_STARTED <= lim || now - SENSOR_LAST_FRESH <= lim )) && return 0
+      # Alive but mute: wedged. Only OUR child is ever signalled -- check the ppid.
+      pp=$(ps -o ppid= -p "$SENSOR_PID" 2>/dev/null); pp=${pp//[[:space:]]/}
+      if [[ $pp == "$$" ]]; then
+        log "sensor pid=$SENSOR_PID alive but no fresh snapshot ($SENSOR_WHY): terminating it for a restart"
+        kill -TERM "$SENSOR_PID" 2>/dev/null
+      fi
+    else
+      log "sensor pid=$SENSOR_PID exited"
+    fi
+    SENSOR_PID=0
+  fi
+  (( now < SENSOR_GIVEUP_UNTIL )) && return 0
+  (( SENSOR_STARTED > 0 && now - SENSOR_STARTED < SENSOR_RESTART_MIN_S )) && return 0
+  for s in $SENSOR_STARTS; do (( now - s < 600 )) && keep+=($s); done
+  SENSOR_STARTS=($keep)
+  if (( ${#SENSOR_STARTS} >= 5 )); then
+    SENSOR_GIVEUP_UNTIL=$(( now + 600 )); SENSOR_STARTS=()
+    log "sensor would not stay up: 5 starts within 10 min -- not restarting it for 10 min (fallback sampling; evidence incomplete meanwhile)"
+    return 0
+  fi
+  sensor_start
 }
 
 # ---- classification -----------------------------------------------------------
@@ -301,34 +1140,90 @@ sample() {
 # substitution is a subshell, so the REASON assignment would be lost and the
 # caller would read an unset variable. That exact bug killed the daemon after
 # one poll on 2026-09-09 while the stale state file still read GREEN.
+#
+# PURE: a function of O_VMP O_FREE O_SWU O_SWT O_PORATE O_DISK O_THERM (and the
+# policy floors) only. resilience_harness.mjs sources this file, sets exactly
+# those seven and calls it under `set -u`. It also sets CRITICAL_NOW: the two
+# conditions that bypass hysteresis (SCHEMA §4.4) and are visible from these
+# inputs -- the OS saying critical, and a volume below the red floor.
 classify() {
   local swpct=$(( 100 * O_SWU / O_SWT ))
+  CRITICAL_NOW=$(( O_VMP >= 4 || O_DISK < DISK_FLOOR_RED ))
   # RED — the OS itself says critical, or genuine sustained thrash, or disk cliff.
   if (( O_VMP >= 4 )); then REASON="kern vm_pressure=CRITICAL"; CLASS=RED; return; fi
   if (( O_PORATE > 6000 && swpct >= 85 )); then REASON="pageouts +${O_PORATE}/poll with swap ${swpct}%"; CLASS=RED; return; fi
-  if (( O_DISK < 12 )); then REASON="disk ${O_DISK}Gi"; CLASS=RED; return; fi
+  if (( O_DISK < DISK_FLOOR_RED )); then REASON="disk ${O_DISK}Gi"; CLASS=RED; return; fi
+  if (( O_THERM < 40 )); then REASON="thermal critical (speed ${O_THERM}%)"; CLASS=RED; return; fi
   # ORANGE — OS warning, or real pageout traffic, or disk/thermal pressure.
   if (( O_VMP >= 2 )); then REASON="kern vm_pressure=WARNING"; CLASS=ORANGE; return; fi
   if (( O_PORATE > 1500 && swpct >= 60 )); then REASON="pageouts +${O_PORATE}/poll with swap ${swpct}%"; CLASS=ORANGE; return; fi
-  if (( O_DISK < 25 )); then REASON="disk ${O_DISK}Gi"; CLASS=ORANGE; return; fi
-  if (( O_THERM < 70 )); then REASON="thermal CPU_Speed_Limit=${O_THERM}%"; CLASS=ORANGE; return; fi
+  if (( O_DISK < DISK_FLOOR_ORANGE )); then REASON="disk ${O_DISK}Gi"; CLASS=ORANGE; return; fi
+  if (( O_THERM < 70 )); then REASON="thermal serious (speed ${O_THERM}%)"; CLASS=ORANGE; return; fi
   # YELLOW — early warning: memory genuinely tight, or pageouts started, or disk low.
   if (( O_FREE <= 12 && O_PORATE > 300 )); then REASON="free ${O_FREE}% with pageouts +${O_PORATE}"; CLASS=YELLOW; return; fi
   if (( O_PORATE > 600 )); then REASON="pageouts +${O_PORATE}/poll"; CLASS=YELLOW; return; fi
-  if (( O_DISK < 45 )); then REASON="disk ${O_DISK}Gi"; CLASS=YELLOW; return; fi
-  if (( O_THERM < 90 )); then REASON="thermal CPU_Speed_Limit=${O_THERM}%"; CLASS=YELLOW; return; fi
+  if (( O_DISK < DISK_FLOOR_YELLOW )); then REASON="disk ${O_DISK}Gi"; CLASS=YELLOW; return; fi
+  if (( O_THERM < 90 )); then REASON="thermal fair (speed ${O_THERM}%)"; CLASS=YELLOW; return; fi
   REASON="nominal"; CLASS=GREEN
 }
 
-build_jobs_for() {
-  case "$1" in
-    GREEN)  print $(( NPERF > 2 ? NPERF - 2 : 1 )) ;;
-    YELLOW) print $(( NPERF / 2 > 1 ? NPERF / 2 : 1 )) ;;
-    ORANGE) print 2 ;;
-    RED)    print 1 ;;
-    *)      print 2 ;;   # UNKNOWN: no evidence of health, so no evidence for -j8 either
+# ---- the evidence step (NOT inside classify) -----------------------------------
+# SCHEMA §3.3: GREEN or YELLOW may be published only when every required signal is
+# `ok` and -- when a sensor is configured -- its snapshot is fresh. Otherwise
+# UNKNOWN, unless the evidence that IS present says ORANGE or RED: missing evidence
+# never hides real pressure.
+sig_status() {
+  case $1 in
+    vm_pressure) REPLY=$O_ST_VMP ;; swap) REPLY=$O_ST_SWAP ;; pageouts) REPLY=$O_ST_PAGEOUTS ;;
+    disk) REPLY=$O_ST_DISK ;; thermal) REPLY=$O_ST_THERMAL ;; free_pct) REPLY=$O_ST_FREE ;;
+    pressure_event) REPLY=$O_ST_PEVENT ;; memory) REPLY=$O_ST_MEM ;; cpu) REPLY=$O_ST_CPU ;;
+    *) REPLY="unknown-signal" ;;
   esac
 }
+evidence_step() {
+  local s
+  local -a d
+  MISSING=()
+  if (( SENSOR_ENABLED && ! SENSOR_FRESH )); then MISSING+=(sensor); d+=("sensor($SENSOR_WHY)"); fi
+  for s in $REQUIRED_SIGNALS; do
+    sig_status "$s"
+    [[ $REPLY == ok ]] && continue
+    MISSING+=("$s"); d+=("$s($REPLY)")
+  done
+  EVIDENCE_COMPLETE=$(( ${#MISSING} == 0 ))
+  MISSING_DESC=${(j: :)d}
+}
+# The two CRITICAL_NOW conditions classify() cannot see (SCHEMA §4.4): a critical
+# memory-pressure event since the previous poll, and a failed publication.
+critical_inputs() {
+  CRIT_WHY=""
+  if (( PEVENT_CRIT_NEW )); then CRITICAL_NOW=1; CRIT_WHY="critical memory-pressure event since the last poll"; fi
+  if (( PUBLISH_FAILED )); then CRITICAL_NOW=1; CRIT_WHY="state publication failed: $PUB_FAIL"; PUBLISH_FAILED=0; fi
+  return 0
+}
+# decide: classify's CLASS + the evidence step + CRITICAL_NOW -> NEW (the candidate)
+decide() {
+  if [[ $CLASS == (ORANGE|RED) ]]; then
+    NEW=$CLASS
+    (( EVIDENCE_COMPLETE )) || REASON="$REASON (evidence incomplete: $MISSING_DESC)"
+  elif (( ! EVIDENCE_COMPLETE )); then
+    NEW=UNKNOWN; REASON="evidence incomplete: $MISSING_DESC"
+  else
+    NEW=$CLASS
+  fi
+  if (( CRITICAL_NOW )) && [[ $NEW != RED ]]; then NEW=RED; REASON=${CRIT_WHY:-$REASON}; fi
+}
+
+set_jmax() {
+  case "$1" in
+    GREEN)  JMAX=$(( NPERF > 2 ? NPERF - 2 : 1 )) ;;
+    YELLOW) JMAX=$(( NPERF / 2 > 1 ? NPERF / 2 : 1 )) ;;
+    ORANGE) JMAX=2 ;;
+    RED)    JMAX=1 ;;
+    *)      JMAX=2 ;;   # UNKNOWN: no evidence of health, so no evidence for -j8 either
+  esac
+}
+build_jobs_for() { set_jmax "$1"; print $JMAX; }
 
 # How many consecutive confirming polls a move from $1 to $2 needs.
 #
@@ -343,14 +1238,268 @@ build_jobs_for() {
 # THE BUG THIS REPLACES (measured 2026-09-15): the daemon started in GREEN and
 # published GREEN "armed" before its first classification, so each of 16 launchd
 # respawns during a disk-11GiB RED episode re-opened heavy admission for ~10s.
-confirm_needed() {
+need_for() {
   case "$1:$2" in
-    *:UNKNOWN)                         print 1 ;;
-    UNKNOWN:RED|UNKNOWN:ORANGE)        print $ESCALATE_N ;;
-    UNKNOWN:*)                         print $DEESCALATE_N ;;
-    GREEN:*|YELLOW:ORANGE|YELLOW:RED|ORANGE:RED) print $ESCALATE_N ;;
-    *)                                 print $DEESCALATE_N ;;
+    *:UNKNOWN)                         NEED=1 ;;
+    UNKNOWN:RED|UNKNOWN:ORANGE)        NEED=$ESCALATE_N ;;
+    UNKNOWN:*)                         NEED=$DEESCALATE_N ;;
+    GREEN:*|YELLOW:ORANGE|YELLOW:RED|ORANGE:RED) NEED=$ESCALATE_N ;;
+    *)                                 NEED=$DEESCALATE_N ;;
   esac
+}
+confirm_needed() { need_for "$1" "$2"; print $NEED; }
+
+# One step of the hysteresis machine. CRITICAL_NOW (OS critical, a critical
+# pressure event since the last poll, a volume under the red floor, a failed
+# publication) moves to RED on the poll that observes it: confirm_needed is
+# bypassed for exactly that move and no other.
+advance() {
+  local new=$1
+  TRANSITIONED=0
+  if [[ "$new" == "$STATE" ]]; then CONFIRM=0; CAND="$STATE"; return 0; fi
+  if [[ "$new" == "$CAND" ]]; then (( CONFIRM++ )); else CAND="$new"; CONFIRM=1; fi
+  need_for "$STATE" "$new"
+  (( CRITICAL_NOW )) && [[ $new == RED ]] && NEED=1
+  if (( CONFIRM >= NEED )); then OLD="$STATE"; STATE="$CAND"; CONFIRM=0; TRANSITIONED=1; fi
+  return 0
+}
+
+# ---- the poll sleep ------------------------------------------------------------
+# `sleep` as a FOREGROUND command defers every trap until it returns, so a TERM
+# arriving one second into a 5-second poll waits out the other four before the
+# lock is released and the domain de-published. Backgrounding it and `wait`ing
+# makes the shell interruptible: zsh runs a trap the moment `wait` is signalled.
+# MEASURED 2026-09-11: 4s deferral at the shipped POLL=5, ~0s after this change.
+#
+# v2: the sensor sends SIGUSR2 on every warn/critical pressure event; the trap sets
+# WOKE and the interrupted wait returns 128+n, so the next poll runs AT ONCE rather
+# than at the next tick. The interrupted sleep is reaped, not orphaned. A USR2 that
+# lands while a poll is running re-polls immediately too. Five wake-ups in a row
+# without a full sleep is a storm, not an event: then the sleep is finished.
+# The backoff loop uses this same function, so the TERM property holds there too.
+poll_sleep() {
+  if (( WOKE && WAKE_STREAK < 5 )); then WOKE=0; (( WAKE_STREAK++ )); return 0; fi
+  (( WOKE )) || WAKE_STREAK=0
+  WOKE=0
+  sleep "$POLL" & wait $!
+  local rc=$? sp=$!
+  if (( rc > 128 )); then
+    if (( WAKE_STREAK >= 5 )); then
+      while (( rc > 128 )) && kill -0 "$sp" 2>/dev/null; do wait "$sp"; rc=$?; done
+      WAKE_STREAK=0
+    else
+      kill "$sp" 2>/dev/null; (( WAKE_STREAK++ ))
+    fi
+  fi
+  WOKE=0
+  return 0
+}
+
+# The TERM trap runs while poll_sleep is blocked in `wait` -- and zsh does NOT exit
+# from inside a function until that wait returns, i.e. until the poll's sleep ends:
+# MEASURED 4.3 s to release the lock at POLL=5 (guardian_single_instance_gate C15c,
+# red) once the sleep moved into poll_sleep. So the stop path ends the in-flight
+# poll sleep itself: the CURRENT job (+), the poll's own sleep (zsh records the
+# job's SOURCE text, `sleep "$POLL"`, not its expansion), still running --
+# never anything else from the job table, which holds only this shell's children.
+zmodload zsh/parameter 2>/dev/null
+stop_poll_sleep() {
+  local j st
+  (( ${+jobtexts} )) || return 0
+  for j in ${(k)jobtexts}; do
+    [[ ${jobtexts[$j]} == ('sleep "$POLL"'|"sleep $POLL") ]] || continue
+    st=${jobstates[$j]:-}
+    [[ $st == running:+:<->=* ]] || continue
+    kill ${${st#running:+:}%%=*} 2>/dev/null
+  done
+  return 0
+}
+
+# ---- logs (SCHEMA §2) ----------------------------------------------------------
+maybe_rotate() { # maybe_rotate FILE LIMIT_BYTES -> 0 when rotated
+  local f=$1 lim=$2 g=$POL[logs_generations] i
+  local -A st
+  zstat -H st -- "$f" 2>/dev/null || return 1
+  (( st[size] > lim )) || return 1
+  if (( g < 1 )); then zf_rm -f -- "$f" 2>/dev/null; return 0; fi
+  for (( i = g; i > 1; i-- )); do [[ -e "$f.$(( i - 1 ))" ]] && zf_mv -f -- "$f.$(( i - 1 ))" "$f.$i" 2>/dev/null; done
+  zf_mv -f -- "$f" "$f.1" 2>/dev/null
+  return 0
+}
+rotate_logs() {
+  local mib=1048576 rot=$(( POL[logs_rotate_mib] * 1048576 )) f
+  local -A st
+  maybe_rotate "$LOG" $rot && log "log rotated (> $POL[logs_rotate_mib] MiB)"
+  if maybe_rotate "$OUT_F" $rot; then exec >>"$OUT_F" 2>&1; log "guardian.out rotated and reopened"; fi
+  maybe_rotate "$STATE_DIR/history.jsonl" $(( POL[logs_history_mib] * mib / (POL[logs_generations] + 1) ))
+  # events.jsonl has two writers; while the sensor is healthy it owns the rotation.
+  (( SENSOR_FRESH )) || maybe_rotate "$STATE_DIR/events.jsonl" $rot
+  # launchd holds these open itself: truncate in place, never rename.
+  for f in "$STATE_DIR/log/launchd.out" "$STATE_DIR/log/launchd.err"; do
+    zstat -H st -- "$f" 2>/dev/null && (( st[size] > rot )) && { : >| "$f"; } 2>/dev/null && log "truncated ${f:t} in place (> $POL[logs_rotate_mib] MiB)"
+  done
+  return 0
+}
+dir_bytes() { local f t=0; local -A st; for f in "$1"/**/*(ND.); do zstat -H st -- "$f" 2>/dev/null && (( t += st[size] )); done; REPLY=$t }
+# Every 10 min: hold log/, history.jsonl*, events.jsonl*, events/ and incidents/
+# under logs_cap_mib -- oldest ROTATED files first, then oldest incident dirs --
+# and drop incident dirs older than logs_retention_days. Live files are never
+# deleted, and nothing outside those names is ever touched.
+housekeeping() {
+  local cap=$(( POL[logs_cap_mib] * 1048576 )) total=0 f n d base
+  local -a files rotated incs
+  local -A st
+  files=("$STATE_DIR"/log/**/*(ND.) "$STATE_DIR"/history.jsonl*(N.) "$STATE_DIR"/events.jsonl*(N.) "$STATE_DIR"/events/**/*(ND.) "$STATE_DIR"/incidents/**/*(ND.))
+  for f in $files; do zstat -H st -- "$f" 2>/dev/null && (( total += st[size] )); done
+  for d in "$STATE_DIR"/incidents/*(N/m+$POL[logs_retention_days]); do
+    dir_bytes "$d"; zf_rm -rf -- "$d" 2>/dev/null && { (( total -= REPLY )); log "housekeeping: removed incident ${d:t} (older than $POL[logs_retention_days] days)"; }
+  done
+  # rotated generations beyond policy, then the oldest rotated files while over cap
+  rotated=("$STATE_DIR"/log/*.<->(N.Om) "$STATE_DIR"/history.jsonl.<->(N.Om) "$STATE_DIR"/events.jsonl.<->(N.Om))
+  for f in $rotated; do
+    n=${f##*.}
+    if (( n > POL[logs_generations] || total > cap )); then
+      zstat -H st -- "$f" 2>/dev/null || continue
+      zf_rm -f -- "$f" 2>/dev/null && { (( total -= st[size] )); log "housekeeping: removed rotated ${f:t} (${st[size]} bytes)"; }
+    fi
+  done
+  if (( total > cap )); then
+    incs=("$STATE_DIR"/incidents/*(N/Om))
+    for d in $incs; do
+      (( total > cap )) || break
+      dir_bytes "$d"; zf_rm -rf -- "$d" 2>/dev/null && { (( total -= REPLY )); log "housekeeping: removed incident ${d:t} to stay under ${POL[logs_cap_mib]} MiB"; }
+    done
+  fi
+  if (( total > cap )); then
+    (( HK_OVER_LOGGED )) || log "housekeeping: evidence still $(( total / 1048576 )) MiB > cap ${POL[logs_cap_mib]} MiB after pruning everything prunable (live files are kept)"
+    HK_OVER_LOGGED=1
+  else
+    HK_OVER_LOGGED=0
+  fi
+  HK_TOTAL=$total
+}
+HK_OVER_LOGGED=0; HK_TOTAL=0
+
+# ---- notifications -------------------------------------------------------------
+# Kinds: red, unknown, quarantine, incident -- each rate-limited by policy across
+# restarts (the stamp is a file). The command runs in the background and is killed
+# after 5 s; failures are logged and ignored. The real desktop notifier (osascript)
+# is used only by the SUPERVISED governor (ppid 1, i.e. launchd) or when
+# FORGE_GUARDIAN_NOTIFY=1: private test domains drive RED on purpose and must not
+# pop banners on the user's desktop. $FORGE_GUARDIAN_NOTIFY_CMD always runs.
+notify() { # notify KIND TITLE TEXT
+  local kind=$1 title=$2 text=$3 stamp="$STATE_DIR/notify/$1" now=$EPOCHSECONDS pp
+  local -A st
+  [[ ${POL[notifications_enabled]} == 1 ]] || return 0
+  if zstat -H st -- "$stamp" 2>/dev/null && (( now - st[mtime] < POL[notifications_min_interval_s] )); then
+    log "notification '$kind' rate-limited: $title"
+    return 0
+  fi
+  zf_mkdir -p -- "$STATE_DIR/notify" 2>/dev/null
+  print -r -- $now 2>/dev/null >| "$stamp"
+  if [[ -z ${FORGE_GUARDIAN_NOTIFY_CMD:-} && ${FORGE_GUARDIAN_NOTIFY:-} != 1 ]]; then
+    pp=$(ps -o ppid= -p $$ 2>/dev/null); pp=${pp//[[:space:]]/}
+    if [[ $pp != 1 ]]; then log "notification '$kind' (not sent: unsupervised governor, ppid=$pp): $title -- $text"; return 0; fi
+  fi
+  log "notification '$kind': $title -- $text"
+  (
+    trap - TERM INT USR2 EXIT
+    local np i rc t
+    if [[ -n ${FORGE_GUARDIAN_NOTIFY_CMD:-} ]]; then
+      "$FORGE_GUARDIAN_NOTIFY_CMD" "$title" "$text" </dev/null >/dev/null 2>&1 &
+    else
+      t=${text//\\/\\\\}; t=${t//\"/\\\"}
+      /usr/bin/osascript -e "display notification \"$t\" with title \"Forge Guardian\"" </dev/null >/dev/null 2>&1 &
+    fi
+    np=$!
+    for i in {1..50}; do kill -0 $np 2>/dev/null || break; sleep 0.1; done
+    if kill -0 $np 2>/dev/null; then
+      kill -TERM $np 2>/dev/null; sleep 0.5; kill -KILL $np 2>/dev/null
+      log "notification '$kind' command killed after 5s"
+      exit 0
+    fi
+    wait $np; rc=$?
+    (( rc == 0 )) || log "notification '$kind' command failed (exit $rc) -- ignored"
+  ) &!
+  return 0
+}
+UNKNOWN_SINCE=$EPOCHSECONDS; UNKNOWN_NOTIFIED=0
+UNKNOWN_NOTIFY_S=${FORGE_GUARDIAN_UNKNOWN_NOTIFY_S:-120}
+typeset -gA KNOWN_Q KNOWN_I
+notify_scan_init() {
+  local x
+  for x in "$STATE_DIR"/quarantine/*.json(N:t); do KNOWN_Q[$x]=1; done
+  for x in "$STATE_DIR"/incidents/*(N/:t); do KNOWN_I[$x]=1; done
+}
+notify_checks() {
+  local now=$EPOCHSECONDS x
+  if [[ $STATE == UNKNOWN ]] && (( ! UNKNOWN_NOTIFIED && now - UNKNOWN_SINCE > UNKNOWN_NOTIFY_S )); then
+    UNKNOWN_NOTIFIED=1
+    notify unknown "Forge Guardian: state UNKNOWN" "No sustained evidence for $(( now - UNKNOWN_SINCE ))s; heavy admission closed. $REASON"
+  fi
+  for x in "$STATE_DIR"/quarantine/*.json(N:t); do
+    (( ${+KNOWN_Q[$x]} )) && continue
+    KNOWN_Q[$x]=1
+    notify quarantine "Forge Guardian: job quarantined" "Crash loop: ${x%.json}. See: forge-guardian-ctl quarantine list"
+  done
+  for x in "$STATE_DIR"/incidents/*(N/:t); do
+    (( ${+KNOWN_I[$x]} )) && continue
+    KNOWN_I[$x]=1
+    notify incident "Forge Guardian: incident recorded" "$x"
+  done
+}
+
+# ---- SMART (disk hardware) -----------------------------------------------------
+# `diskutil info -plist /` every smart_interval_s, in the BACKGROUND (a hung
+# diskutil must never hang the governor), harvested on a later poll.
+SMART_PID=0; SMART_T0=0; SMART_NEXT=0
+smart_parse() {
+  setopt localoptions extendedglob
+  local c="" old=$DISK_HW
+  [[ -s $1 ]] && c=$(<"$1")
+  if [[ $c == (#b)*'<key>SMARTStatus</key>'[[:space:]]#'<string>'([^\<]#)'</string>'* ]]; then
+    case $match[1] in
+      Verified) DISK_HW=Verified ;;
+      Failing|"About to Fail") DISK_HW=Failing ;;
+      "Not Supported"|Unsupported) DISK_HW=Unsupported ;;
+      *) DISK_HW=UNKNOWN ;;
+    esac
+  else
+    DISK_HW=UNKNOWN
+  fi
+  [[ $DISK_HW == "$old" ]] || log "disk hardware (SMART): $old -> $DISK_HW"
+}
+smart_tick() {
+  local now=$EPOCHSECONDS out="$STATE_DIR/smart.out"
+  if (( SMART_PID > 0 )); then
+    if kill -0 "$SMART_PID" 2>/dev/null; then
+      if (( now - SMART_T0 > 30 )); then
+        kill -KILL "$SMART_PID" 2>/dev/null; SMART_PID=0; DISK_HW=UNKNOWN
+        log "SMART probe still running after 30s: killed; disk_hardware UNKNOWN"
+      fi
+      return 0
+    fi
+    SMART_PID=0
+    smart_parse "$out"
+  fi
+  (( now >= SMART_NEXT )) || return 0
+  SMART_NEXT=$(( now + POL[smart_interval_s] )); SMART_T0=$now
+  ( trap - TERM INT USR2 EXIT; exec "${FORGE_GUARDIAN_DISKUTIL:-diskutil}" info -plist / ) >| "$out" 2>/dev/null </dev/null &
+  SMART_PID=$!
+}
+
+# ---- restart-loop breaker ------------------------------------------------------
+record_start() { # append to guardian.starts (bounded to 32), count those in the window
+  local f="$STATE_DIR/guardian.starts" line s n=0
+  local -a starts
+  if [[ -r $f ]]; then
+    while IFS= read -r line || [[ -n $line ]]; do is_uint "$line" && starts+=($line); done 2>/dev/null < "$f"
+  fi
+  starts+=($EPOCHSECONDS)
+  (( ${#starts} > 32 )) && starts=(${starts[-32,-1]})
+  write_atomic "$f" "${(F)starts}"
+  for s in $starts; do (( EPOCHSECONDS - s <= POL[guardian_restart_loop_window_s] )) && (( n++ )); done
+  STARTS_IN_WINDOW=$n
 }
 
 # ---- library mode -------------------------------------------------------------
@@ -396,6 +1545,26 @@ if domain_is_governed; then
   refuse_duplicate "$(name_a_guardian | head -1 | sed 's/^/pid /' | grep . || print 'an unlocked guardian')"
 fi
 
+# ---- daemon from here on ----------------------------------------------------------
+# The SIGUSR2 wake-up must exist before the sensor that sends it: an untrapped
+# USR2 TERMINATES a shell (its default action).
+trap 'WOKE=1' USR2
+export LC_ALL=C
+# Own stdout/stderr (SCHEMA §2: log/guardian.out, rotated). Done only now, so a
+# refusal above still reaches whoever started us.
+# (A failed exec redirect leaves zsh running on the old fds; never wrap this in a
+# redirected { } group -- zsh restores the group's fds when it ends.)
+exec >>"$OUT_F" 2>&1
+GUARD_STARTED=$EPOCHSECONDS
+[[ -n $POLICY_ERRORS ]] && { log "POLICY ERROR ($POLICY_SOURCE): $POLICY_ERRORS -- using defaults for those keys"; json_esc "$POLICY_ERRORS"; event policy_error "\"source\": \"governor\", \"errors\": \"$REPLY\""; }
+zstat -H _pst -- "$STATE_DIR/policy.env" 2>/dev/null && POLICY_MTIME=$_pst[mtime]
+[[ ${FORGE_GUARDIAN_SENSOR:-1} != 0 && -n $SENSOR_BIN ]] && SENSOR_ENABLED=1
+if [[ ${FORGE_GUARDIAN_SENSOR:-1} != 0 && -z $SENSOR_BIN ]]; then
+  log "no forge-guardian-sensor found (FORGE_GUARDIAN_SENSOR_BIN / ${GUARD_SELF:h} / $STATE_DIR/bin): fallback sampling only"
+fi
+record_start
+notify_scan_init
+guardian_ancestors        # once, at start: whatever runs this governor is never signalled
 
 # ---- main loop ----------------------------------------------------------------
 # Start in UNKNOWN, not GREEN: a governor that has just (re)started has no sustained
@@ -414,8 +1583,7 @@ RED_STAGE=0
 # re-signalled the same pid ~11s later -- 'knowing-v1-lora' took 5 TERMs in 44s,
 # 'kernel-core' 6 and 'desktop-gates' 5. The header already promised "a TERM and
 # a grace period"; this is that grace period, which had no implementation.
-GRACE_SETTLE=${FORGE_GUARDIAN_SETTLE:-180}
-GRACE_TERM=${FORGE_GUARDIAN_TERM_GRACE:-45}
+# (Values: FORGE_GUARDIAN_SETTLE / _TERM_GRACE, else policy eviction_*; see apply_policy.)
 typeset -A TERMED_AT
 
 # A STOPPED GOVERNOR IS NOT EVIDENCE OF A HEALTHY MACHINE. This trap used to publish
@@ -423,55 +1591,104 @@ typeset -A TERMED_AT
 # status.json the training fleet reads -- so for a full staleness window every
 # consumer saw GREEN from a governor that had just exited. Publish UNKNOWN (heavy
 # admission closed); release_lock then back-dates the state file so forge-gate
-# fails closed at once.
-trap 'publish "UNKNOWN" "guardian stopped" "$(build_jobs_for UNKNOWN)"; log "guardian stopped"; exit 0' TERM INT
+# fails closed at once. v2: the sensor child is stopped too (TERM, <= 2 s).
+guardian_stop() {
+  trap '' USR2
+  publish "UNKNOWN" "guardian stopped" "$(build_jobs_for UNKNOWN)"
+  stop_poll_sleep
+  sensor_stop
+  zf_rm -f -- "$STATE_DIR"/*.tmp.$$(N) "$AH_DIR"/*.tmp.$$(N) 2>/dev/null
+  log "guardian stopped"
+  exit 0
+}
+trap 'guardian_stop' TERM INT
 
-reap_dead_jobs; sample; publish "$STATE" "$REASON" "$(build_jobs_for "$STATE")"
-emit "🛡  FORGE GUARDIAN ARMED $(date '+%Y-%m-%d %H:%M:%S') ram=${RAM_GB}G ncpu=${NCPU} poll=${POLL}s"
+publish "$STATE" "$REASON" "$(build_jobs_for "$STATE")"
+emit "🛡  FORGE GUARDIAN ARMED $(strftime '%Y-%m-%d %H:%M:%S' $EPOCHSECONDS) ram=${RAM_GB}G ncpu=${NCPU} poll=${POLL}s v${GUARDIAN_VERSION} sensor=${SENSOR_BIN:-none}$([[ $SENSOR_ENABLED == 1 ]] || print ' (fallback sampling)')"
+
+# ---- restart-loop breaker ------------------------------------------------------
+# launchd respawns a crashing governor every ThrottleInterval for ever. Each
+# respawn used to re-run the whole start-up (and, before T-172, publish GREEN).
+# Too many starts in the window: say so once, keep the gates CLOSED by publishing
+# UNKNOWN every poll for the backoff, then govern normally.
+if (( STARTS_IN_WINDOW >= POL[guardian_restart_loop_max_starts] )); then
+  _until=$(( EPOCHSECONDS + POL[guardian_restart_loop_backoff_s] ))
+  REASON="guardian restart loop: $STARTS_IN_WINDOW starts within ${POL[guardian_restart_loop_window_s]}s; backing off ${POL[guardian_restart_loop_backoff_s]}s"
+  emit "⛔ GUARDIAN $REASON -- publishing UNKNOWN, gates closed"
+  event guardian_restart_loop "\"starts\": $STARTS_IN_WINDOW, \"window_s\": ${POL[guardian_restart_loop_window_s]}, \"backoff_s\": ${POL[guardian_restart_loop_backoff_s]}"
+  MISSING=(restart_loop); MISSING_DESC="guardian restart loop"; EVIDENCE_COMPLETE=0
+  while (( EPOCHSECONDS < _until )); do
+    publish UNKNOWN "$REASON" 2
+    poll_sleep
+  done
+  log "restart-loop backoff over: governing normally"
+  REASON="starting: awaiting sustained evidence"
+fi
+
+sensor_start
+PREV_POLL_EPOCH=$EPOCHSECONDS
+HK_NEXT=0
 
 while true; do
-  # REAP BEFORE SAMPLING. sample() computes registered_jobs and publish() counts
-  # gpu_jobs, and with the reaper between them one status.json carried both an
-  # unreaped and a reaped count of the SAME directory: a phantom left by a
-  # SIGKILLed job (forge-job's EXIT trap cannot fire) published
-  # registered_jobs=1 alongside gpu_jobs=0 for one poll. Measured, then fixed by
-  # moving one line. Two fields describing one set must be computed on the same
-  # side of the thing that changes it.
-  reap_dead_jobs
-  sample
-  classify; NEW="$CLASS"
-
-  if [[ "$NEW" == "$STATE" ]]; then
-    CONFIRM=0; CAND="$STATE"
-  else
-    if [[ "$NEW" == "$CAND" ]]; then (( CONFIRM++ )); else CAND="$NEW"; CONFIRM=1; fi
-    local_need=$(confirm_needed "$STATE" "$NEW")
-    if (( CONFIRM >= local_need )); then
-      OLD="$STATE"; STATE="$CAND"; CONFIRM=0
-      JMAX=$(build_jobs_for "$STATE")
-      publish "$STATE" "$REASON" "$JMAX"
-      case "$STATE" in
-        YELLOW) emit "🟡 GUARDIAN $OLD→YELLOW ($REASON) — no speculative work, build -j$JMAX" ;;
-        ORANGE) emit "🟠 GUARDIAN $OLD→ORANGE ($REASON) — shedding speculative jobs, build -j$JMAX" ;;
-        RED)    emit "🔴 GUARDIAN $OLD→RED ($REASON) — halting new work, checkpointing" ;;
-        GREEN)  emit "🟢 GUARDIAN $OLD→GREEN (recovered) — build -j$JMAX"; RED_STAGE=0 ;;
-        *)      emit "⚪ GUARDIAN $OLD→$STATE ($REASON) — heavy admission closed, build -j$JMAX"; RED_STAGE=0 ;;
-      esac
+  POLL_T0=$EPOCHREALTIME
+  # policy.env is rewritten by the sensor when policy.json changes
+  if zstat -H _pst -- "$STATE_DIR/policy.env" 2>/dev/null; then
+    if (( _pst[mtime] != POLICY_MTIME )); then
+      POLICY_MTIME=$_pst[mtime]; load_policy
+      log "policy reloaded from $POLICY_SOURCE${POLICY_ERRORS:+ -- ERRORS: $POLICY_ERRORS}"
+      [[ -n $POLICY_ERRORS ]] && { json_esc "$POLICY_ERRORS"; event policy_error "\"source\": \"governor\", \"errors\": \"$REPLY\""; }
     fi
+  elif (( POLICY_MTIME != -1 )); then
+    POLICY_MTIME=-1; load_policy; log "policy.env removed: built-in defaults"
   fi
 
-  JMAX=$(build_jobs_for "$STATE")
-  publish "$STATE" "$REASON" "$JMAX"
+  # READ THE SNAPSHOT, THEN REAP, THEN COUNT. The reaper takes its identity
+  # verdicts from the snapshot just read, and registered_jobs / gpu_jobs are both
+  # counted in the reaper's own pass. v1 once published registered_jobs=1 beside
+  # gpu_jobs=0 for ONE set because the reaper ran between the two counts. Two
+  # fields describing one set must be computed on the same side of the thing that
+  # changes it.
+  observe
+  sensor_supervise
+  reap_dead_jobs
+  classify
+  evidence_step
+  critical_inputs
+  decide
+  if (( CRITICAL_NOW )) && [[ $STATE != RED ]]; then log "CRITICAL_NOW: ${CRIT_WHY:-$REASON} -- bypassing hysteresis"; fi
+  advance "$NEW"
+  set_jmax "$STATE"
+  if (( TRANSITIONED )); then
+    case "$STATE" in
+      YELLOW) emit "🟡 GUARDIAN $OLD→YELLOW ($REASON) — no speculative work, build -j$JMAX" ;;
+      ORANGE) emit "🟠 GUARDIAN $OLD→ORANGE ($REASON) — shedding speculative jobs, build -j$JMAX" ;;
+      RED)    emit "🔴 GUARDIAN $OLD→RED ($REASON) — halting new work, checkpointing" ;;
+      GREEN)  emit "🟢 GUARDIAN $OLD→GREEN (recovered) — build -j$JMAX"; RED_STAGE=0 ;;
+      *)      emit "⚪ GUARDIAN $OLD→$STATE ($REASON) — heavy admission closed, build -j$JMAX"; RED_STAGE=0 ;;
+    esac
+    json_esc "$REASON"; event transition "\"from\": \"$OLD\", \"to\": \"$STATE\", \"reason\": \"$REPLY\""
+    [[ $STATE == RED ]] && notify red "Forge Guardian: RED" "$REASON -- shedding registered jobs"
+    [[ $STATE == UNKNOWN ]] && { UNKNOWN_SINCE=$EPOCHSECONDS; UNKNOWN_NOTIFIED=0; }
+  fi
+  PUB_REASON=$REASON
+  if [[ $STATE == UNKNOWN && $NEW != UNKNOWN ]]; then
+    PUB_REASON="awaiting sustained evidence ($CONFIRM/$NEED polls): $REASON"
+  fi
+  publish "$STATE" "$PUB_REASON" "$JMAX"
+  history_append
+  PREV_POLL_EPOCH=$EPOCHSECONDS
 
   # ---- actuation ----
+  # UNKNOWN never actuates: the absence of evidence is not evidence of pressure.
   case "$STATE" in
     ORANGE)
       RED_STAGE=0
       # Cooperative only: ask the most speculative registered jobs to checkpoint
       # and shrink. Nothing is killed at ORANGE.
-      for f in $(shed_order); do
-        p=$(job_field "$f" priority)
-        (( ${p:-5} >= 7 )) || continue
+      shed_list
+      for f in "${SHED_LIST[@]}"; do
+        job_prio "$f"
+        (( REPLY >= 7 )) || continue
         signal_job "$f" USR1
       done
       ;;
@@ -481,16 +1698,18 @@ while true; do
       # that has not first had a TERM and a grace period; never touch anything
       # unregistered or protected.
       (( RED_STAGE++ ))
+      shed_list
       if (( RED_STAGE == 1 )); then
-        for f in $(shed_order); do signal_job "$f" USR1; done
+        for f in "${SHED_LIST[@]}"; do signal_job "$f" USR1; done
         emit "🔴 GUARDIAN RED stage1: all registered jobs asked to checkpoint"
       elif (( RED_STAGE >= 3 )); then
-        local _now=$(date +%s) _jpid _jstart _jname
-        for f in $(shed_order); do
-          [[ "$(job_field "$f" can_restart)" == "1" ]] || continue
-          _jpid=$(job_field "$f" pid)
-          _jstart=$(job_field "$f" started)
-          _jname=$(job_field "$f" name)
+        local _now=$EPOCHSECONDS _jpid _jstart _jname
+        for f in "${SHED_LIST[@]}"; do
+          read_envelope "$f" || continue
+          [[ "${EV[can_restart]:-}" == "1" ]] || continue
+          _jpid=${EV[pid]:-}
+          _jstart=${EV[started]:-}; is_uint "$_jstart" || _jstart=""
+          _jname=${EV[name]:-}
 
           # SETTLING GRACE. The gate accepted this job's declared envelope; it may
           # not be evicted while it is still reaching it.
@@ -521,10 +1740,10 @@ while true; do
       ;;
   esac
 
-  # `sleep` as a FOREGROUND command defers every trap until it returns, so a TERM
-  # arriving one second into a 5-second poll waits out the other four before the
-  # lock is released and the domain de-published. Backgrounding it and `wait`ing
-  # makes the shell interruptible: zsh runs a trap the moment `wait` is signalled.
-  # MEASURED 2026-09-11: 4s deferral at the shipped POLL=5, ~0s after this change.
-  sleep "$POLL" & wait $!
+  cancel_latency_check
+  notify_checks
+  smart_tick
+  if (( EPOCHSECONDS >= HK_NEXT )); then housekeeping; HK_NEXT=$(( EPOCHSECONDS + 600 )); fi
+  rotate_logs
+  poll_sleep
 done

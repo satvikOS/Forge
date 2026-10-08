@@ -1,0 +1,152 @@
+#!/bin/zsh
+# ============================================================================
+# stub-sensor — a hermetic stand-in for `forge-guardian-sensor` (SCHEMA §3.1)
+#
+# The governor gates run the REAL forge-guardian against this stub, so they test
+# the governor's supervision, freshness, validation and wake-up logic without the
+# native sensor (written concurrently, and reading the REAL machine). Nothing here
+# touches the machine: every value comes from defaults overlaid by an obs file.
+#
+#   stub-sensor run --state-dir D [--parent PID] [--poll S]
+#       every S seconds: write D/sensor.env (atomic rename) from the defaults below
+#       overlaid by KEY=VALUE lines in $STUB_SENSOR_OBS (default D/stub.obs).
+#       Special obs keys:  ts_offset=<s>   shift ts/ts_s (clock-skew tests)
+#       Commands: one word in D/stub.ctl, consumed on the next tick:
+#         critical | warn  -> record a pressure event, publish AT ONCE, then send
+#                             SIGUSR2 to --parent (the moment is written to
+#                             D/stub.usr2_sent as EPOCHREALTIME)
+#         freeze / thaw    -> stop / resume writing (stays alive: a wedged sensor)
+#         die              -> exit 0 now (a crashed sensor)
+#       Exits when --parent is gone (the real sensor never outlives the governor).
+#       Appends "<pid> <start epoch>" to D/stub-sensor.pids so a gate can reap it.
+#   stub-sensor pidinfo PID...   the real sensor's line format, from `ps`
+#   stub-sensor admit ...        exits $STUB_ADMIT_RC (default 0); argv -> $STUB_SENSOR_LOG
+#   stub-sensor --version
+# ============================================================================
+set -u
+umask 077
+zmodload zsh/datetime
+zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
+
+# (never `strftime -r -s REPLY`: it can create REPLY as an INTEGER -- see forge-guardian)
+parse_lstart() { local LC_ALL=C v=""; strftime -r -s v '%a %b %d %H:%M:%S %Y' "$1" 2>/dev/null; REPLY=$v }
+logcall() { [[ -n ${STUB_SENSOR_LOG:-} ]] && print -r -- "$EPOCHREALTIME $*" >> "$STUB_SENSOR_LOG" }
+
+cmd=${1:-}; (( $# )) && shift
+case $cmd in
+  --version) print "forge-guardian-sensor 0.0.0-stub"; exit 0 ;;
+  pidinfo)
+    logcall pidinfo "$@"
+    for p in "$@"; do
+      out=$(LC_ALL=C ps -o ppid=,uid=,lstart=,comm= -p "$p" 2>/dev/null)
+      w=(${=out})
+      if (( ${#w} < 8 )); then print -r -- "pid=$p identity=dead"; continue; fi
+      REPLY=""; parse_lstart "$w[3] $w[4] $w[5] $w[6] $w[7]"; pst=$REPLY
+      c=${${(j: :)w[8,-1]}:t}; c=${c[1,16]}          # p_comm: basename, 16 chars
+      print -r -- "pid=$p ppid=$w[1] pstart=$pst uid=$w[2] comm=$c identity=alive"
+    done
+    exit 0 ;;
+  admit|release|incident|snapshot|quarantine-clear)
+    logcall $cmd "$@"
+    exit ${STUB_ADMIT_RC:-0} ;;
+  run) ;;
+  *) print -u2 "stub-sensor: usage: run|pidinfo|admit|--version"; exit 2 ;;
+esac
+
+D=""; PARENT=0; POLL=1
+while (( $# )); do
+  case $1 in
+    --state-dir) D=$2; shift 2 ;;
+    --parent) PARENT=$2; shift 2 ;;
+    --poll) POLL=$2; shift 2 ;;
+    --policy) shift 2 ;;
+    *) shift ;;
+  esac
+done
+[[ -n $D && -d $D ]] || { print -u2 "stub-sensor: --state-dir required"; exit 2; }
+OBS=${STUB_SENSOR_OBS:-$D/stub.obs}
+CTL=$D/stub.ctl
+print -r -- "$$ $EPOCHSECONDS" >> "$D/stub-sensor.pids"
+NAP=0
+trap '(( NAP )) && kill $NAP 2>/dev/null; exit 0' TERM INT
+
+typeset -A V
+SEQ=0; FROZEN=0; WARN_N=0; CRIT_N=0; PEV=normal; PEV_TS=-1; FIRST=1; T0=$EPOCHREALTIME
+
+defaults() {
+  local now=$EPOCHSECONDS
+  local -i ms; (( ms = (EPOCHREALTIME - T0) * 1000 ))
+  V=(
+    schema forge.guardian.sensor/1  version 0.0.0-stub  pid $$  seq $SEQ
+    ts $EPOCHREALTIME  ts_s $now  mono_ms $ms
+    boot_uuid STUB-BOOT  boot_epoch 1700000000  rebaseline $FIRST  poll_s $POLL
+    vmp 1  vmp_st ok
+    pevent $PEV  pevent_st ok  pevent_ts $PEV_TS  pevent_warn_n $WARN_N  pevent_crit_n $CRIT_N
+    freepct 60  freepct_st ok
+    mem_total_b 38654705664  mem_avail_b 20000000000  mem_free_b 5000000000  mem_wired_b 4000000000
+    mem_compressed_b 1000000000  mem_st ok
+    swap_used_mb 100  swap_total_mb 2048  swap_growth_mb_min 0  swap_st ok
+    pageouts_total 1000  pageout_rate_ps 0  swapout_rate_ps 0  pageouts_st ok
+    thermal nominal  thermal_st ok
+    load1 1.00  cpu_busy_pct 5  ncpu 14  nperf 10  cpu_st ok
+    vol_n 1  vol0_path /  vol0_mount /stub  vol0_fsid 1  vol0_avail_b 214748364800  vol0_total_b 1000000000000
+    vol0_growth_b_min 0  vol0_st ok
+    disk_min_avail_gib 200  disk_st ok
+    jobs_n 0  reserved_b 0  budget_b 32212254720  overcommit 0
+    sleep_n 0  last_sleep_ts -1  last_wake_ts -1
+    self_cpu_s 0  self_rss_b 0  self_fds 0  errors 0
+  )
+}
+
+overlay() {
+  local line k
+  [[ -r $OBS ]] || return 0
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line == [a-z]*=* ]] || continue
+    k=${line%%=*}
+    if [[ $k == ts_offset ]]; then
+      V[ts_s]=$(( V[ts_s] + ${line#*=} )); V[ts]=$V[ts_s].000
+    else
+      V[$k]=${line#*=}
+    fi
+  done < "$OBS"
+}
+
+publish() {
+  local k tmp="$D/sensor.env.tmp.$$" body=""
+  (( SEQ++ ))
+  defaults; overlay
+  for k in schema version pid seq ts ts_s mono_ms boot_uuid boot_epoch rebaseline poll_s; do body+="$k=$V[$k]"$'\n'; done
+  for k in ${(ok)V}; do
+    case $k in schema|version|pid|seq|ts|ts_s|mono_ms|boot_uuid|boot_epoch|rebaseline|poll_s) continue ;; esac
+    body+="$k=$V[$k]"$'\n'
+  done
+  print -rn -- "$body" > "$tmp" && zf_mv -f "$tmp" "$D/sensor.env"
+  FIRST=0
+}
+
+# `sleep & wait`, not zselect or a foreground sleep: both defer the TERM trap until
+# they return, and the governor's orderly stop waits <= 2 s for this process.
+NAP=0
+nap() { sleep "$POLL" & NAP=$!; wait $NAP; kill $NAP 2>/dev/null; NAP=0; return 0 }
+
+while true; do
+  if (( PARENT > 0 )) && ! kill -0 "$PARENT" 2>/dev/null; then exit 0; fi
+  if [[ -f $CTL ]]; then
+    c=$(<"$CTL"); zf_rm -f "$CTL"
+    case $c in
+      die) exit 0 ;;
+      freeze) FROZEN=1 ;;
+      thaw) FROZEN=0 ;;
+      critical|warn)
+        if [[ $c == critical ]]; then (( ++CRIT_N )); else (( ++WARN_N )); fi
+        PEV=$c; PEV_TS=$EPOCHSECONDS
+        publish
+        print -r -- "$EPOCHREALTIME" > "$D/stub.usr2_sent"
+        (( PARENT > 0 )) && kill -USR2 "$PARENT" 2>/dev/null
+        ;;
+    esac
+  fi
+  (( FROZEN )) || publish
+  nap
+done
