@@ -1,0 +1,671 @@
+#!/bin/zsh
+# ============================================================================
+# forge-guardian-install — install, upgrade, roll back or remove the Forge Guardian.
+#
+#   forge-guardian-install install|upgrade [--from DIR] [--no-service] [--run-tests]
+#   forge-guardian-install rollback [--no-service]
+#   forge-guardian-install uninstall [--purge] [--no-service]
+#   forge-guardian-install status
+#
+# Every path derives from $FORGE_GUARDIAN_HOME (default $HOME); launchctl is
+# $FORGE_GUARDIAN_LAUNCHCTL (default /bin/launchctl). The gates point both at a fake
+# home and a stub, and this file refuses to drive the REAL launchd for any home that
+# is not the user's own (the label is per-user: that would replace the live service).
+#
+# LAYOUT
+#   $APP = ~/Library/Application Support/ForgeGuardian
+#   $APP/releases/<version>/{bin/*, share/*, MANIFEST.json}   immutable (files 0555/0444)
+#   $APP/current, $APP/previous                               symlinks, switched by rename
+#   ~/.forge-health/bin/<tool>  -> $APP/current/bin/<tool>     (symlinks, never files)
+#   ~/.local/bin/{forge-job,forge-gate,forge-nproc,forge-guardian-ctl} -> ~/.forge-health/bin/<tool>
+#   ~/Library/LaunchAgents/com.archdisc.forge.guardian.plist  (generated for this user)
+#
+# NEVER WRITE INTO AN EXISTING FILE IN PLACE. zsh reads a script incrementally while it
+# runs: the live archie-sidecar wrapper is executing ~/.forge-health/bin/forge-job right
+# now, and overwriting those bytes would splice new code into a running wrapper. Every
+# switch here is a rename(2) of a complete new file or symlink; a running script keeps
+# the inode it opened.
+#
+# version = <VERSION>+<first 12 hex of sha256 over the sorted "path sha256" lines of the
+# release files>. The sensor binary is NOT hashed when it is built here: a clang build
+# is not guaranteed byte-reproducible (debug-map object mtimes, linker UUIDs), so its
+# line is "src/sensor <sha256 over the sorted 'path sha256' lines of sensor/ sources>".
+# A prebuilt sensor ($FORGE_GUARDIAN_SENSOR_PREBUILT) is hashed as the binary it is.
+# Identical inputs => identical version => a second install is a no-op.
+# ============================================================================
+set -u
+setopt NULL_GLOB EXTENDED_GLOB PIPE_FAIL
+zmodload zsh/datetime || { print -u2 "forge-guardian-install: zsh/datetime unavailable"; exit 70; }
+zmodload -F zsh/stat b:zstat || { print -u2 "forge-guardian-install: zsh/stat unavailable"; exit 70; }
+umask 077
+export LC_ALL=C      # deterministic sort order for the version hash, whatever the caller's locale
+
+VERSION=2.0.0
+SELF=${0:A}
+H=${FORGE_GUARDIAN_HOME:-$HOME}
+H=${H%/}
+APP="$H/Library/Application Support/ForgeGuardian"
+FH="$H/.forge-health"
+LA="$H/Library/LaunchAgents"
+LABEL=com.archdisc.forge.guardian
+PLIST="$LA/$LABEL.plist"
+LOCALBIN="$H/.local/bin"
+LAUNCHCTL=${FORGE_GUARDIAN_LAUNCHCTL:-/bin/launchctl}
+TARGET="gui/$UID"
+PLUTIL=/usr/bin/plutil
+VERIFY_S=${FORGE_GUARDIAN_VERIFY_S:-40}
+ZSH_TOOLS=(forge-guardian forge-gate forge-job forge-nproc forge-guardian-ctl forge-guardian-install
+           forge-stallguard forge-guardian-selftest forge-guardian-actuator-test)
+ALL_TOOLS=($ZSH_TOOLS forge-guardian-sensor)
+SHARE=(policy.default.json SCHEMA.md)
+LOCAL_TOOLS=(forge-job forge-gate forge-nproc forge-guardian-ctl)
+DEFAULT_TESTS=(forge_job_usage_gate.sh forge_job_usr1_gate.sh forge_job_admission_gate.sh
+               guardian_red_survival_gate.sh governor_policy_gate.sh)
+
+say()  { print -r -- "forge-guardian-install: $*"; }
+warn() { print -u2 -r -- "forge-guardian-install: WARNING: $*"; }
+die()  { local c=$1; shift; print -u2 -r -- "forge-guardian-install: $*"; exit $c; }
+
+usage() {
+  print -r -- "usage: forge-guardian-install install|upgrade [--from DIR] [--no-service] [--run-tests]"
+  print -r -- "       forge-guardian-install rollback [--no-service]"
+  print -r -- "       forge-guardian-install uninstall [--purge] [--no-service]"
+  print -r -- "       forge-guardian-install status"
+  print -r -- "env:   FORGE_GUARDIAN_HOME (default \$HOME), FORGE_GUARDIAN_LAUNCHCTL (default /bin/launchctl),"
+  print -r -- "       FORGE_GUARDIAN_SENSOR_PREBUILT (a sensor binary to install instead of building one),"
+  print -r -- "       FORGE_GUARDIAN_VERIFY_S (service verification budget, default 40)"
+}
+
+# ---- helpers --------------------------------------------------------------------
+json_str() {   # a JSON string literal, correctly escaped
+  local s=$1 out="" c i
+  s=${s//\\/\\\\}; s=${s//\"/\\\"}
+  if [[ $s == *[[:cntrl:]]* ]]; then
+    for (( i = 1; i <= ${#s}; i++ )); do
+      c=${s[i]}
+      if [[ $c == [[:cntrl:]] ]]; then out+=$(printf '\\u%04x' "'$c"); else out+=$c; fi
+    done
+    s=$out
+  fi
+  print -rn -- "\"$s\""
+}
+mtime_of() { local -a m; zstat -A m +mtime -- "$1" 2>/dev/null && print -r -- $m[1] || print 0; }
+sha_of()   { local o; o=$(/usr/bin/shasum -a 256 -- "$1" 2>/dev/null) || return 1; print -r -- ${o[1,64]}; }
+sha_str()  { local o; o=$(print -rn -- "$1" | /usr/bin/shasum -a 256) || return 1; print -r -- ${o[1,64]}; }
+iso_now()  { TZ=UTC strftime '%Y-%m-%dT%H:%M:%SZ' $EPOCHSECONDS; }
+# Atomic symlink switch: build the new link beside the old one, then rename over it.
+# `mv -h` renames the link itself even when it points at a directory.
+swap_link() {   # swap_link <link> <target>
+  local tmp="${1:h}/.${1:t}.new.$$"
+  /bin/rm -f "$tmp" && /bin/ln -s "$2" "$tmp" && /bin/mv -fh "$tmp" "$1"
+}
+# Atomic file install: copy beside, set the mode, rename over.
+place_file() {  # place_file <src> <dest> <mode>
+  local tmp="${2:h}/.${2:t}.new.$$"
+  /bin/cp "$1" "$tmp" && /bin/chmod "$3" "$tmp" && /bin/mv -f "$tmp" "$2" || { /bin/rm -f "$tmp"; return 1; }
+}
+write_atomic() {  # write_atomic <dest> <mode> <content>
+  local tmp="${1:h}/.${1:t}.new.$$"
+  print -r -- "$3" > "$tmp" && /bin/chmod "$2" "$tmp" && /bin/mv -f "$tmp" "$1" || { /bin/rm -f "$tmp"; return 1; }
+}
+link_target() { [[ -L $1 ]] && readlink "$1"; }
+release_of()   { local t; t=$(link_target "$APP/$1") || return 1; [[ -n $t ]] && print -r -- ${t:t}; }
+
+# The user's REAL home from the directory service, never from $HOME (a test sets HOME
+# to its fake home). zsh's $userdirs is filled lazily and reads EMPTY here, which once
+# silently disabled this interlock. If it cannot be determined, assume the home is
+# fake: refusing a service operation is recoverable, replacing the live one is not.
+REAL_HOME=$(/usr/bin/dscl . -read "/Users/$USERNAME" NFSHomeDirectory 2>/dev/null)
+REAL_HOME=${REAL_HOME#NFSHomeDirectory: }
+real_launchctl() { [[ ${LAUNCHCTL:A} == /bin/launchctl ]]; }
+fake_home()      { [[ -z $REAL_HOME || ${H:A} != ${REAL_HOME:A} ]]; }
+guard_service() {
+  if fake_home && real_launchctl; then
+    die 2 "refusing to drive the REAL launchd for FORGE_GUARDIAN_HOME=$H (this user's home is $REAL_HOME): the label $LABEL is per-user, so this would replace the live service. Use --no-service, or FORGE_GUARDIAN_LAUNCHCTL=<stub>."
+  fi
+}
+
+lc_print() { $LAUNCHCTL print "$TARGET/$LABEL" 2>/dev/null; }
+
+# ---- the plist ------------------------------------------------------------------
+gen_plist() {   # gen_plist <out.xml> ; JSON with correct escaping -> plutil xml1 -> lint
+  local js="$1.json"
+  {
+    print -r -- "{"
+    print -r -- "  \"Label\": $(json_str $LABEL),"
+    print -r -- "  \"ProgramArguments\": [\"/bin/zsh\", $(json_str "$APP/current/bin/forge-guardian")],"
+    print -r -- "  \"EnvironmentVariables\": {\"PATH\": \"/usr/bin:/bin:/usr/sbin:/sbin\", \"FORGE_HEALTH_DIR\": $(json_str "$FH"), \"LC_ALL\": \"C\"},"
+    print -r -- "  \"RunAtLoad\": true,"
+    print -r -- "  \"KeepAlive\": true,"
+    print -r -- "  \"ThrottleInterval\": 30,"
+    print -r -- "  \"ProcessType\": \"Standard\","
+    print -r -- "  \"Nice\": 5,"
+    print -r -- "  \"ExitTimeOut\": 10,"
+    print -r -- "  \"StandardOutPath\": $(json_str "$FH/log/launchd.out"),"
+    print -r -- "  \"StandardErrorPath\": $(json_str "$FH/log/launchd.err")"
+    print -r -- "}"
+  } > "$js" || return 1
+  $PLUTIL -convert xml1 -o "$1" "$js" >/dev/null 2>&1 || { /bin/rm -f "$js"; return 1; }
+  /bin/rm -f "$js"
+  $PLUTIL -lint -s "$1" >/dev/null 2>&1 || return 1
+  # Round-trip: the program path must parse back EXACTLY (quotes, &, <, > in a home).
+  [[ "$($PLUTIL -extract ProgramArguments.1 raw -o - "$1" 2>/dev/null)" == "$APP/current/bin/forge-guardian" ]] || return 1
+  /bin/chmod 0644 "$1"
+}
+
+# ---- service verification ---------------------------------------------------------
+# A service is up only when ALL of these hold at once: launchd says running with a pid;
+# that pid's argv names the program the plist names; the domain's state file was
+# published after the bootstrap; and the pid holding guardian.lock is that same pid
+# (exactly one governor). "A guardian is running" is not enough -- an earlier check
+# passed by finding a stale second instance.
+VERIFY_WHY=""
+verify_service() {   # verify_service <program> <t0> <pre-mtime>
+  local prog=$1 t0=$2 pre=$3 deadline=$(( EPOCHSECONDS + VERIFY_S )) out st pid args sm lk n line
+  while :; do
+    out=$(lc_print)
+    st=$(print -r -- "$out" | sed -n 's/^	state = //p' | head -1)
+    pid=$(print -r -- "$out" | sed -n 's/^	pid = \([0-9][0-9]*\)$/\1/p' | head -1)
+    if [[ $st != running || -z $pid ]]; then VERIFY_WHY="launchd reports state='${st:-not loaded}' pid='${pid:-none}'"
+    else
+      args=$(ps -ww -o args= -p $pid 2>/dev/null)
+      if [[ $args != "/bin/zsh $prog" && $args != *" $prog" && $args != "$prog" ]]; then VERIFY_WHY="pid $pid runs '$args', not $prog"
+      else
+        sm=$(mtime_of "$FH/state")
+        if (( sm < t0 || sm <= pre )); then VERIFY_WHY="$FH/state has not been published since the bootstrap (mtime $sm < $t0)"
+        else
+          lk=""; [[ -r $FH/guardian.lock/pid ]] && lk=$(<$FH/guardian.lock/pid)
+          if [[ $lk != $pid ]]; then VERIFY_WHY="guardian.lock is held by '${lk:-nobody}', not the service pid $pid"
+          else
+            n=0
+            for line in ${(f)"$(ps -axww -o pid=,args= 2>/dev/null)"}; do
+              [[ $line == *" $prog" ]] && (( n++ ))
+            done
+            if (( n != 1 )); then VERIFY_WHY="$n processes run $prog (want exactly 1)"
+            else VERIFIED_PID=$pid; return 0; fi
+          fi
+        fi
+      fi
+    fi
+    (( EPOCHSECONDS >= deadline )) && return 1
+    sleep 0.5
+  done
+}
+
+bootout_service() {
+  local i
+  $LAUNCHCTL bootout "$TARGET/$LABEL" >/dev/null 2>&1   # "not loaded" is fine
+  for i in {1..40}; do lc_print >/dev/null || return 0; sleep 0.5; done
+  warn "$LABEL still listed by launchd 20s after bootout"
+  return 1
+}
+# bootstrap + verify. Returns 0 with VERIFIED_PID set, or 1 with VERIFY_WHY.
+start_service() {
+  local prog t0 pre r
+  prog=$($PLUTIL -extract ProgramArguments.1 raw -o - "$PLIST" 2>/dev/null)
+  pre=$(mtime_of "$FH/state"); t0=$EPOCHSECONDS
+  $LAUNCHCTL bootstrap "$TARGET" "$PLIST" >/dev/null 2>"$APP/.bootstrap.err.$$"; r=$?
+  if (( r != 0 )); then
+    VERIFY_WHY="launchctl bootstrap failed (rc=$r): $(<$APP/.bootstrap.err.$$)"
+    /bin/rm -f "$APP/.bootstrap.err.$$"; return 1
+  fi
+  /bin/rm -f "$APP/.bootstrap.err.$$"
+  verify_service "$prog" $t0 $pre
+}
+
+# ---- transaction: snapshot of everything a switch changes ------------------------
+typeset -A TXBIN TXMODE
+TX=""; TX_CUR=""; TX_PREV=""; TX_HAD_PLIST=0; TX_HAD_INST=0; TX_LEGACY=""
+tx_begin() {
+  local t f
+  TX="$APP/tx.$$"; /bin/rm -rf "$TX"; mkdir -p "$TX" || die 70 "cannot create $TX"
+  TX_CUR=$(link_target "$APP/current"); TX_PREV=$(link_target "$APP/previous")
+  TX_HAD_PLIST=0; [[ -f $PLIST ]] && { /bin/cp -p "$PLIST" "$TX/plist" && TX_HAD_PLIST=1; }
+  TX_HAD_INST=0; [[ -f $FH/guardian.installed.json ]] && { /bin/cp -p "$FH/guardian.installed.json" "$TX/installed.json" && TX_HAD_INST=1; }
+  for t in $ALL_TOOLS; do
+    f="$FH/bin/$t"
+    if [[ -L $f ]]; then TXBIN[$t]="L:$(readlink "$f")"
+    elif [[ -f $f ]]; then TXBIN[$t]="F"; TXMODE[$t]=$(stat -f %Lp "$f"); /bin/cp -p "$f" "$TX/bin.$t"
+    else TXBIN[$t]="none"; fi
+  done
+}
+tx_restore_files() {   # put every link, bin entry, plist and record back as it was
+  local t f e
+  if [[ -n $TX_CUR ]]; then swap_link "$APP/current" "$TX_CUR"; else /bin/rm -f "$APP/current"; fi
+  if [[ -n $TX_PREV ]]; then swap_link "$APP/previous" "$TX_PREV"; else /bin/rm -f "$APP/previous"; fi
+  for t in $ALL_TOOLS; do
+    f="$FH/bin/$t"; e=${TXBIN[$t]:-none}
+    case $e in
+      L:*)  swap_link "$f" "${e#L:}" ;;
+      F)    place_file "$TX/bin.$t" "$f" "${TXMODE[$t]:-755}" ;;
+      none) [[ -L $f ]] && /bin/rm -f "$f" ;;
+    esac
+  done
+  if (( TX_HAD_PLIST )); then place_file "$TX/plist" "$PLIST" 0644; else /bin/rm -f "$PLIST"; fi
+  if (( TX_HAD_INST )); then place_file "$TX/installed.json" "$FH/guardian.installed.json" 0600; else /bin/rm -f "$FH/guardian.installed.json"; fi
+}
+tx_end() { [[ -n $TX ]] && /bin/rm -rf "$TX"; TX=""; }
+
+# Roll a failed switch back and restart whatever was there before. Always exits 1.
+fail_and_rollback() {
+  local why=$1
+  print -u2 -r -- "forge-guardian-install: FAILED: $why"
+  print -u2 -r -- "forge-guardian-install: rolling back to the state before this run"
+  tx_restore_files
+  if (( ! NO_SERVICE )); then
+    bootout_service
+    if (( TX_HAD_PLIST )); then
+      if start_service; then
+        print -u2 -r -- "forge-guardian-install: rolled back; the previous service is running and verified (pid $VERIFIED_PID)"
+      else
+        print -u2 -r -- "forge-guardian-install: rolled back the files, but the previous service did not verify either: $VERIFY_WHY"
+        print -u2 -r -- "  inspect: forge-guardian-ctl diagnose"
+      fi
+    else
+      print -u2 -r -- "forge-guardian-install: rolled back; there was no service before this run, none is loaded now"
+    fi
+  fi
+  tx_end
+  exit 1
+}
+
+# ---- links in ~/.forge-health/bin and ~/.local/bin --------------------------------
+ensure_links() {   # prints what changed; returns the number of problems
+  local t f want n=0
+  [[ -d $FH ]] || mkdir -m 700 -p "$FH" || return 1
+  /bin/chmod 700 "$FH"
+  mkdir -m 700 -p "$FH/bin" "$FH/log" || return 1
+  for t in $ALL_TOOLS; do
+    f="$FH/bin/$t"; want="$APP/current/bin/$t"
+    [[ -L $f && "$(readlink "$f")" == "$want" ]] && continue
+    swap_link "$f" "$want" || { warn "could not link $f"; (( n++ )); continue; }
+    say "linked $f -> $want"
+  done
+  if [[ ! -e $FH/policy.json && -f $APP/current/share/policy.default.json ]]; then
+    place_file "$APP/current/share/policy.default.json" "$FH/policy.json" 0600 && say "installed $FH/policy.json from policy.default.json"
+  fi
+  mkdir -p "$LOCALBIN" 2>/dev/null
+  for t in $LOCAL_TOOLS; do
+    f="$LOCALBIN/$t"; want="$FH/bin/$t"
+    if [[ -L $f ]]; then
+      [[ "$(readlink "$f")" == "$want" ]] && continue
+      swap_link "$f" "$want" && say "relinked $f -> $want"
+    elif [[ -e $f ]]; then
+      warn "$f is a regular file, not replaced; it should be a symlink to $want (RUNBOOK §0)"
+    else
+      swap_link "$f" "$want" && say "linked $f -> $want"
+    fi
+  done
+  return $n
+}
+
+# ---- staging ----------------------------------------------------------------------
+STG=""; BUILD=""
+cleanup_staging() { [[ -n $STG ]] && /bin/rm -rf "$STG"; [[ -n $BUILD ]] && /bin/rm -rf "$BUILD"; STG=""; BUILD=""; return 0; }
+
+sensor_src_digest() {   # sha256 over sorted "path sha256" lines of $FROM/sensor sources
+  local f rel lines=""
+  local -a files; files=("$FROM"/sensor/**/*(.N))
+  for f in ${(o)files}; do
+    rel=${f#$FROM/}
+    [[ $rel == sensor/build/* || $rel == */.* || $rel == *.o ]] && continue
+    lines+="$rel $(sha_of "$f")"$'\n'
+  done
+  [[ -n $lines ]] || return 1
+  sha_str "$lines"
+}
+
+stage_release() {   # sets STG, V, BASIS, MANIFEST_FILES
+  local t f out lines="" rel h
+  STG="$APP/staging.$$"
+  /bin/rm -rf "$STG"; mkdir -p "$STG/bin" "$STG/share" || die 70 "cannot create $STG"
+  for t in $ZSH_TOOLS; do /bin/cp "$FROM/$t" "$STG/bin/$t" || die 70 "copy failed: $FROM/$t"; done
+  for t in $SHARE; do /bin/cp "$FROM/$t" "$STG/share/$t" || die 70 "copy failed: $FROM/$t"; done
+  if [[ -n ${FORGE_GUARDIAN_SENSOR_PREBUILT:-} ]]; then
+    /bin/cp "$FORGE_GUARDIAN_SENSOR_PREBUILT" "$STG/bin/forge-guardian-sensor" || die 70 "cannot copy the prebuilt sensor"
+    BASIS=binary
+  else
+    BUILD="$APP/build.$$"; /bin/rm -rf "$BUILD"; mkdir -p "$BUILD"
+    say "building the sensor: $FROM/sensor/build.sh --out $BUILD"
+    out=$("$FROM/sensor/build.sh" --out "$BUILD" 2>"$BUILD.log") || { cat "$BUILD.log" >&2; /bin/rm -f "$BUILD.log"; die 1 "sensor build failed"; }
+    /bin/rm -f "$BUILD.log"
+    f="$BUILD/forge-guardian-sensor"
+    [[ -x $f ]] || f=${${(f)out}[-1]}
+    [[ -n $f && -x $f ]] || die 1 "sensor build produced no executable (looked for $BUILD/forge-guardian-sensor and '$f')"
+    /bin/cp "$f" "$STG/bin/forge-guardian-sensor" || die 70 "cannot copy the built sensor"
+    BASIS=sources
+  fi
+  /bin/chmod 0755 "$STG" "$STG/bin" "$STG/share"
+  /bin/chmod 0555 "$STG"/bin/*
+  /bin/chmod 0444 "$STG"/share/*
+  # version
+  typeset -gA MANIFEST_FILES; MANIFEST_FILES=()
+  for f in "$STG"/bin/*(.) "$STG"/share/*(.); do
+    rel=${f#$STG/}
+    MANIFEST_FILES[$rel]=$(sha_of "$f") || die 70 "cannot hash $f"
+  done
+  for rel in ${(ko)MANIFEST_FILES}; do
+    if [[ $rel == bin/forge-guardian-sensor && $BASIS == sources ]]; then
+      h=$(sensor_src_digest) || die 70 "cannot hash the sensor sources"
+      lines+="src/sensor $h"$'\n'
+    else
+      lines+="$rel ${MANIFEST_FILES[$rel]}"$'\n'
+    fi
+  done
+  h=$(sha_str "$lines") || die 70 "cannot hash the release"
+  V="$VERSION+${h[1,12]}"
+}
+
+validate_staging() {
+  local t out r tmpd
+  for t in $ZSH_TOOLS; do
+    /bin/zsh -n "$STG/bin/$t" 2>"$STG.err" || { cat "$STG.err" >&2; /bin/rm -f "$STG.err"; return 1; }
+  done
+  /bin/rm -f "$STG.err"
+  out=$("$STG/bin/forge-guardian-sensor" --version 2>&1) || { print -u2 -r -- "sensor --version failed: $out"; return 1; }
+  say "staged sensor: $out"
+  tmpd=$(mktemp -d "${TMPDIR:-/tmp}/fginstall-snap.XXXXXX") || return 1
+  out=$("$STG/bin/forge-guardian-sensor" snapshot --state-dir "$tmpd" 2>/dev/null); r=$?
+  /bin/rm -rf "$tmpd"
+  (( r == 0 )) || { print -u2 -r -- "sensor snapshot exited $r"; return 1; }
+  [[ "$(print -r -- "$out" | $PLUTIL -extract schema raw -o - - 2>/dev/null)" == forge.guardian.sensor/* ]] \
+    || { print -u2 -r -- "sensor snapshot is not a forge.guardian.sensor JSON document: ${out[1,120]}"; return 1; }
+  return 0
+}
+
+# --run-tests: the hermetic gates against the STAGED files. The gates find the tools as
+# ${0:A:h}/../<tool>, so they run from a flat copy of the staged bin/ with test/ beside it.
+# The sensor is left out of that copy on purpose: the forge-job gates exercise the
+# legacy (forge-gate) path and inject their own stub sensor where they need one.
+run_staged_tests() {
+  local rt g pid rc i log failed=0 budget=${FORGE_GUARDIAN_TEST_TIMEOUT:-600} f
+  local -a tests; tests=(${=${FORGE_GUARDIAN_INSTALL_TESTS:-$DEFAULT_TESTS}})
+  [[ -d $FROM/test ]] || { print -u2 -r -- "--run-tests: no $FROM/test"; return 1; }
+  rt=$(mktemp -d "${TMPDIR:-/tmp}/fginstall-tests.XXXXXX") || return 1
+  mkdir -p "$rt/test"
+  for f in "$STG"/bin/*(.); do [[ ${f:t} == forge-guardian-sensor ]] || /bin/cp -p "$f" "$rt/${f:t}"; done
+  /bin/chmod u+w "$rt"/*(.)
+  /bin/cp -p "$STG"/share/*(.) "$rt/"
+  for f in "$FROM"/test/*(.); do /bin/cp -p "$f" "$rt/test/${f:t}"; done
+  for g in $tests; do
+    [[ -f $rt/test/$g ]] || { say "--run-tests: $g not present, skipped"; continue; }
+    log="$rt/$g.log"
+    env -u FORGE_HEALTH_DIR -u FORGE_GUARDIAN_SENSOR_BIN FJ_SKIP_COMPANIONS=1 /bin/zsh "$rt/test/$g" >"$log" 2>&1 &
+    pid=$!
+    for (( i = 0; i < budget * 2; i++ )); do kill -0 $pid 2>/dev/null || break; sleep 0.5; done
+    if kill -0 $pid 2>/dev/null; then kill -TERM $pid 2>/dev/null; sleep 1; kill -KILL $pid 2>/dev/null; rc=TIMEOUT
+    else wait $pid; rc=$?; fi
+    if [[ $rc == 0 ]]; then say "--run-tests: PASS $g ($(grep -Eo '[0-9]+ passed, [0-9]+ failed' "$log" | tail -1))"
+    else
+      failed=1
+      print -u2 -r -- "forge-guardian-install: --run-tests: FAIL $g (rc=$rc); last lines:"
+      tail -15 "$log" | sed 's/^/    /' >&2
+    fi
+  done
+  /bin/rm -rf "$rt"
+  return $failed
+}
+
+write_manifest() {   # write_manifest <release-dir>
+  local rel body="" first=1 commit
+  for rel in ${(ko)MANIFEST_FILES}; do
+    (( first )) || body+=","$'\n'
+    first=0
+    body+="    $(json_str $rel): $(json_str ${MANIFEST_FILES[$rel]})"
+  done
+  write_atomic "$1/MANIFEST.json" 0444 "{
+  \"schema\": \"forge.guardian.manifest/1\",
+  \"version\": $(json_str $V),
+  \"source_commit\": $(json_str $SOURCE_COMMIT),
+  \"built_at\": $(json_str "$(iso_now)"),
+  \"version_basis\": $(json_str "$([[ $BASIS == sources ]] && print 'bin/* and share/* by content; sensor by its sources (src/sensor)' || print 'bin/* and share/* by content')"),
+  \"files\": {
+$body
+  }
+}"
+}
+
+manifest_matches() {   # manifest_matches <release-dir> : every MANIFEST file hash still holds
+  local d=$1 rel want
+  [[ -r $d/MANIFEST.json ]] || return 1
+  for rel in ${(k)MANIFEST_FILES}; do
+    want=$($PLUTIL -extract "files.${rel//./\\.}" raw -o - "$d/MANIFEST.json" 2>/dev/null) || return 1
+    [[ $want == $(sha_of "$d/$rel") ]] || return 1
+  done
+  return 0
+}
+
+write_installed() {   # write_installed <version> <previous>
+  local psha; psha=$(sha_of "$PLIST" 2>/dev/null) || psha=""
+  write_atomic "$FH/guardian.installed.json" 0600 "{
+  \"schema\": \"forge.guardian.installed/1\",
+  \"version\": $(json_str $1),
+  \"release\": $(json_str "$APP/releases/$1"),
+  \"installed_at\": $(json_str "$(iso_now)"),
+  \"source_commit\": $(json_str ${SOURCE_COMMIT:-unknown}),
+  \"plist_sha256\": $(json_str $psha),
+  \"previous\": $([[ -n $2 ]] && json_str $2 || print -rn null)
+}"
+}
+
+source_commit_of() {
+  local c d
+  command -v git >/dev/null 2>&1 || { print -r -- unknown; return; }
+  c=$(git -C "$FROM" rev-parse HEAD 2>/dev/null) || { print -r -- unknown; return; }
+  d=$(git -C "$FROM" status --porcelain -- . 2>/dev/null)
+  print -r -- "$c${d:+-dirty}"
+}
+
+take_lock() {
+  zmodload zsh/system 2>/dev/null || die 70 "zsh/system unavailable"
+  mkdir -p "$APP" && /bin/chmod 755 "$APP" || die 70 "cannot create $APP"
+  [[ -e $APP/.install.lock ]] || : >> "$APP/.install.lock"     # flock needs an existing file
+  zsystem flock -t 0 -f LOCKFD "$APP/.install.lock" 2>/dev/null \
+    || die 3 "another forge-guardian-install holds $APP/.install.lock"
+}
+
+preflight() {
+  [[ $OSTYPE == darwin* ]] || die 1 "preflight: not macOS ($OSTYPE)"
+  (( EUID != 0 )) || die 1 "preflight: do not run as root (a LaunchAgent belongs to the user)"
+  local m t
+  for m in zsh/system zsh/datetime zsh/stat zsh/files; do
+    /bin/zsh -c "zmodload $m" 2>/dev/null || die 1 "preflight: zsh module $m does not load"
+  done
+  [[ -x $PLUTIL ]] || die 1 "preflight: $PLUTIL missing"
+  [[ -x /usr/bin/shasum ]] || die 1 "preflight: /usr/bin/shasum missing"
+  for t in $ZSH_TOOLS $SHARE; do [[ -f $FROM/$t ]] || die 1 "preflight: $FROM/$t missing"; done
+  if [[ -n ${FORGE_GUARDIAN_SENSOR_PREBUILT:-} ]]; then
+    [[ -f $FORGE_GUARDIAN_SENSOR_PREBUILT && -x $FORGE_GUARDIAN_SENSOR_PREBUILT ]] || die 1 "preflight: FORGE_GUARDIAN_SENSOR_PREBUILT=$FORGE_GUARDIAN_SENSOR_PREBUILT is not executable"
+  else
+    [[ -x $FROM/sensor/build.sh ]] || die 1 "preflight: no sensor sources ($FROM/sensor/build.sh); set FORGE_GUARDIAN_SENSOR_PREBUILT to install a built sensor"
+  fi
+  [[ -d $H ]] || die 1 "preflight: home $H does not exist"
+}
+
+# ---- install / upgrade ---------------------------------------------------------------
+cmd_install() {
+  FROM=${FROM:-${SELF:h}}; FROM=${FROM:A}
+  preflight
+  (( NO_SERVICE )) || guard_service
+  take_lock
+  SOURCE_COMMIT=$(source_commit_of)
+  stage_release
+  validate_staging || die 1 "validation of the staged release failed; nothing was changed"
+  if (( RUN_TESTS )); then
+    run_staged_tests || die 1 "--run-tests: a gate failed against the staged release; nothing was changed"
+  fi
+  local newplist="$APP/plist.$$.xml"
+  gen_plist "$newplist" || { /bin/rm -f "$newplist" "$newplist.json"; die 70 "could not generate a valid plist for $H"; }
+
+  local cur; cur=$(release_of current)
+  if [[ $cur == $V ]] && [[ -f $PLIST ]] && cmp -s "$newplist" "$PLIST"; then
+    /bin/rm -f "$newplist"
+    ensure_links >/dev/null || warn "some links could not be repaired"
+    say "already installed $V"
+    return 0
+  fi
+
+  # Promote: staging -> releases/<V> (or reuse an intact identical release).
+  mkdir -p "$APP/releases" && /bin/chmod 755 "$APP/releases"
+  local REL="$APP/releases/$V"
+  if [[ -d $REL ]]; then
+    if manifest_matches "$REL"; then say "release $V already present and intact; reusing it"; /bin/rm -rf "$STG"
+    else /bin/mv "$REL" "$REL.corrupt.$EPOCHSECONDS"; warn "release $V was damaged; moved aside"; fi
+  fi
+  if [[ ! -d $REL ]]; then
+    write_manifest "$STG" || die 70 "cannot write MANIFEST.json"
+    /bin/mv "$STG" "$REL" || die 70 "cannot rename staging to $REL"
+    say "release $V staged and validated (sensor basis: $BASIS)"
+  fi
+  STG=""
+
+  tx_begin
+
+  # First install over a hand-copied ~/.forge-health/bin: keep those files.
+  local -a legacy; local t f lines="" hex LEG=""
+  for t in $ALL_TOOLS; do f="$FH/bin/$t"; [[ -f $f && ! -L $f ]] && legacy+=($t); done
+  if (( ${#legacy} )); then
+    for t in ${(o)legacy}; do lines+="bin/$t $(sha_of "$FH/bin/$t")"$'\n'; done
+    hex=$(sha_str "$lines"); hex=${hex[1,12]}
+    LEG="$APP/releases/legacy-$hex"
+    if [[ ! -d $LEG ]]; then
+      mkdir -p "$LEG/bin" || fail_and_rollback "cannot create $LEG"
+      for t in $legacy; do /bin/cp -p "$FH/bin/$t" "$LEG/bin/$t" || fail_and_rollback "cannot snapshot $FH/bin/$t"; done
+      /bin/chmod 0755 "$LEG" "$LEG/bin"; /bin/chmod 0555 "$LEG"/bin/*
+      (( TX_HAD_PLIST )) && /bin/cp "$TX/plist" "$LEG/launchd.plist.previous"
+      write_atomic "$LEG/MANIFEST.json" 0444 "{\"schema\": \"forge.guardian.manifest/1\", \"version\": $(json_str legacy-$hex), \"source\": $(json_str "snapshot of hand-copied $FH/bin"), \"built_at\": $(json_str "$(iso_now)")}"
+      say "snapshotted the hand-copied tools in $FH/bin into $LEG (rollback target)"
+    fi
+  fi
+
+  # Switch: current <- V, previous <- old current (or the legacy snapshot).
+  local prev_new=""
+  if [[ -n $TX_CUR && ${TX_CUR:t} != $V ]]; then prev_new="releases/${TX_CUR:t}"
+  elif [[ -z $TX_CUR && -n $LEG ]]; then prev_new="releases/${LEG:t}"
+  fi
+  swap_link "$APP/current" "releases/$V" || fail_and_rollback "cannot switch $APP/current"
+  [[ -n $prev_new ]] && { swap_link "$APP/previous" "$prev_new" || fail_and_rollback "cannot switch $APP/previous"; }
+  ensure_links || fail_and_rollback "could not create the tool links in $FH/bin"
+
+  # The plist, keeping the one it replaces beside the release it served.
+  mkdir -p "$LA" 2>/dev/null
+  if ! { [[ -f $PLIST ]] && cmp -s "$newplist" "$PLIST"; }; then
+    if (( TX_HAD_PLIST )); then
+      if [[ -n $TX_CUR && -d $APP/releases/${TX_CUR:t} ]]; then /bin/cp "$TX/plist" "$APP/releases/${TX_CUR:t}/launchd.plist.previous"
+      elif [[ -n $LEG ]]; then :   # already kept with the legacy snapshot
+      else /bin/cp "$TX/plist" "$APP/launchd.plist.previous"; fi
+    fi
+    place_file "$newplist" "$PLIST" 0644 || fail_and_rollback "cannot write $PLIST"
+    say "wrote $PLIST"
+  fi
+  /bin/rm -f "$newplist"
+
+  if (( NO_SERVICE )); then
+    say "service not touched (--no-service)"
+  else
+    bootout_service
+    start_service || fail_and_rollback "the new service did not verify within ${VERIFY_S}s: $VERIFY_WHY"
+    say "service verified: $LABEL pid=$VERIFIED_PID runs $APP/current/bin/forge-guardian and is publishing"
+  fi
+  write_installed "$V" "$(release_of previous)" || warn "could not write $FH/guardian.installed.json"
+  tx_end
+  say "installed $V$( [[ -n $(release_of previous) ]] && print " (previous: $(release_of previous))")"
+}
+
+# ---- rollback ---------------------------------------------------------------------
+cmd_rollback() {
+  (( NO_SERVICE )) || guard_service
+  take_lock
+  local cur prev
+  cur=$(release_of current); prev=$(release_of previous)
+  [[ -n $prev && -d $APP/releases/$prev ]] || die 1 "nothing to roll back to (no $APP/previous)"
+  [[ -n $cur ]] || die 1 "no current release"
+  tx_begin
+  swap_link "$APP/current" "releases/$prev" || fail_and_rollback "cannot switch current"
+  swap_link "$APP/previous" "releases/$cur" || fail_and_rollback "cannot switch previous"
+  ensure_links || fail_and_rollback "could not create the tool links"
+  for t in $ALL_TOOLS; do [[ -e $APP/current/bin/$t ]] || warn "release $prev has no $t: $FH/bin/$t dangles until the next install"; done
+  local newplist="$APP/plist.$$.xml"
+  gen_plist "$newplist" || fail_and_rollback "could not generate the plist"
+  if ! { [[ -f $PLIST ]] && cmp -s "$newplist" "$PLIST"; }; then
+    place_file "$newplist" "$PLIST" 0644 || fail_and_rollback "cannot write $PLIST"
+  fi
+  /bin/rm -f "$newplist"
+  if (( ! NO_SERVICE )); then
+    bootout_service
+    start_service || fail_and_rollback "the rolled-back service did not verify: $VERIFY_WHY"
+    say "service verified: pid=$VERIFIED_PID"
+  fi
+  SOURCE_COMMIT=unknown
+  [[ -r $APP/releases/$prev/MANIFEST.json ]] && SOURCE_COMMIT=$($PLUTIL -extract source_commit raw -o - "$APP/releases/$prev/MANIFEST.json" 2>/dev/null || print unknown)
+  write_installed "$prev" "$cur"
+  tx_end
+  say "rolled back: current $prev, previous $cur"
+}
+jx_installed() { $PLUTIL -extract "$1" raw -o - "$FH/guardian.installed.json" 2>/dev/null || print unknown; }
+
+# ---- uninstall --------------------------------------------------------------------
+cmd_uninstall() {
+  (( NO_SERVICE )) || guard_service
+  take_lock
+  local t f n=0
+  if (( ! NO_SERVICE )); then bootout_service && say "service stopped ($LABEL booted out)"; fi
+  if [[ -f $PLIST ]]; then /bin/rm -f "$PLIST" && say "removed $PLIST"; fi
+  for t in $LOCAL_TOOLS; do
+    f="$LOCALBIN/$t"
+    [[ -L $f && "$(readlink "$f")" == "$FH/bin/$t" ]] && /bin/rm -f "$f" && say "removed $f"
+  done
+  for t in $ALL_TOOLS; do
+    f="$FH/bin/$t"
+    if [[ -L $f && "$(readlink "$f")" == "$APP/"* ]]; then /bin/rm -f "$f" && (( n++ ))
+    elif [[ -f $f && ! -L $f ]]; then warn "kept the regular file $f (not installed by this tool)"; fi
+  done
+  say "removed $n tool links from $FH/bin"
+  /bin/rm -f "$FH/guardian.installed.json"
+  local -a live; local p
+  for f in "$FH"/jobs/*.job(N); do
+    p=$(sed -n 's/^pid=//p' "$f" | head -1)
+    [[ $p == <1-> ]] && kill -0 $p 2>/dev/null && live+=("${f:t} ($(sed -n 's/^name=//p' "$f" | head -1))")
+  done
+  (( ${#live} )) && warn "kept the envelopes of live jobs: ${(j:, :)live} -- they are no longer governed"
+  if (( PURGE )); then
+    /bin/rm -rf "$APP" && say "purged $APP"
+  else
+    say "releases kept in $APP (uninstall --purge removes them)"
+  fi
+  say "forge-job, forge-gate, forge-nproc and forge-guardian-ctl are now UNAVAILABLE; $FH (state, evidence, policy) is kept."
+}
+
+cmd_status() {
+  print -r -- "home:     $H"
+  print -r -- "current:  $(release_of current || print none)"
+  print -r -- "previous: $(release_of previous || print none)"
+  print -r -- "releases: ${(j: :)${(@)${(@f)$(print -l "$APP"/releases/*(N/:t))}}}"
+  print -r -- "plist:    $([[ -f $PLIST ]] && print $PLIST || print none)"
+  print -r -- "installed: $([[ -r $FH/guardian.installed.json ]] && jx_installed version || print none)"
+}
+
+# ---- main -------------------------------------------------------------------------
+SUB=${1:-}
+(( $# )) && shift
+NO_SERVICE=0; RUN_TESTS=0; PURGE=0; FROM=""
+while (( $# )); do
+  case $1 in
+    --from)       (( $# >= 2 )) || die 2 "--from needs a directory"; FROM=$2; shift 2 ;;
+    --no-service) NO_SERVICE=1; shift ;;
+    --run-tests)  RUN_TESTS=1; shift ;;
+    --purge)      PURGE=1; shift ;;
+    -h|--help)    usage; exit 0 ;;
+    *)            usage >&2; die 2 "unknown argument '$1'" ;;
+  esac
+done
+[[ -z $FROM || -d $FROM ]] || die 2 "--from $FROM is not a directory"
+trap 'cleanup_staging; /bin/rm -f "$APP/plist.$$.xml" "$APP/plist.$$.xml.json" 2>/dev/null' EXIT
+case $SUB in
+  install|upgrade) cmd_install ;;
+  rollback)        cmd_rollback ;;
+  uninstall)       cmd_uninstall ;;
+  status)          cmd_status ;;
+  -h|--help|help)  usage ;;
+  *)               usage >&2; exit 2 ;;
+esac

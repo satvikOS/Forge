@@ -1,0 +1,211 @@
+#!/bin/zsh
+# stub-sensor-admit -- a hermetic zsh stand-in for `forge-guardian-sensor`, for the
+# lifecycle gates (forge_job_admission_gate.sh, install_gate.sh). It implements the
+# CLI shape of SCHEMA.md §9/§10 and the sensor brief -- admit, release, pidinfo,
+# incident, quarantine-clear, snapshot, run, --version -- with decisions taken from
+# the ENVIRONMENT instead of the machine, and it RECORDS every call so a gate can
+# assert what forge-job / forge-guardian-ctl actually asked for.
+#
+#   FG_STUB_LOG=<file>          append one line per call: the subcommand and its args,
+#                               each shell-quoted (default: <state-dir>/stub-sensor.calls)
+#   FG_STUB_ADMIT_RC=0|1|2|75|78  admit's exit status (default 0)
+#   FG_STUB_ADMIT_SLEEP=<s>     admit blocks this long first (interruptibly) -- a slow wait
+#   FG_STUB_RELEASE_RC=<n>      release's exit status (default 0); 0 and 78 remove the
+#                               envelope first, anything else leaves it (a failed release)
+#   FG_STUB_PIDFILE=<file>      append this process's pid (so a gate can reap it)
+#   FG_STUB_SNAPSHOT_RC=<n>     snapshot's exit status (default 0)
+#   FG_STUB_SNAPSHOT_BAD=1      snapshot prints something that is not JSON
+#   FG_STUB_VERSION_RC=<n>      --version's exit status (default 0)
+#
+# It never signals anything except, in `run`, nothing at all: `run` just publishes a
+# minimal sensor.env each poll and exits when its --parent dies or it is TERMed.
+set -u
+setopt NULL_GLOB
+zmodload zsh/datetime 2>/dev/null
+umask 077
+VERSION="forge-guardian-sensor 0.0.0-stub-admit"
+
+D=""; LOGF=""
+logcall() {
+  local f=${FG_STUB_LOG:-}
+  [[ -z $f && -n $D ]] && f="$D/stub-sensor.calls"
+  [[ -n $f ]] || return 0
+  print -r -- "${(j: :)${(q)@}}" >> "$f" 2>/dev/null
+  return 0
+}
+
+# Start second of a pid from ps(1); empty when it cannot be determined.
+pstart_of() {
+  local ls ep
+  ls=$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)
+  ls=${(j: :)${=ls}}
+  [[ -n $ls ]] || return 1
+  strftime -r -s ep '%a %b %d %H:%M:%S %Y' "$ls" 2>/dev/null || return 1
+  print -r -- $ep
+}
+
+oneline() { REPLY=${1//$'\n'/ }; REPLY=${REPLY//$'\r'/ }; }
+
+atomic_write() {   # atomic_write <path> <content>
+  local t="$1.tmp.$$"
+  print -r -- "$2" > "$t" && mv -f "$t" "$1" || { rm -f "$t"; return 1; }
+}
+
+sub=${1:-}
+(( $# )) && shift
+case "$sub" in
+  --version) print -r -- "$VERSION"; exit ${FG_STUB_VERSION_RC:-0} ;;
+  -h|--help|help|"") print -r -- "usage: forge-guardian-sensor {run|snapshot|pidinfo|admit|release|incident|quarantine-clear|--version}"; exit 0 ;;
+esac
+
+# Common option parse (every subcommand takes long options; pidinfo takes pids).
+PID=""; NAME="job"; PEAK=""; PRIO=5; RESTART=0; GPU=0; THREADS=""; DISK_GB=""; DISK_PATH=""
+HB=""; STALL=""; NEED=green; SIG=""; CMD=""; OWNER=""; WAIT=0; DRY=0; RC=""; SIGNAME=""; EXTTERM=0
+KIND=""; NOTE=""; WITHLOG=0; REASON=""; JOBSIG=""; WINDOW=""; PARENT=""; POLL=5; JSON=0
+typeset -a POS
+orig=("$@")
+while (( $# )); do
+  case "$1" in
+    --state-dir) D="$2"; shift 2 ;;
+    --pid) PID="$2"; shift 2 ;;
+    --name) NAME="$2"; shift 2 ;;
+    --peak-gb) PEAK="$2"; shift 2 ;;
+    --priority) PRIO="$2"; shift 2 ;;
+    --restartable) RESTART=1; shift ;;
+    --gpu) GPU=1; shift ;;
+    --threads) THREADS="$2"; shift 2 ;;
+    --disk-gb) DISK_GB="$2"; shift 2 ;;
+    --disk-path) DISK_PATH="$2"; shift 2 ;;
+    --heartbeat) HB="$2"; shift 2 ;;
+    --stall-s) STALL="$2"; shift 2 ;;
+    --need) NEED="$2"; shift 2 ;;
+    --sig) SIG="$2"; shift 2 ;;
+    --cmd) CMD="$2"; shift 2 ;;
+    --owner) OWNER="$2"; shift 2 ;;
+    --wait) WAIT="$2"; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    --json) JSON=1; shift ;;
+    --rc) RC="$2"; shift 2 ;;
+    --signal) SIGNAME="$2"; shift 2 ;;
+    --external-term) EXTTERM=1; shift ;;
+    --kind) KIND="$2"; shift 2 ;;
+    --note) NOTE="$2"; shift 2 ;;
+    --with-log) WITHLOG=1; shift ;;
+    --job) JOBSIG="$2"; shift 2 ;;
+    --window-min) WINDOW="$2"; shift 2 ;;
+    --reason) REASON="$2"; shift 2 ;;
+    --parent) PARENT="$2"; shift 2 ;;
+    --poll) POLL="$2"; shift 2 ;;
+    --policy) shift 2 ;;
+    --*) print -u2 -r -- "stub-sensor: unknown option $1"; exit 2 ;;
+    *) POS+=("$1"); shift ;;
+  esac
+done
+[[ -z $D ]] && D=${FORGE_HEALTH_DIR:-}
+[[ -n ${FG_STUB_PIDFILE:-} ]] && print -r -- $$ >> "$FG_STUB_PIDFILE"
+logcall "$sub" "${orig[@]}"
+
+case "$sub" in
+  admit)
+    [[ -n $D && -n $PID && -n $PEAK ]] || { print -u2 "stub-sensor admit: --state-dir, --pid and --peak-gb are required"; exit 2; }
+    if [[ -n ${FG_STUB_ADMIT_SLEEP:-} ]]; then
+      trap '[[ -n ${SP:-} ]] && kill $SP 2>/dev/null; exit 143' TERM INT
+      sleep "$FG_STUB_ADMIT_SLEEP" & SP=$!; wait $SP; SP=""
+    fi
+    rc=${FG_STUB_ADMIT_RC:-0}
+    case $rc in
+      0)
+        (( DRY )) && exit 0
+        mkdir -p "$D/jobs" || exit 75
+        ps=$(pstart_of "$PID")
+        boot=$(sysctl -n kern.bootsessionuuid 2>/dev/null)
+        oneline "$NAME"; nm=$REPLY; oneline "$CMD"; cm=$REPLY
+        body="pid=$PID
+name=$nm
+priority=$PRIO
+can_restart=$RESTART
+peak_gb=$PEAK
+gpu=$GPU
+started=$EPOCHSECONDS
+schema=2"
+        [[ -n $ps ]] && body+=$'\n'"pstart=$ps"
+        [[ -n $boot ]] && body+=$'\n'"boot=$boot"
+        [[ -n $SIG ]] && body+=$'\n'"sig=$SIG"
+        [[ -n $THREADS ]] && body+=$'\n'"threads=$THREADS"
+        [[ -n $DISK_GB ]] && body+=$'\n'"disk_gb=$DISK_GB"$'\n'"disk_path=$DISK_PATH"
+        [[ -n $HB ]] && body+=$'\n'"heartbeat=$HB"
+        [[ -n $STALL ]] && body+=$'\n'"stall_s=$STALL"
+        body+=$'\n'"admitted=$EPOCHSECONDS"$'\n'"admit_state=GREEN"$'\n'"owner=${OWNER:-forge-job}"$'\n'"cmd=$cm"
+        atomic_write "$D/jobs/$PID.job" "$body" || exit 75
+        exit 0 ;;
+      1)  print -u2 -r -- "stub-sensor: DENY $NAME: budget: reserved 31.0 + new $PEAK > 30.0 GiB (stub)"; exit 1 ;;
+      78) print -u2 -r -- "stub-sensor: QUARANTINED sig=$SIG ($NAME)"; exit 78 ;;
+      *)  print -u2 -r -- "stub-sensor: admit exits $rc (stub)"; exit $rc ;;
+    esac ;;
+
+  release)
+    [[ -n $D && -n $PID ]] || exit 2
+    f="$D/jobs/$PID.job"
+    rrc=${FG_STUB_RELEASE_RC:-0}
+    if [[ $rrc == (0|78) && -f $f && "$(sed -n 's/^pid=//p' "$f" | head -1)" == "$PID" ]]; then rm -f "$f"; fi
+    exit $rrc ;;
+
+  pidinfo)
+    for p in "${POS[@]}"; do
+      if [[ $p == <1-> ]] && kill -0 "$p" 2>/dev/null; then
+        ln=$(ps -o ppid=,uid=,comm= -p "$p" 2>/dev/null)
+        set -- ${=ln}
+        print -r -- "pid=$p ppid=${1:-?} pstart=$(pstart_of $p) uid=${2:-?} comm=${${3:-?}:t} identity=alive"
+      else
+        print -r -- "pid=$p identity=dead"
+      fi
+    done
+    exit 0 ;;
+
+  incident)
+    [[ -n $D && -n $KIND ]] || exit 2
+    dir="$D/incidents/$(TZ=UTC strftime '%Y%m%dT%H%M%SZ' $EPOCHSECONDS)-$KIND"
+    mkdir -p "$dir" || exit 70
+    oneline "$NOTE"; nt=${REPLY//\\/\\\\}; nt=${nt//\"/\\\"}
+    atomic_write "$dir/summary.json" "{\"ts\": $EPOCHSECONDS, \"kind\": \"$KIND\", \"note\": \"$nt\", \"with_log\": $(( WITHLOG ))}" || exit 70
+    print -r -- "$dir"
+    exit 0 ;;
+
+  quarantine-clear)
+    [[ -n $D && -n $SIG && -n $REASON ]] || exit 2
+    q="$D/quarantine/$SIG.json"
+    [[ -f $q ]] || { print -u2 -r -- "stub-sensor: $SIG is not quarantined"; exit 1; }
+    rm -f "$q"
+    oneline "$REASON"; r=${REPLY//\\/\\\\}; r=${r//\"/\\\"}
+    print -r -- "{\"sig\": \"$SIG\", \"reason\": \"$r\", \"user\": \"$(id -un)\", \"ts\": $EPOCHSECONDS}" >> "$D/quarantine/cleared.jsonl"
+    exit 0 ;;
+
+  snapshot)
+    if [[ ${FG_STUB_SNAPSHOT_BAD:-0} == 1 ]]; then print -r -- "this is not json {"; exit ${FG_STUB_SNAPSHOT_RC:-0}; fi
+    print -r -- "{\"schema\": \"forge.guardian.sensor/1\", \"version\": \"0.0.0-stub-admit\", \"pid\": $$, \"seq\": 1, \"ts\": $EPOCHREALTIME, \"signals\": {\"vm_pressure\": {\"status\": \"ok\", \"value\": 1}, \"thermal\": {\"status\": \"ok\", \"value\": \"nominal\"}}, \"volumes\": [], \"jobs\": [], \"errors\": 0}"
+    exit ${FG_STUB_SNAPSHOT_RC:-0} ;;
+
+  run)
+    # Publishes a minimal, honest sensor.env each poll; exits with its parent.
+    [[ -n $D ]] || exit 2
+    trap 'exit 0' TERM INT
+    integer seq=0
+    while :; do
+      [[ -n $PARENT ]] && ! kill -0 "$PARENT" 2>/dev/null && exit 0
+      (( seq++ ))
+      atomic_write "$D/sensor.env" "schema=forge.guardian.sensor/1
+version=0.0.0-stub-admit
+pid=$$
+seq=$seq
+ts=$EPOCHREALTIME
+ts_s=$EPOCHSECONDS
+poll_s=$POLL
+thermal=none
+thermal_st=unavailable
+jobs_n=0
+errors=0"
+      sleep "$POLL" & wait $!
+    done ;;
+
+  *) print -u2 -r -- "stub-sensor: unknown subcommand '$sub'"; exit 2 ;;
+esac

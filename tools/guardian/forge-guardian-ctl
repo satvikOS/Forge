@@ -1,5 +1,14 @@
 #!/bin/zsh
-# forge-guardian-ctl {start|stop|status|tail}
+# forge-guardian-ctl — inspect and control the Forge Guardian.
+#
+#   forge-guardian-ctl status                     read-only; first line is RUNNING… / NOT RUNNING…
+#   forge-guardian-ctl start | stop | restart     via launchd when the LaunchAgent is installed
+#   forge-guardian-ctl tail [guardian|sensor|events|launchd]
+#   forge-guardian-ctl diagnose                   deep read-only checks, one PASS/WARN/FAIL line each
+#   forge-guardian-ctl incident [--kind K] [--note TEXT] [--with-log]
+#   forge-guardian-ctl quarantine list | quarantine clear SIG --reason TEXT
+#   forge-guardian-ctl reservations | history [N] | version
+#   forge-guardian-ctl install | upgrade | rollback | uninstall …   (→ forge-guardian-install)
 #
 # Liveness is asked of launchd FIRST, then of a pidfile, then of the published
 # state's freshness. An earlier version consulted only the pidfile and reported
@@ -7,69 +16,562 @@
 # forge-gate, reading the state file, correctly admitted. Two safety instruments
 # disagreeing is worse than either being absent: an autonomous tick then either
 # halts on a healthy machine or proceeds on a dead guardian.
+#
+# `status` (and diagnose, reservations, history, quarantine list, version) are
+# READ-ONLY: they never start, stop or write anything, and a missing file is reported,
+# never an error exit. RUNBOOK §0 runs `forge-guardian-ctl status | head -1`.
 set -u
-setopt NULL_GLOB
-STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+setopt NULL_GLOB EXTENDED_GLOB
+zmodload zsh/datetime 2>/dev/null
+zmodload -F zsh/stat b:zstat 2>/dev/null
+SELF=${0:A}          # $0 inside a function is the FUNCTION's name: capture the script here
+H=${FORGE_GUARDIAN_HOME:-$HOME}
+STATE_DIR=${FORGE_HEALTH_DIR:-$H/.forge-health}
+LAUNCHCTL=${FORGE_GUARDIAN_LAUNCHCTL:-/bin/launchctl}
 PIDF="$STATE_DIR/guardian.pid"
 LABEL=com.archdisc.forge.guardian
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+PLIST="$H/Library/LaunchAgents/$LABEL.plist"
+APP="$H/Library/Application Support/ForgeGuardian"
+TARGET="gui/$UID"
+PLUTIL=/usr/bin/plutil
+TOOLS=(forge-guardian forge-gate forge-job forge-nproc forge-guardian-ctl forge-guardian-install
+       forge-guardian-sensor forge-stallguard forge-guardian-selftest forge-guardian-actuator-test)
 
-launchd_pid() { launchctl list 2>/dev/null | awk -v l="$LABEL" '$3==l && $1 ~ /^[0-9]+$/ {print $1}'; }
-pidfile_pid() { [[ -f "$PIDF" ]] && kill -0 "$(cat $PIDF)" 2>/dev/null && cat "$PIDF"; }
-state_age()   { [[ -f "$STATE_DIR/state" ]] && print $(( $(date +%s) - $(stat -f %m "$STATE_DIR/state") )) || print 999999; }
+# ---- small readers (all tolerate a missing file) ----------------------------------
+mtime_of() { local -a m; zstat -A m +mtime -- "$1" 2>/dev/null && print -r -- $m[1]; }
+size_of()  { local -a s; zstat -A s +size  -- "$1" 2>/dev/null && print -r -- $s[1] || print 0; }
+mode_of()  { local -a s; zstat -A s -o +mode -- "$1" 2>/dev/null && print -r -- ${s[1]: -3}; }
+# One JSON value (plutil reads JSON; raw prints strings/numbers/bools bare).
+jx() { [[ -r $1 ]] && $PLUTIL -extract "$2" raw -o - "$1" 2>/dev/null; }
+# KEY=VALUE file into an associative array, first occurrence wins, no fork.
+load_kv() {   # load_kv <file> <assoc-name>
+  local f=$1 line k
+  [[ -r $f ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line == [A-Za-z_][A-Za-z0-9_]#=* ]] || continue
+    k=${line%%=*}
+    eval "(( \${+$2[\$k]} ))" && continue
+    eval "$2[\$k]=\${line#*=}"
+  done < "$f"
+  return 0
+}
+gib() { [[ $1 == (-|)<->(|.<->) ]] && (( $1 >= 0 )) && printf '%.1f' $(( $1 / 1073741824.0 )) || print -r -- "?"; }
+iso() { [[ $1 == <-> ]] && strftime '%Y-%m-%d %H:%M:%S' $1 || print -r -- "?"; }
+
+# ---- domain and launchd -----------------------------------------------------------
+# The launchd label is per USER, the health domain per DIRECTORY. launchd's pid only
+# answers for this domain when the installed plist governs THIS FORGE_HEALTH_DIR --
+# otherwise `FORGE_HEALTH_DIR=/tmp/x forge-guardian-ctl status` would report the
+# workstation's governor as running a private test domain.
+# The user's REAL home from the directory service, never from $HOME (a test sets HOME
+# to its fake home). zsh's $userdirs is filled lazily and reads EMPTY here, which once
+# silently disabled this interlock. If it cannot be determined, assume the home is
+# fake: refusing a service operation is recoverable, replacing the live one is not.
+REAL_HOME=$(/usr/bin/dscl . -read "/Users/$USERNAME" NFSHomeDirectory 2>/dev/null)
+REAL_HOME=${REAL_HOME#NFSHomeDirectory: }
+real_launchctl() { [[ ${LAUNCHCTL:A} == /bin/launchctl ]]; }
+fake_home()      { [[ -z $REAL_HOME || ${H:A} != ${REAL_HOME:A} ]]; }
+plist_domain() {
+  local d
+  d=$(jx "$PLIST" EnvironmentVariables.FORGE_HEALTH_DIR) || d=""
+  print -r -- "${d:-$H/.forge-health}"
+}
+supervised() {
+  [[ -f $PLIST ]] || return 1
+  fake_home && real_launchctl && return 1      # never attribute the REAL service to a fake home
+  [[ ${"$(plist_domain)":A} == ${STATE_DIR:A} ]]
+}
+guard_service() {
+  if fake_home && real_launchctl; then
+    print -u2 -r -- "forge-guardian-ctl: refusing: FORGE_GUARDIAN_HOME=$H is not this user's home ($REAL_HOME),"
+    print -u2 -r -- "  but launchctl is the real one; the label $LABEL is per-user, so this would act on the REAL service."
+    exit 2
+  fi
+}
+launchd_pid() { supervised || return 0; $LAUNCHCTL list 2>/dev/null | awk -v l="$LABEL" '$3==l && $1 ~ /^[0-9]+$/ {print $1}'; }
+launchd_loaded() { supervised && $LAUNCHCTL print "$TARGET/$LABEL" >/dev/null 2>&1; }
+pidfile_pid() { local p; [[ -f $PIDF ]] && p=$(<$PIDF) && [[ $p == <1-> ]] && kill -0 $p 2>/dev/null && print -r -- $p; }
+# The governor's own single-instance lock: domain-scoped by its path. Trusted only when
+# the recorded start time still matches the live pid (pids are reused).
+lock_pid() {
+  local p s now
+  [[ -r $STATE_DIR/guardian.lock/pid ]] || return 0
+  p=$(<$STATE_DIR/guardian.lock/pid); [[ $p == <1-> ]] || return 0
+  kill -0 $p 2>/dev/null || return 0
+  s=""; [[ -r $STATE_DIR/guardian.lock/started ]] && s=$(<$STATE_DIR/guardian.lock/started)
+  now=$(ps -p $p -o lstart= 2>/dev/null)
+  [[ -n $s && ${(j: :)${=s}} != "${(j: :)${=now}}" ]] && return 0
+  [[ "$(ps -ww -p $p -o args= 2>/dev/null)" == *forge-guardian(| *) ]] || return 0
+  print -r -- $p
+}
+state_age() { local m; m=$(mtime_of "$STATE_DIR/state") && print $(( EPOCHSECONDS - m )) || print 999999; }
+
+find_sensor() {
+  local c
+  for c in "${FORGE_GUARDIAN_SENSOR_BIN:-}" "${SELF:h}/forge-guardian-sensor" "$STATE_DIR/bin/forge-guardian-sensor"; do
+    [[ -n $c && -f $c && -x $c ]] && { print -r -- $c; return 0; }
+  done
+  return 1
+}
+
+# Wait (bounded) for a launchd-supervised governor to publish.
+await_publishing() {   # await_publishing <seconds>  -> prints the pid
+  local i lp
+  for i in {1..$(( $1 * 2 ))}; do
+    lp=$(launchd_pid)
+    [[ -n $lp ]] && (( $(state_age) <= 60 )) && { print -r -- $lp; return 0; }
+    sleep 0.5
+  done
+  print -r -- "${lp:-}"; return 1
+}
+
+# ---- status -----------------------------------------------------------------------
+local_identity() {   # SCHEMA §5 order, for envelopes the sensor has not reported on
+  local pid=$1 boot=$2 pstart=$3 started=$4 ls ep
+  [[ $pid == <1-> ]] && kill -0 $pid 2>/dev/null || { print dead; return; }
+  if [[ -n $boot ]]; then
+    [[ $boot == "$(sysctl -n kern.bootsessionuuid 2>/dev/null)" ]] || { print mismatch; return; }
+  fi
+  ls=$(LC_ALL=C ps -o lstart= -p $pid 2>/dev/null); ls=${(j: :)${=ls}}
+  strftime -r -s ep '%a %b %d %H:%M:%S %Y' "$ls" 2>/dev/null || ep=""
+  if [[ -n $pstart ]]; then
+    [[ -n $ep ]] || { print unverifiable; return; }
+    (( ep - pstart <= 1 && pstart - ep <= 1 )) && print ok || print mismatch; return
+  fi
+  if [[ -n $started ]]; then
+    [[ -n $ep ]] || { print unverifiable; return; }
+    (( ep <= started + 5 )) && print ok || print mismatch; return
+  fi
+  print unverifiable
+}
+
+cmd_status() {
+  local LP PP KP AGE who
+  LP=$(launchd_pid); PP=$(pidfile_pid); KP=$(lock_pid); AGE=$(state_age)
+  # PUBLISHING is the definition of alive, not process existence. Every consumer
+  # (forge-gate, forge-nproc) reads the published state and fails closed when it
+  # goes stale, so a process that still exists but has stopped publishing must be
+  # reported as DOWN here too — otherwise the two instruments disagree and an
+  # autonomous tick trusts whichever it happened to ask.
+  who=${LP:-${PP:-$KP}}
+  if (( AGE > 60 )); then
+    if [[ -n $who ]] && (( AGE >= 999999 )); then
+      print -r -- "NOT RUNNING (process $who exists but has published no state — WEDGED)"
+    elif [[ -n $who ]]; then
+      print -r -- "NOT RUNNING (process $who exists but stopped publishing ${AGE}s ago — WEDGED)"
+    else
+      print -r -- "NOT RUNNING"
+    fi
+    if (( AGE >= 999999 )); then print -r -- "  ⚠ no published state — consumers fail closed"
+    else print -r -- "  ⚠ published state is ${AGE}s STALE — consumers fail closed"; fi
+  elif [[ -n $LP ]]; then print -r -- "RUNNING pid=$LP (launchd-supervised)"
+  elif [[ -n ${PP:-$KP} ]]; then print -r -- "RUNNING pid=${PP:-$KP} (unsupervised — will NOT survive a crash)"
+  else print -r -- "NOT RUNNING (state is fresh but no governor process is identifiable)"; fi
+
+  # -- installed version
+  local inst="$STATE_DIR/guardian.installed.json" cur=""
+  [[ -L $APP/current ]] && cur=$(readlink "$APP/current")
+  if [[ -r $inst ]]; then
+    print -r -- "  installed: $(jx $inst version || print '?')  (since $(jx $inst installed_at || print '?'); source $(jx $inst source_commit || print '?'); previous $(jx $inst previous || print none))"
+  elif [[ -n $cur ]]; then
+    print -r -- "  installed: ${cur:t} (no guardian.installed.json)"
+  else
+    print -r -- "  installed: unknown — no release under $APP (hand-copied or legacy install)"
+  fi
+  if [[ ! -f $PLIST ]]; then print -r -- "  domain: $STATE_DIR  (no LaunchAgent)"
+  elif supervised; then print -r -- "  domain: $STATE_DIR  (LaunchAgent installed)"
+  else print -r -- "  domain: $STATE_DIR  (the LaunchAgent governs $(plist_domain))"; fi
+
+  # -- state
+  local sj="$STATE_DIR/state.json" st
+  st="?"; [[ -r $STATE_DIR/state ]] && st=$(<$STATE_DIR/state)
+  print -r -- "  state=${st:-?} age=${AGE}s reason=$(jx $sj reason || print '?') seq=$(jx $sj seq || print -r -- -) j=$(jx $sj build_jobs_max || print '?')"
+  local ec miss src sage
+  ec=$(jx $sj evidence_complete); src=$(jx $sj evidence.source); sage=$(jx $sj evidence.sensor_age_s)
+  miss=$($PLUTIL -extract evidence.missing json -o - "$sj" 2>/dev/null) || miss=""
+  miss=${${${miss//[\[\]\"]/}//,/ }:-none}
+  case $ec in
+    true)  print -r -- "  evidence: complete (source=${src:-?} sensor_age=${sage:-?}s)" ;;
+    false) print -r -- "  evidence: INCOMPLETE (source=${src:-?} sensor_age=${sage:-?}s) missing: $miss" ;;
+    *)     print -r -- "  evidence: not reported (a v1 governor publishes no evidence block)" ;;
+  esac
+
+  # -- sensor
+  typeset -A S
+  if load_kv "$STATE_DIR/sensor.env" S; then
+    local sp=${S[pid]:-?} sts=${S[ts_s]:-} salive=dead
+    [[ $sp == <1-> ]] && kill -0 $sp 2>/dev/null && salive=alive
+    print -r -- "  sensor: pid=$sp ($salive) version=${S[version]:-?} seq=${S[seq]:-?} age=$([[ $sts == <-> ]] && print $(( EPOCHSECONDS - sts )) || print '?')s errors=${S[errors]:-?}"
+    print -r -- "    vm_pressure     ${S[vmp]:-?}  [${S[vmp_st]:-?}]"
+    print -r -- "    pressure_event  ${S[pevent]:-?} warn=${S[pevent_warn_n]:-?} crit=${S[pevent_crit_n]:-?}  [${S[pevent_st]:-?}]"
+    print -r -- "    free_pct        ${S[freepct]:-?}  [${S[freepct_st]:-?}]"
+    print -r -- "    memory          avail $(gib ${S[mem_avail_b]:-x}) / total $(gib ${S[mem_total_b]:-x}) GiB, compressed $(gib ${S[mem_compressed_b]:-x})  [${S[mem_st]:-?}]"
+    print -r -- "    swap            ${S[swap_used_mb]:-?}/${S[swap_total_mb]:-?} MB, growth ${S[swap_growth_mb_min]:-?} MB/min  [${S[swap_st]:-?}]"
+    print -r -- "    pageouts        ${S[pageout_rate_ps]:-?}/s (swapouts ${S[swapout_rate_ps]:-?}/s)  [${S[pageouts_st]:-?}]"
+    print -r -- "    thermal         ${S[thermal]:-?}  [${S[thermal_st]:-?}]"
+    print -r -- "    cpu             load1 ${S[load1]:-?} busy ${S[cpu_busy_pct]:-?}%  [${S[cpu_st]:-?}]"
+    print -r -- "    disk            min avail ${S[disk_min_avail_gib]:-?} GiB  [${S[disk_st]:-?}]"
+    local i
+    for (( i = 0; i < ${S[vol_n]:-0}; i++ )); do
+      print -r -- "      ${S[vol${i}_mount]:-?}  $(gib ${S[vol${i}_avail_b]:-x}) GiB free, growth ${S[vol${i}_growth_b_min]:-?} B/min  [${S[vol${i}_st]:-?}]"
+    done
+  else
+    print -r -- "  sensor: no sensor.env (sensor not running, or a v1 governor sampling on its own)"
+  fi
+
+  # -- reservations
+  if [[ -n ${S[budget_b]:-} ]]; then
+    print -r -- "  reservations: reserved $(gib ${S[reserved_b]:-x}) / budget $(gib ${S[budget_b]:-x}) GiB, overcommit=${S[overcommit]:-?}"
+  elif [[ -n "$(jx $sj reservations.budget_gb)" ]]; then
+    print -r -- "  reservations: reserved $(jx $sj reservations.reserved_gb) / budget $(jx $sj reservations.budget_gb) GiB, overcommit=$(jx $sj reservations.overcommit)"
+  else
+    print -r -- "  reservations: not reported"
+  fi
+
+  # -- registered jobs
+  # NULL_GLOB makes an unmatched glob VANISH, and `ls` with no arguments lists the
+  # CURRENT DIRECTORY — which reported "48 registered jobs" for an empty jobs dir.
+  # Count the array, never a command whose argument list can disappear.
+  local -a JOBS; JOBS=("$STATE_DIR/jobs"/*.job(N))
+  print -r -- "  registered jobs: ${#JOBS[@]}"
+  local f j k idn fp rs
+  for f in $JOBS; do
+    typeset -A E; E=()
+    load_kv "$f" E
+    idn=""; fp="?"; rs=""
+    for (( j = 0; j < ${S[jobs_n]:-0}; j++ )); do
+      if [[ ${S[job${j}_pid]:-} == ${E[pid]:-x} ]]; then
+        idn=${S[job${j}_identity]:-?}; fp=$(gib ${S[job${j}_fp_b]:-x}); rs=$(gib ${S[job${j}_reserved_b]:-x}); break
+      fi
+    done
+    [[ -z $idn ]] && idn="$(local_identity "${E[pid]:-}" "${E[boot]:-}" "${E[pstart]:-}" "${E[started]:-}")(local)"
+    print -r -- "    ${E[name]:-?} pid=${E[pid]:-?} identity=$idn footprint=${fp}GiB reserved=${rs:-${E[peak_gb]:-?}}GiB prio=${E[priority]:-?} restart=${E[can_restart]:-?} gpu=${E[gpu]:-?}${E[threads]:+ threads=${E[threads]}}${E[owner]:+ owner=${E[owner]}}"
+  done
+
+  # -- quarantines
+  local -a Q; Q=("$STATE_DIR/quarantine"/*.json(N))
+  print -r -- "  quarantined signatures: ${#Q[@]}"
+  local q
+  for q in $Q; do
+    print -r -- "    ${q:t:r}  name=$(jx $q name || print '?') since=$(iso "$(jx $q since)")  →  forge-guardian-ctl quarantine clear ${q:t:r} --reason \"…\""
+  done
+
+  # -- incidents (last 3, newest first; names start with a UTC stamp)
+  local -a I; I=("$STATE_DIR/incidents"/*(N/On))
+  print -r -- "  incidents: ${#I[@]}$( (( ${#I[@]} )) && print ' (latest 3)')"
+  for q in ${I[1,3]}; do
+    print -r -- "    ${q:t}  $(jx $q/summary.json note || true)"
+  done
+
+  # -- previous session
+  local pv="$STATE_DIR/session/previous.json"
+  if [[ -r $pv ]]; then
+    local cls lh be
+    cls=$(jx $pv classification); lh=$(jx $pv last_heartbeat); be=$(jx $pv boot_epoch)
+    print -r -- "  previous session: ${cls:-?} (last heartbeat $(iso ${lh%%.*}), orderly_stop=$(jx $pv orderly_stop || print '?'))"
+  else
+    print -r -- "  previous session: no record"
+  fi
+
+  # -- log + evidence volume against the cap
+  typeset -A P; load_kv "$STATE_DIR/policy.env" P
+  local -i bytes=0; local -a fl
+  fl=("$STATE_DIR"/log/**/*(N.) "$STATE_DIR"/history.jsonl*(N.) "$STATE_DIR"/events.jsonl*(N.) "$STATE_DIR"/events/**/*(N.) "$STATE_DIR"/incidents/**/*(N.))
+  for f in $fl; do (( bytes += $(size_of $f) )); done
+  local cap=${P[logs_cap_mib]:-64}
+  printf '  logs+evidence: %.1f MiB of %s MiB cap (%d files)\n' $(( bytes / 1048576.0 )) "$cap" ${#fl}
+  print -r -- "  disk hardware: $(jx $sj disk_hardware || print 'not reported')"
+  return 0
+}
+
+# ---- diagnose ---------------------------------------------------------------------
+NFAIL=0; NWARN=0
+pass() { print -r -- "PASS  $1"; }
+warn() { print -r -- "WARN  $1"; (( NWARN++ )); }
+fail() { print -r -- "FAIL  $1"; (( NFAIL++ )); }
+cmd_diagnose() {
+  local cur="" curd="" lp kp
+  [[ -L $APP/current ]] && { cur=$(readlink "$APP/current"); curd=${APP}/current; }
+  print -r -- "forge-guardian-ctl diagnose  (domain $STATE_DIR, home $H)"
+  # 1. plist
+  if [[ -f $PLIST ]]; then
+    if $PLUTIL -lint -s "$PLIST" >/dev/null 2>&1; then pass "plist lints: $PLIST"; else fail "plist does not lint: $PLIST"; fi
+    local lab prog
+    lab=$(jx "$PLIST" Label); prog=$(jx "$PLIST" ProgramArguments.1)
+    [[ $lab == $LABEL ]] && pass "plist Label = $LABEL" || fail "plist Label is '$lab'"
+    if [[ -z $prog ]]; then fail "plist has no ProgramArguments[1]"
+    elif [[ ! -f $prog ]]; then fail "plist program does not exist: $prog"
+    elif [[ -n $cur && ${prog:A} == ${APP:A}/releases/${cur:t}/* ]]; then pass "plist program resolves into the current release (${cur:t})"
+    elif [[ -n $cur ]]; then warn "plist program $prog does not resolve into the current release ${cur:t}"
+    else warn "plist program $prog is not an installed release (legacy install)"; fi
+    [[ ${"$(plist_domain)":A} == ${STATE_DIR:A} ]] && pass "plist FORGE_HEALTH_DIR is this domain" || warn "plist governs $(plist_domain), not $STATE_DIR"
+  else
+    warn "no LaunchAgent at $PLIST (an unsupervised governor will not survive a crash)"
+  fi
+  # 2. launchd
+  if supervised; then
+    local pr n
+    pr=$($LAUNCHCTL print "$TARGET/$LABEL" 2>/dev/null)
+    n=$($LAUNCHCTL list 2>/dev/null | awk -v l="$LABEL" '$3==l' | wc -l | tr -d ' ')
+    lp=$(print -r -- "$pr" | sed -n 's/^	pid = \([0-9]*\)$/\1/p' | head -1)
+    if [[ "$(print -r -- "$pr" | sed -n 's/^	state = //p' | head -1)" == running && -n $lp ]]; then pass "launchd: $LABEL running pid=$lp"
+    else fail "launchd: $LABEL is not running (print: $(print -r -- "$pr" | sed -n 's/^	state = //p' | head -1))"; fi
+    [[ $n == 1 ]] && pass "exactly one launchd instance of $LABEL" || fail "$n launchd entries for $LABEL"
+  fi
+  # 3. governor process
+  kp=$(lock_pid)
+  if [[ -n $kp ]]; then
+    pass "guardian.lock held by a live governor pid=$kp"
+    [[ -z ${lp:-} || $kp == $lp ]] && pass "the lock holder is the supervised process" || fail "lock holder $kp is not the launchd pid $lp"
+  else
+    fail "no live governor holds $STATE_DIR/guardian.lock"
+  fi
+  local -a gp; gp=(${(f)"$(pgrep -f '(^|/)forge-guardian$' 2>/dev/null)"})
+  if (( ${#gp} <= 1 )); then pass "guardian processes on this machine: ${#gp}"
+  else warn "guardian processes on this machine: ${#gp} (${gp}) -- other domains cannot be told apart: ps -E is SIP-restricted"; fi
+  # 4. sensor process for THIS domain (its argv names the domain)
+  local -a sp; local line
+  for line in ${(f)"$(ps -axww -o pid=,args= 2>/dev/null)"}; do
+    [[ $line == *forge-guardian-sensor\ run\ *--state-dir\ "$STATE_DIR"(| *) ]] && sp+=(${${=line}[1]})
+  done
+  local S; S=$(find_sensor)
+  if (( ${#sp} == 1 )); then pass "one sensor process for this domain: pid=${sp[1]}"
+  elif (( ${#sp} == 0 )); then [[ -n $S ]] && fail "no sensor process for this domain" || warn "no sensor installed (governor samples on its own)"
+  else fail "${#sp} sensor processes for this domain: ${sp}"; fi
+  # 5. permissions
+  local m bad=0 o
+  m=$(mode_of "$STATE_DIR")
+  [[ $m == 700 ]] && pass "domain dir mode 0700" || { [[ $m == ?[2367]? || $m == ??[2367] ]] && fail "domain dir mode 0$m is group/world-writable" || warn "domain dir mode 0$m (want 0700)"; }
+  for f in "$STATE_DIR"/*(N) "$STATE_DIR"/jobs/*(N) "$STATE_DIR"/quarantine/*(N); do
+    [[ -L $f ]] && continue
+    m=$(mode_of "$f")
+    [[ $m == ?[2367]? || $m == ??[2367] ]] && { fail "group/world-writable: $f (0$m)"; bad=1; }
+    zstat -A o +uid -- "$f" 2>/dev/null && [[ $o[1] != $UID ]] && { fail "not owned by uid $UID: $f"; bad=1; }
+  done
+  (( bad )) || pass "no group/world-writable or foreign-owned file in the domain"
+  # 6. bin links
+  local t tg
+  for t in $TOOLS; do
+    f="$STATE_DIR/bin/$t"
+    if [[ -L $f ]]; then
+      tg=$(readlink "$f")
+      [[ -e $f ]] && pass "bin/$t -> $tg" || fail "bin/$t is a dangling symlink -> $tg"
+    elif [[ -f $f ]]; then warn "bin/$t is a regular file (hand-copied; forge-guardian-install replaces it with a symlink)"
+    else warn "bin/$t missing"; fi
+  done
+  # 7. sensor snapshot
+  if [[ -n $S ]]; then
+    local out sc
+    out=$("$S" snapshot --state-dir "$STATE_DIR" 2>/dev/null); sc=$?
+    if (( sc == 0 )) && [[ "$(print -r -- "$out" | $PLUTIL -extract schema raw -o - - 2>/dev/null)" == forge.guardian.sensor/* ]]; then
+      pass "sensor snapshot: rc=0, valid JSON ($("$S" --version 2>/dev/null))"
+    else fail "sensor snapshot: rc=$sc or not a sensor JSON document"; fi
+  fi
+  # 8. freshness
+  local age=$(state_age) ep
+  (( age <= 60 )) && pass "state published ${age}s ago" || fail "state is ${age}s old (consumers fail closed)"
+  ep=$(jx "$STATE_DIR/state.json" epoch)
+  if [[ $ep == <-> ]]; then
+    (( EPOCHSECONDS - ep <= 60 && ep - EPOCHSECONDS <= 5 )) && pass "state.json epoch is current" || fail "state.json epoch $ep vs now $EPOCHSECONDS (stale or clock skew)"
+  else fail "state.json missing or has no epoch"; fi
+  # 9. policy
+  local pj="$STATE_DIR/policy.json"
+  if [[ -r $pj ]]; then
+    local y o r
+    y=$(jx $pj disk.floors_gib.yellow); o=$(jx $pj disk.floors_gib.orange); r=$(jx $pj disk.floors_gib.red)
+    if [[ $y == <->(|.<->) && $o == <->(|.<->) && $r == <->(|.<->) ]] && (( r < o && o < y )); then pass "policy.json parses; floors red $r < orange $o < yellow $y"
+    elif $PLUTIL -lint -s "$pj" >/dev/null 2>&1 || [[ -n $(jx $pj schema) ]]; then fail "policy.json floors not strictly ordered (red=$r orange=$o yellow=$y): tools fall back to defaults"
+    else fail "policy.json does not parse"; fi
+  else warn "no policy.json (defaults apply)"; fi
+  # 10. install record + PATH links
+  if [[ -r $STATE_DIR/guardian.installed.json ]]; then
+    local v; v=$(jx $STATE_DIR/guardian.installed.json version)
+    [[ -n $cur && $v == ${cur:t} ]] && pass "installed version $v is current" || warn "guardian.installed.json says $v, current is ${cur:t:-none}"
+  else warn "no guardian.installed.json (not installed by forge-guardian-install)"; fi
+  for t in forge-job forge-gate forge-nproc forge-guardian-ctl; do
+    f="$H/.local/bin/$t"
+    [[ -L $f && ${f:A} == ${${:-$STATE_DIR/bin/$t}:A} ]] && pass "~/.local/bin/$t resolves to the domain's $t" || warn "~/.local/bin/$t does not resolve to $STATE_DIR/bin/$t (RUNBOOK §0)"
+  done
+  print -r -- "diagnose: $NFAIL FAIL, $NWARN WARN"
+  (( NFAIL == 0 ))
+}
+
+# ---- history / reservations / quarantine / incident / version ----------------------
+hist_field() { [[ $1 =~ "\"$2\":(\"[^\"]*\"|\\[[^]]*\\]|[-0-9.]+|true|false|null)" ]] && print -r -- ${${match[1]//\"/}} || print -r -- "?"; }
+cmd_history() {
+  local n=${1:-20} f="$STATE_DIR/history.jsonl" line t
+  [[ $n == <1-> ]] || { print -u2 "usage: forge-guardian-ctl history [N]"; exit 2; }
+  [[ -r $f ]] || { print -r -- "no history ($f)"; return 0; }
+  print -r -- "time                 state   reason                    vmp pevent free swap(used/total MB)  po/5s thermal  disk  reserved/budget  jobs ev"
+  for line in "${(@f)$(tail -n $n "$f")}"; do
+    t=$(hist_field "$line" t)
+    printf '%-20s %-7s %-25s %-3s %-6s %-4s %-21s %-6s %-8s %-5s %-16s %-4s %s\n' \
+      "$(iso ${t%%.*})" "$(hist_field "$line" s)" "$(hist_field "$line" r | cut -c1-25)" "$(hist_field "$line" vmp)" \
+      "$(hist_field "$line" pe)" "$(hist_field "$line" fp)" "$(hist_field "$line" sw)" "$(hist_field "$line" po)" \
+      "$(hist_field "$line" th)" "$(hist_field "$line" dk)" "$(hist_field "$line" rs)" "$(hist_field "$line" j)" "$(hist_field "$line" ev)"
+  done
+}
+cmd_reservations() {
+  typeset -A S; load_kv "$STATE_DIR/sensor.env" S
+  if [[ -n ${S[budget_b]:-} ]]; then
+    print -r -- "reserved $(gib ${S[reserved_b]:-x}) GiB of budget $(gib ${S[budget_b]:-x}) GiB (memory $(gib ${S[mem_total_b]:-x}) GiB, available now $(gib ${S[mem_avail_b]:-x}) GiB), overcommit=${S[overcommit]:-?}"
+  else
+    print -r -- "no sensor snapshot: reservations below are DECLARED peaks only (no measurement)"
+  fi
+  local -a JOBS; JOBS=("$STATE_DIR/jobs"/*.job(N))
+  printf '%-24s %-8s %-12s %-10s %-10s %-10s %s\n' name pid identity declared measured reserved disk
+  local f j found
+  for f in $JOBS; do
+    typeset -A E; E=(); load_kv "$f" E; found=0
+    for (( j = 0; j < ${S[jobs_n]:-0}; j++ )); do
+      [[ ${S[job${j}_pid]:-} == ${E[pid]:-x} ]] || continue
+      printf '%-24s %-8s %-12s %-10s %-10s %-10s %s\n' "${E[name]:-?}" "${E[pid]:-?}" "${S[job${j}_identity]:-?}" "${E[peak_gb]:-?}" \
+        "$(gib ${S[job${j}_peak_fp_b]:-x})" "$(gib ${S[job${j}_reserved_b]:-x})" "${E[disk_gb]:+${E[disk_gb]}GiB@${E[disk_path]:-?}}"
+      found=1; break
+    done
+    (( found )) || printf '%-24s %-8s %-12s %-10s %-10s %-10s %s\n' "${E[name]:-?}" "${E[pid]:-?}" \
+      "$(local_identity "${E[pid]:-}" "${E[boot]:-}" "${E[pstart]:-}" "${E[started]:-}")" "${E[peak_gb]:-?}" "?" "${E[peak_gb]:-?}" "${E[disk_gb]:+${E[disk_gb]}GiB@${E[disk_path]:-?}}"
+  done
+  return 0
+}
+cmd_quarantine() {
+  local sub=${1:-list}; shift 2>/dev/null
+  case $sub in
+    list)
+      local -a Q; Q=("$STATE_DIR/quarantine"/*.json(N))
+      (( ${#Q} )) || { print -r -- "no quarantined job signatures"; return 0; }
+      local q
+      for q in $Q; do
+        print -r -- "${q:t:r}  name=$(jx $q name || print '?')  since=$(iso "$(jx $q since)")  crashes=$($PLUTIL -extract crashes json -o - $q 2>/dev/null | grep -o '{' | wc -l | tr -d ' ')"
+        print -r -- "    cmd: $(jx $q cmd | cut -c1-160)"
+        print -r -- "    clear: forge-guardian-ctl quarantine clear ${q:t:r} --reason \"…\""
+      done ;;
+    clear)
+      local sig=${1:-} reason=""
+      [[ -n $sig ]] && shift
+      while (( $# )); do
+        case $1 in --reason) reason=${2:-}; shift; (( $# )) && shift ;; *) print -u2 "unknown argument '$1'"; exit 2 ;; esac
+      done
+      [[ $sig =~ '^[0-9a-f]{16}$' && -n $reason ]] || { print -u2 -r -- "usage: forge-guardian-ctl quarantine clear SIG --reason TEXT   (SIG = 16 hex; a reason is required)"; exit 2; }
+      local S; S=$(find_sensor)
+      if [[ -n $S ]]; then
+        "$S" quarantine-clear --state-dir "$STATE_DIR" --sig "$sig" --reason "$reason"; local r=$?
+        (( r == 0 )) && print -r -- "cleared $sig" || print -u2 -r -- "quarantine-clear failed (rc=$r)"
+        return $r
+      fi
+      # No sensor: do the same thing it would (SCHEMA §9.3), atomically.
+      local q="$STATE_DIR/quarantine/$sig.json"
+      [[ -f $q ]] || { print -u2 -r -- "$sig is not quarantined"; return 1; }
+      local rr=${${reason//\\/\\\\}//\"/\\\"}; rr=${rr//$'\n'/ }
+      ( umask 077; print -r -- "{\"sig\": \"$sig\", \"reason\": \"$rr\", \"user\": \"$USERNAME\", \"ts\": $EPOCHSECONDS}" >> "$STATE_DIR/quarantine/cleared.jsonl" ) && rm -f "$q" && print -r -- "cleared $sig" ;;
+    *) print -u2 "usage: forge-guardian-ctl quarantine {list|clear SIG --reason TEXT}"; exit 2 ;;
+  esac
+}
+cmd_incident() {
+  local -a a; a=(--kind manual)
+  while (( $# )); do
+    case $1 in
+      --kind) a[2]=${2:-manual}; shift; (( $# )) && shift ;;
+      --note) a+=(--note "${2:-}"); shift; (( $# )) && shift ;;
+      --with-log) a+=(--with-log); shift ;;
+      *) print -u2 "usage: forge-guardian-ctl incident [--kind manual] [--note TEXT] [--with-log]"; exit 2 ;;
+    esac
+  done
+  local S; S=$(find_sensor) || { print -u2 -r -- "no forge-guardian-sensor installed: cannot build an incident bundle"; exit 1; }
+  local out r
+  out=$("$S" incident --state-dir "$STATE_DIR" "${a[@]}"); r=$?
+  (( r == 0 )) || { print -u2 -r -- "incident failed (rc=$r)"; return $r; }
+  print -r -- "incident: ${out##*$'\n'}"
+}
+cmd_version() {
+  local inst="$STATE_DIR/guardian.installed.json" S
+  print -r -- "installed: $(jx $inst version || print 'unknown (no guardian.installed.json)')"
+  [[ -L $APP/current ]] && print -r -- "current release: $(readlink "$APP/current")"
+  [[ -L $APP/previous ]] && print -r -- "previous release: $(readlink "$APP/previous")"
+  print -r -- "this ctl: $SELF"
+  S=$(find_sensor) && print -r -- "sensor: $("$S" --version 2>/dev/null || print "$S (no --version)")"
+  return 0
+}
+
+# ---- start / stop / restart -------------------------------------------------------
+cmd_start() {
+  guard_service
+  if supervised; then
+    local lp; lp=$(launchd_pid)
+    if [[ -n $lp ]]; then print -r -- "already running under launchd pid=$lp"; return 0; fi
+    # Under launchd the pid file is meaningless -- launchd owns the process and
+    # restarts it with a new pid on KeepAlive. A leftover from an earlier
+    # unsupervised start is worse than absent: it names a DEAD pid, and anything
+    # that checks liveness with `kill -0 $(cat guardian.pid)` then reports a
+    # perfectly healthy daemon as down. Remove it rather than let it rot.
+    rm -f "$PIDF"
+    if launchd_loaded; then $LAUNCHCTL kickstart "$TARGET/$LABEL" 2>&1
+    else $LAUNCHCTL bootstrap "$TARGET" "$PLIST" 2>&1; fi
+    if lp=$(await_publishing 20); then print -r -- "started under launchd pid=$lp"; return 0; fi
+    print -u2 -r -- "launchd did not bring up a publishing governor within 20s (pid=${lp:-none}); see forge-guardian-ctl diagnose"
+    return 1
+  fi
+  [[ -f $PLIST ]] && print -r -- "note: the installed LaunchAgent governs $(plist_domain), not $STATE_DIR -- starting this domain unsupervised"
+  local p; p=$(pidfile_pid); [[ -z $p ]] && p=$(lock_pid)
+  if [[ -n $p ]]; then print -r -- "already running pid=$p"; return 0; fi
+  local G="$STATE_DIR/bin/forge-guardian"
+  [[ -f $G ]] || G="${SELF:h}/forge-guardian"
+  ( umask 077; mkdir -p "$STATE_DIR/log" )
+  FORGE_HEALTH_DIR="$STATE_DIR" nohup /bin/zsh "$G" >> "$STATE_DIR/log/guardian.out" 2>&1 &
+  print -r -- $! > "$PIDF"; sleep 2
+  print -r -- "started (unsupervised) pid=$(<$PIDF) — prefer installing the LaunchAgent: forge-guardian-ctl install"
+}
+cmd_stop() {
+  guard_service
+  if supervised && { [[ -n $(launchd_pid) ]] || launchd_loaded; }; then
+    $LAUNCHCTL bootout "$TARGET/$LABEL" 2>/dev/null && print -r -- "stopped (launchd bootout; 'forge-guardian-ctl start' brings it back)"
+    rm -f "$PIDF"
+    return 0
+  fi
+  local p; p=$(pidfile_pid)
+  if [[ -n $p ]]; then kill "$p" 2>/dev/null; rm -f "$PIDF"; print -r -- "stopped"; return 0; fi
+  p=$(lock_pid)
+  if [[ -n $p ]]; then kill "$p" 2>/dev/null; print -r -- "stopped (unsupervised pid=$p)"; return 0; fi
+  print -r -- "not running"
+}
+cmd_restart() {
+  guard_service
+  if supervised; then
+    rm -f "$PIDF"
+    if launchd_loaded; then $LAUNCHCTL kickstart -k "$TARGET/$LABEL" 2>&1
+    else $LAUNCHCTL bootstrap "$TARGET" "$PLIST" 2>&1; fi
+    local lp; if lp=$(await_publishing 20); then print -r -- "restarted under launchd pid=$lp"; return 0; fi
+    print -u2 -r -- "launchd did not bring up a publishing governor within 20s"; return 1
+  fi
+  cmd_stop; sleep 1; cmd_start
+}
 
 case "${1:-status}" in
-  start)
-    if [[ -n "$(launchd_pid)" ]]; then print "already running under launchd pid=$(launchd_pid)"; exit 0; fi
-    if [[ -f "$PLIST" ]]; then
-      # Under launchd the pid file is meaningless -- launchd owns the process and
-      # restarts it with a new pid on KeepAlive. A leftover from an earlier
-      # unsupervised start is worse than absent: it names a DEAD pid, and anything
-      # that checks liveness with `kill -0 $(cat guardian.pid)` then reports a
-      # perfectly healthy daemon as down. Remove it rather than let it rot.
-      rm -f "$PIDF"
-      launchctl load -w "$PLIST" 2>/dev/null; sleep 3
-      print "started under launchd pid=$(launchd_pid)"; exit 0
-    fi
-    if [[ -n "$(pidfile_pid)" ]]; then print "already running pid=$(pidfile_pid)"; exit 0; fi
-    nohup "$STATE_DIR/bin/forge-guardian" >> "$STATE_DIR/log/guardian.out" 2>&1 &
-    print $! > "$PIDF"; sleep 2
-    print "started (unsupervised) pid=$(cat $PIDF) — prefer installing $PLIST"
-    ;;
-  stop)
-    if [[ -f "$PLIST" && -n "$(launchd_pid)" ]]; then
-      launchctl unload "$PLIST" 2>/dev/null && print "stopped (launchd unloaded)"
-      rm -f "$PIDF"
-    elif [[ -n "$(pidfile_pid)" ]]; then
-      kill "$(cat $PIDF)" 2>/dev/null; rm -f "$PIDF"; print "stopped"
-    else print "not running"; fi
-    ;;
-  status)
-    LP=$(launchd_pid); PP=$(pidfile_pid); AGE=$(state_age)
-    # PUBLISHING is the definition of alive, not process existence. Every consumer
-    # (forge-gate, forge-nproc) reads the published state and fails closed when it
-    # goes stale, so a process that still exists but has stopped publishing must be
-    # reported as DOWN here too — otherwise the two instruments disagree and an
-    # autonomous tick trusts whichever it happened to ask.
-    if (( AGE > 60 )); then
-      if [[ -n "$LP$PP" ]]; then
-        print "NOT RUNNING (process ${LP:-$PP} exists but stopped publishing ${AGE}s ago — WEDGED)"
-      else
-        print "NOT RUNNING"
-      fi
-      print "  ⚠ published state is ${AGE}s STALE — consumers fail closed"
-      exit 0
-    fi
-    if [[ -n "$LP" ]];   then print "RUNNING pid=$LP (launchd-supervised)"
-    elif [[ -n "$PP" ]]; then print "RUNNING pid=$PP (unsupervised — will NOT survive a crash)"
-    else                      print "NOT RUNNING (nothing publishing)"; fi
-    print "  state=$(cat $STATE_DIR/state 2>/dev/null) age=${AGE}s"
-    # NULL_GLOB makes an unmatched glob VANISH, and `ls` with no arguments lists the
-    # CURRENT DIRECTORY — which reported "48 registered jobs" for an empty jobs dir.
-    # Count the array, never a command whose argument list can disappear.
-    JOBS=("$STATE_DIR/jobs"/*.job(N))
-    print "  registered jobs: ${#JOBS[@]}"
-    ;;
-  tail) tail -f "$STATE_DIR/log/guardian.log" ;;
-  *) print -u2 "usage: forge-guardian-ctl {start|stop|status|tail}"; exit 2 ;;
+  status)       cmd_status ;;
+  start)        cmd_start ;;
+  stop)         cmd_stop ;;
+  restart)      cmd_restart ;;
+  tail)
+    case ${2:-guardian} in
+      guardian) tail -f "$STATE_DIR/log/guardian.log" ;;
+      sensor)   tail -f "$STATE_DIR/log/sensor.log" ;;
+      events)   tail -f "$STATE_DIR/events.jsonl" ;;
+      launchd)  tail -f "$STATE_DIR/log/launchd.err" "$STATE_DIR/log/launchd.out" ;;
+      *) print -u2 "usage: forge-guardian-ctl tail [guardian|sensor|events|launchd]"; exit 2 ;;
+    esac ;;
+  diagnose)     cmd_diagnose ;;
+  incident)     shift; cmd_incident "$@" ;;
+  quarantine)   shift; cmd_quarantine "$@" ;;
+  reservations) cmd_reservations ;;
+  history)      cmd_history ${2:-20} ;;
+  version|--version) cmd_version ;;
+  install|upgrade|rollback|uninstall)
+    for _i in "${SELF:h}/forge-guardian-install" "$STATE_DIR/bin/forge-guardian-install"; do
+      [[ -f $_i ]] && exec /bin/zsh "$_i" "$@"
+    done
+    print -u2 "forge-guardian-ctl: forge-guardian-install not found next to ${0:A} or in $STATE_DIR/bin"; exit 1 ;;
+  -h|--help|help)
+    print -r -- "usage: forge-guardian-ctl {status|start|stop|restart|tail|diagnose|incident|quarantine|reservations|history [N]|version|install|upgrade|rollback|uninstall}"
+    exit 0 ;;
+  *) print -u2 "usage: forge-guardian-ctl {status|start|stop|restart|tail|diagnose|incident|quarantine|reservations|history [N]|version|install|upgrade|rollback|uninstall}"; exit 2 ;;
 esac

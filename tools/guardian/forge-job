@@ -3,20 +3,50 @@
 #   forge-job --name build-kernel --priority 5 --peak-gb 6 [--restartable] [--need green] -- cmd args...
 # Registers an envelope so Guardian can shed THIS job (and only registered jobs)
 # under pressure, then deregisters on exit no matter how the command ends.
+#
+# ADMISSION (SCHEMA.md §9). When the native sensor is installed, admission is ONE
+# decision taken by `forge-guardian-sensor admit` under admission.lock: state
+# freshness, state rank, identity-verified reservations, memory budget, instant fit
+# and disk fit -- and the envelope is written by that same decision, so two jobs
+# admitted in the same second cannot both spend the same free memory. Without a
+# sensor (legacy domains, CI stubs) this falls back to the state-only forge-gate and
+# writes the envelope itself, atomically.
+#
+# RELEASE. On exit the sensor's `release` removes the envelope, records declared vs
+# measured peak, and counts crashes; a signature that crashes repeatedly is
+# QUARANTINED and refused at its next admission (exit 78) until a human clears it.
 set -u
+zmodload zsh/datetime 2>/dev/null   # EPOCHSECONDS and strftime -r, without forking date(1)
 STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
-JOBS_DIR="$STATE_DIR/jobs"; mkdir -p "$JOBS_DIR"
+JOBS_DIR="$STATE_DIR/jobs"
 NAME="job"; PRIO=5; PEAK=2; RESTART=0; NEED=green; GPU=0
+THREADS=""; DISK_GB=""; DISK_PATH=""; HEARTBEAT=""; STALL_S=""; SIG=""; WAIT=900
 
 usage() {
   print -r -- "forge-job — run a heavy command under Guardian supervision."
   print -r -- "usage: forge-job [--name N] [--priority P] [--peak-gb G] [--restartable]"
-  print -r -- "                 [--gpu] [--need green|yellow|orange|red] -- cmd args..."
+  print -r -- "                 [--gpu] [--need green|yellow|orange|red] [--threads N]"
+  print -r -- "                 [--disk-gb X [--disk-path P]] [--heartbeat FILE [--stall-s S]]"
+  print -r -- "                 [--sig S] [--wait SECONDS] -- cmd args..."
   print -r -- ""
   print -r -- "Registers an envelope so Guardian can shed THIS job under pressure, then"
   print -r -- "deregisters on exit. Guardian sheds only REGISTERED jobs, so unregistered"
   print -r -- "heavy work starves every polite waiter."
+  print -r -- ""
+  print -r -- "  --priority P    0 critical .. 9 speculative (default 5); ORANGE asks >= 7 to checkpoint"
+  print -r -- "  --peak-gb G     declared peak memory, GiB (default 2); reserved against the budget"
+  print -r -- "  --threads N     CPU threads the job uses (recorded; forge-nproc subtracts them)"
+  print -r -- "  --disk-gb X     disk the job will write, GiB, on the volume of --disk-path (default \$PWD)"
+  print -r -- "  --heartbeat F   a file whose mtime the job advances; --stall-s S = stall threshold"
+  print -r -- "  --sig S         job signature (16 hex) for crash-loop accounting (default: derived)"
+  print -r -- "  --wait S        how long admission may wait for capacity (default 900)"
+  print -r -- ""
+  print -r -- "exit: the command's own rc; 75 not admitted / cannot decide; 78 signature quarantined;"
+  print -r -- "      2 usage error."
 }
+usage_err() { print -u2 -r -- "forge-job: $1"; usage >&2; exit 2; }
+# A value-taking flag at the end of argv must be a usage error, not a `set -u` crash.
+arg() { (( $# >= 2 )) || usage_err "option '$1' needs a value"; }
 
 # ASKING WHAT THIS DOES MUST NOT COST FIFTEEN MINUTES.
 # An unrecognised flag used to fall through `*) break` and be treated as the COMMAND,
@@ -28,12 +58,19 @@ usage() {
 while (( $# )); do
   case "$1" in
     -h|--help|help) usage; exit 0 ;;
-    --name) NAME="$2"; shift 2 ;;
-    --priority) PRIO="$2"; shift 2 ;;
-    --peak-gb) PEAK="$2"; shift 2 ;;
+    --name)      arg "$@"; NAME="$2"; shift 2 ;;
+    --priority)  arg "$@"; PRIO="$2"; shift 2 ;;
+    --peak-gb)   arg "$@"; PEAK="$2"; shift 2 ;;
     --restartable) RESTART=1; shift ;;
     --gpu) GPU=1; shift ;;
-    --need) NEED="$2"; shift 2 ;;
+    --need)      arg "$@"; NEED="$2"; shift 2 ;;
+    --threads)   arg "$@"; THREADS="$2"; shift 2 ;;
+    --disk-gb)   arg "$@"; DISK_GB="$2"; shift 2 ;;
+    --disk-path) arg "$@"; DISK_PATH="$2"; shift 2 ;;
+    --heartbeat) arg "$@"; HEARTBEAT="$2"; shift 2 ;;
+    --stall-s)   arg "$@"; STALL_S="$2"; shift 2 ;;
+    --sig)       arg "$@"; SIG="$2"; shift 2 ;;
+    --wait)      arg "$@"; WAIT="$2"; shift 2 ;;
     --) shift; break ;;
     -*) print -u2 "forge-job: unknown option '$1'"; usage >&2; exit 2 ;;
     *) break ;;
@@ -41,21 +78,184 @@ while (( $# )); do
 done
 (( $# )) || { print -u2 "forge-job: no command given"; usage >&2; exit 2; }
 
-"$STATE_DIR/bin/forge-gate" --need "$NEED" --wait 900 --why "$NAME" || exit 75   # EX_TEMPFAIL
+# Malformed declarations are usage errors (2), caught before anything is gated or
+# registered: a non-numeric peak_gb in an envelope makes every reader's arithmetic
+# fail, and a reader that fails open on a bad envelope counts the job as free.
+NEED=${NEED:l}
+[[ $PRIO == <0-9> ]]                  || usage_err "--priority must be an integer 0..9 (got '$PRIO')"
+[[ $PEAK == <->(|.<->) ]]             || usage_err "--peak-gb must be a non-negative decimal (got '$PEAK')"
+[[ $NEED == (green|yellow|orange|red) ]] || usage_err "--need must be green|yellow|orange|red (got '$NEED')"
+[[ $WAIT == <-> ]]                    || usage_err "--wait must be whole seconds (got '$WAIT')"
+[[ -z $THREADS || $THREADS == <1-> ]] || usage_err "--threads must be a positive integer (got '$THREADS')"
+[[ -z $DISK_GB || $DISK_GB == <->(|.<->) ]] || usage_err "--disk-gb must be a non-negative decimal (got '$DISK_GB')"
+[[ -z $DISK_PATH || -n $DISK_GB ]]    || usage_err "--disk-path needs --disk-gb"
+[[ -z $STALL_S || $STALL_S == <1-> ]] || usage_err "--stall-s must be a positive integer (got '$STALL_S')"
+[[ -z $STALL_S || -n $HEARTBEAT ]]    || usage_err "--stall-s needs --heartbeat"
+[[ -z $SIG || $SIG =~ '^[0-9a-f]{16}$' ]] || usage_err "--sig must be 16 lowercase hex digits (got '$SIG')"
+[[ -n $DISK_GB ]]   && DISK_PATH=${${DISK_PATH:-$PWD}:a}
+[[ -n $HEARTBEAT ]] && HEARTBEAT=${HEARTBEAT:a}
 
+# An envelope is KEY=VALUE lines and readers take the FIRST occurrence of a key, so a
+# newline inside a name would let `--name $'x\ncan_restart=1'` forge an earlier key.
+oneline() { REPLY=${1//$'\n'/ }; REPLY=${REPLY//$'\r'/ }; }
+oneline "$NAME"; NAME=$REPLY
+oneline "$*";    CMDLINE=$REPLY
+
+# ---- the sensor ---------------------------------------------------------------
+# An EXPLICIT sensor that is not there is a misconfiguration, and admission cannot
+# be decided: fail closed (75) rather than silently fall back to the weaker gate.
+SENSOR=""
+if [[ -n "${FORGE_GUARDIAN_SENSOR_BIN:-}" ]]; then
+  if [[ -f $FORGE_GUARDIAN_SENSOR_BIN && -x $FORGE_GUARDIAN_SENSOR_BIN ]]; then
+    SENSOR=$FORGE_GUARDIAN_SENSOR_BIN
+  else
+    print -u2 -r -- "forge-job: FORGE_GUARDIAN_SENSOR_BIN=$FORGE_GUARDIAN_SENSOR_BIN is not an executable file -- cannot decide admission (75)"
+    exit 75
+  fi
+else
+  for _c in "$STATE_DIR/bin/forge-guardian-sensor" "${0:A:h}/forge-guardian-sensor"; do
+    if [[ -f $_c && -x $_c ]]; then SENSOR=$_c; break; fi
+  done
+fi
+
+# Job signature, SCHEMA §5: sha256(name NUL argv joined by NUL)[:16]. Computed HERE
+# from the real argv and passed as --sig, because the --cmd string the sensor also
+# receives is space-joined and cannot reproduce argv boundaries ("a b" vs "a" "b").
+if [[ -z $SIG ]]; then
+  SIG=$(print -rn -- "$NAME"$'\0'"${(pj:\0:)@}" | /usr/bin/shasum -a 256 2>/dev/null)
+  SIG=${SIG[1,16]}
+  [[ $SIG =~ '^[0-9a-f]{16}$' ]] || SIG=""
+fi
+
+clear_hint() {
+  local pre=""
+  [[ $STATE_DIR != "$HOME/.forge-health" ]] && pre="FORGE_HEALTH_DIR=${(q)STATE_DIR} "
+  print -u2 -r -- "    ${pre}forge-guardian-ctl quarantine clear ${SIG:-<sig>} --reason \"<why it is safe to run again>\""
+}
+
+# ---- signals, exit, deregistration ----------------------------------------------
+CHILD=""; ADMIT_PID=""; EXT_TERM=0; EXT_SIG=""; FINISHED=0; ADMITTED=0
 JF="$JOBS_DIR/$$.job"
-cleanup() { rm -f "$JF"; }
-trap cleanup EXIT INT TERM
-cat > "$JF" <<J
-pid=$$
+forward_usr1() { [[ -n $CHILD ]] && kill -USR1 "$CHILD" 2>/dev/null }
+forward_term() { EXT_TERM=1; [[ -n $CHILD ]] && kill -TERM "$CHILD" 2>/dev/null }
+# TERM/INT are trapped BEFORE admission, so that an envelope written by `admit` is
+# always released. But zsh defers a trapped signal until a FOREGROUND command returns,
+# which would hold a TERM for up to --wait seconds and then start the job anyway. So
+# the blocking step runs in the background (bg_wait), and a TERM/INT that arrives
+# while it waits stops that step (it is our child -- nothing is orphaned) and the
+# wrapper exits 143/130 without starting the job.
+abort_admission() { EXT_TERM=1; EXT_SIG=$1; [[ -n $ADMIT_PID ]] && kill -TERM "$ADMIT_PID" 2>/dev/null }
+
+# Our own envelope, and nobody else's: the file must exist and name this pid.
+own_envelope() { [[ -f $JF ]] && [[ "$(sed -n 's/^pid=//p' "$JF" 2>/dev/null | head -1)" == "$$" ]]; }
+
+finish() {   # idempotent: called on the normal path and again by the EXIT trap
+  local rc=$1 r sname=""
+  (( FINISHED )) && return 0
+  FINISHED=1
+  if [[ -n $SENSOR ]]; then
+    (( ADMITTED )) || own_envelope || return 0
+    local -a ra; ra=(release --state-dir "$STATE_DIR" --pid $$ --rc $rc)
+    if (( rc > 128 && rc <= 128 + 64 )); then
+      sname=${signals[$(( rc - 128 + 1 ))]:-}       # $signals[1] is EXIT (0)
+      [[ -n $sname && $sname != <-> ]] && ra+=(--signal "$sname")
+    fi
+    (( EXT_TERM )) && ra+=(--external-term)
+    "$SENSOR" "${ra[@]}" >&2; r=$?
+    if (( r == 78 )); then
+      print -u2 -r -- "forge-job: '$NAME' (signature ${SIG:-?}) has now crashed repeatedly and is QUARANTINED:"
+      print -u2 -r -- "  its next admission will be refused (78) until it is cleared:"
+      clear_hint
+    elif (( r != 0 )); then
+      # The sensor could not release. Never leave a phantom reservation behind.
+      if own_envelope; then rm -f "$JF"; fi
+      print -u2 -r -- "forge-job: sensor release failed (rc=$r); envelope removed directly"
+    fi
+  else
+    rm -f "$JF"
+  fi
+  return 0
+}
+trap forward_usr1 USR1
+trap 'abort_admission TERM' TERM
+trap 'abort_admission INT' INT
+trap 'finish $?' EXIT
+
+# Run a blocking step in the BACKGROUND and wait for it, so TERM/INT can interrupt it.
+bg_wait() {
+  local r
+  "$@" & ADMIT_PID=$!
+  while :; do
+    wait "$ADMIT_PID"; r=$?
+    kill -0 "$ADMIT_PID" 2>/dev/null || break
+  done
+  ADMIT_PID=""
+  return $r
+}
+aborted_exit() { (( EXT_TERM )) || return 0; [[ $EXT_SIG == INT ]] && exit 130; exit 143; }
+
+# ---- admission ------------------------------------------------------------------
+if [[ -n $SENSOR ]]; then
+  admit=(admit --state-dir "$STATE_DIR" --pid $$ --name "$NAME" --peak-gb "$PEAK" --priority "$PRIO")
+  (( RESTART )) && admit+=(--restartable)
+  (( GPU )) && admit+=(--gpu)
+  [[ -n $THREADS ]] && admit+=(--threads "$THREADS")
+  [[ -n $DISK_GB ]] && admit+=(--disk-gb "$DISK_GB" --disk-path "$DISK_PATH")
+  [[ -n $HEARTBEAT ]] && admit+=(--heartbeat "$HEARTBEAT")
+  [[ -n $STALL_S ]] && admit+=(--stall-s "$STALL_S")
+  [[ -n $SIG ]] && admit+=(--sig "$SIG")
+  admit+=(--need "$NEED" --wait "$WAIT" --owner forge-job --cmd "$CMDLINE")
+  bg_wait "$SENSOR" "${admit[@]}" >&2; arc=$?
+  aborted_exit
+  case $arc in
+    0) ADMITTED=1 ;;
+    78)
+      print -u2 -r -- "forge-job: '$NAME' is QUARANTINED (signature ${SIG:-?}): it crashed repeatedly and will not be started."
+      [[ -n $SIG && -f "$STATE_DIR/quarantine/$SIG.json" ]] && print -u2 -r -- "  record: $STATE_DIR/quarantine/$SIG.json"
+      print -u2 -r -- "  inspect: forge-guardian-ctl quarantine list"
+      print -u2 -r -- "  once the cause is fixed, allow it again with:"
+      clear_hint
+      exit 78 ;;
+    2) print -u2 -r -- "forge-job: the sensor rejected the admission request as a usage error (2)"; exit 2 ;;
+    *) print -u2 -r -- "forge-job: not admitted (sensor rc=$arc) -- not starting '$NAME'"; exit 75 ;;   # EX_TEMPFAIL
+  esac
+else
+  bg_wait "$STATE_DIR/bin/forge-gate" --need "$NEED" --wait "$WAIT" --why "$NAME" || { aborted_exit; exit 75; }   # EX_TEMPFAIL
+  aborted_exit
+  # Legacy envelope, written ATOMICALLY: a reader globbing *.job must never see a
+  # half-written file (readers take the first key, so a truncated one reads as a
+  # different job). v1 keys in their historical order, v2 keys after, cmd LAST.
+  BOOT=$(sysctl -n kern.bootsessionuuid 2>/dev/null)
+  PSTART=""
+  _ls=$(LC_ALL=C ps -o lstart= -p $$ 2>/dev/null)
+  _ls=${(j: :)${=_ls}}          # squeeze "Thu Oct  8 06:04:04 2026   " to single spaces
+  if [[ -n $_ls ]] && strftime -r -s _ep '%a %b %d %H:%M:%S %Y' "$_ls" 2>/dev/null && [[ $_ep == <-> ]]; then
+    PSTART=$_ep
+  fi
+  body="pid=$$
 name=$NAME
 priority=$PRIO
 can_restart=$RESTART
 peak_gb=$PEAK
 gpu=$GPU
-started=$(date +%s)
-cmd=$*
-J
+started=$EPOCHSECONDS
+schema=2"
+  [[ $BOOT =~ '^[0-9A-Fa-f-]+$' ]] && body+=$'\n'"boot=$BOOT"
+  [[ -n $PSTART ]] && body+=$'\n'"pstart=$PSTART"
+  [[ -n $SIG ]] && body+=$'\n'"sig=$SIG"
+  [[ -n $THREADS ]] && body+=$'\n'"threads=$THREADS"
+  if [[ -n $HEARTBEAT ]]; then oneline "$HEARTBEAT"; body+=$'\n'"heartbeat=$REPLY"; fi
+  [[ -n $STALL_S ]] && body+=$'\n'"stall_s=$STALL_S"
+  body+=$'\n'"owner=forge-job"$'\n'"cmd=$CMDLINE"
+  JT="$JF.tmp.$$"
+  if ! ( umask 077; mkdir -p "$JOBS_DIR" && print -r -- "$body" > "$JT" ) || ! mv -f "$JT" "$JF"; then
+    rm -f "$JT" 2>/dev/null
+    print -u2 -r -- "forge-job: could not register an envelope in $JOBS_DIR -- not running unregistered heavy work (75)"
+    exit 75
+  fi
+  ADMITTED=1
+fi
+
 # Run the command as a CHILD and forward Guardian's signals to it.
 #
 # Guardian's stage-1 shed is SIGUSR1, documented in forge-guardian as "checkpoint
@@ -69,16 +269,16 @@ J
 # registered through this wrapper had that property, which is a large part of why
 # "registered jobs" read 0 all session: jobs registered, were asked to checkpoint,
 # and died.
+aborted_exit                   # asked to stop while registering: do not start it
 "$@" &
 CHILD=$!
-forward_usr1() { kill -USR1 "$CHILD" 2>/dev/null }
-forward_term() { kill -TERM "$CHILD" 2>/dev/null }
-trap forward_usr1 USR1
 trap forward_term TERM INT
+# A TERM that landed between admission and the line above was recorded, not lost.
+(( EXT_TERM )) && kill -TERM "$CHILD" 2>/dev/null
 rc=0
 while :; do
   wait "$CHILD"; rc=$?
   kill -0 "$CHILD" 2>/dev/null || break   # a signal interrupted wait; child lives, resume
 done
-cleanup
+finish $rc
 exit $rc
