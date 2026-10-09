@@ -131,9 +131,17 @@ Le11Run solveLE11(forge::ShapeHandle le11, double edge) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);   // line-buffered: progress is visible in logs
-    std::printf("== T-310 NAFEMS LE11 — native geometry + native Tet4 thermoelastic solve ==\n");
+    // `geometry` stops after the geometry assertions (no mesh, no solve): the mode a CI
+    // job can afford while the Tet4 mesher's cost on LE11's ~900 cospherical sphere-patch
+    // vertices is open (T-310 report). `all` (default) also meshes and solves.
+    const std::string mode = argc > 1 ? argv[1] : "all";
+    if (mode != "all" && mode != "geometry") {
+        std::fprintf(stderr, "usage: %s [all|geometry]\n", argv[0]);
+        return 2;
+    }
+    std::printf("== T-310 NAFEMS LE11 — native geometry + native Tet4 thermoelastic solve (%s) ==\n", mode.c_str());
     double vol = NAN; bool allNative = false;
     forge::ShapeHandle le11 = forge::kInvalidHandle;
     try {
@@ -151,6 +159,10 @@ int main() {
     check(allNative, "every LE11 boolean result is a NativeSolid (native analytic path, no OCCT boolean)");
     check(std::fabs(vol - le11ClosedFormVolume()) <= 1e-8 * le11ClosedFormVolume(),
           "LE11 volume == independent closed form (1e-8)");
+    if (mode == "geometry") {
+        std::printf("RESULT: %s (%d hard failures, geometry only)\n", g_fail ? "FAIL" : "PASS", g_fail);
+        return g_fail ? 1 : 0;
+    }
 
     Le11Run c, f;
     try {
