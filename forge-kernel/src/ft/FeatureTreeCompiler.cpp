@@ -65,7 +65,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>     // T-132 emit: snprintf
 #include <cstdlib>
+#include <cstring>    // T-132 emit: memcmp (exact-bits number round trip)
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -300,7 +302,259 @@ inline int angularClusterCount(std::vector<double> angs) {
     return clusters > 0 ? clusters : 1;
 }
 
+// ============================================================================
+// T-132 OP RECORDS — lexing. The grammar is documented beside OpRecord in
+// FeatureTree.hpp; this is the only place it is read.
+// ============================================================================
+std::string lowerAscii(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+struct RecItem {
+    std::string key;
+    std::string value;
+    bool        quoted = false;
+};
+
+// Split the body of an '@' record into `key=value` items. Whitespace separates
+// items. A value that opens with a quote runs to the first matching quote that is
+// followed by whitespace or the end of the line, so a quoted value may hold
+// spaces, '=' and the other quote character. A lexical failure (an item with no
+// '=', an unterminated quote) returns false with the reason; those are the two
+// shapes a TRUNCATED record takes, so the caller routes them through fail() and
+// a cut-off final line is classified Incomplete rather than Syntax.
+bool splitRecordItems(const std::string& s, std::vector<RecItem>& out, std::string& why) {
+    std::size_t i = 0;
+    const std::size_t n = s.size();
+    auto isWs = [](char c) { return std::isspace(static_cast<unsigned char>(c)) != 0; };
+    while (true) {
+        while (i < n && isWs(s[i])) ++i;
+        if (i >= n) return true;
+        RecItem it;
+        const std::size_t k0 = i;
+        while (i < n && s[i] != '=' && !isWs(s[i])) ++i;
+        it.key = s.substr(k0, i - k0);
+        if (i >= n || s[i] != '=' || it.key.empty()) {
+            why = "record item `" + s.substr(k0, i - k0) + "` is not `key=value`";
+            return false;
+        }
+        ++i;  // '='
+        if (i < n && (s[i] == '"' || s[i] == '\'')) {
+            const char q = s[i++];
+            const std::size_t v0 = i;
+            std::size_t close = std::string::npos;
+            for (std::size_t j = i; j < n; ++j) {
+                if (s[j] == q && (j + 1 >= n || isWs(s[j + 1]))) { close = j; break; }
+            }
+            if (close == std::string::npos) {
+                why = "unterminated quoted value for record key `" + it.key + "`";
+                return false;
+            }
+            it.value = s.substr(v0, close - v0);
+            it.quoted = true;
+            i = close + 1;
+        } else {
+            const std::size_t v0 = i;
+            while (i < n && !isWs(s[i])) ++i;
+            it.value = s.substr(v0, i - v0);
+        }
+        out.push_back(std::move(it));
+    }
+}
+
+struct RecFieldName { const char* name; std::uint16_t bit; };
+// Canonical names, in the canonical emission order.
+constexpr RecFieldName kRecFieldNames[] = {
+    {"units", kRecUnits}, {"deps", kRecDeps}, {"refs", kRecRefs}, {"pre", kRecPre},
+    {"post", kRecPost},   {"inv", kRecInv},   {"conf", kRecConf}, {"prov", kRecProv},
+};
+
+// A field name, or one of the spellings an emitter plausibly writes for it. The
+// set is CLOSED: anything else is refused by name, never skipped.
+std::uint16_t recordFieldBit(const std::string& lowerKey) {
+    static const std::unordered_map<std::string, std::uint16_t> tbl = {
+        {"units", kRecUnits}, {"unit", kRecUnits},
+        {"deps", kRecDeps}, {"dep", kRecDeps}, {"depends", kRecDeps},
+        {"dependencies", kRecDeps},
+        {"refs", kRecRefs}, {"ref", kRecRefs},
+        {"pre", kRecPre}, {"precondition", kRecPre}, {"preconditions", kRecPre},
+        {"post", kRecPost}, {"postcondition", kRecPost}, {"postconditions", kRecPost},
+        {"inv", kRecInv}, {"invariant", kRecInv}, {"invariants", kRecInv},
+        {"conf", kRecConf}, {"confidence", kRecConf},
+        {"prov", kRecProv}, {"provenance", kRecProv},
+    };
+    auto it = tbl.find(lowerKey);
+    return it == tbl.end() ? 0 : it->second;
+}
+
+bool provenanceFromWord(const std::string& upperWord, Provenance& out) {
+    static const std::unordered_map<std::string, Provenance> tbl = {
+        {"USER", Provenance::User},           {"USER_SPECIFIED", Provenance::User},
+        {"SOURCE", Provenance::Source},       {"SOURCE_DERIVED", Provenance::Source},
+        {"DERIVED", Provenance::Derived},     {"ENGINEERING_DERIVED", Provenance::Derived},
+        {"PROPOSED", Provenance::Proposed},
+        {"UNRESOLVED", Provenance::Unresolved},
+    };
+    auto it = tbl.find(upperWord);
+    if (it == tbl.end()) return false;
+    out = it->second;
+    return true;
+}
+
+// A record id written after '%': an optional '-' (a parser-synthesised id) then
+// DIGITS only, within int. `%1.0`, `%1e0` or `%+1` would read as %1 and emit back
+// as a different spelling, and an id past INT_MAX would wrap.
+bool readRecordId(const std::string& s, std::size_t at, int& out, std::size_t& end) {
+    std::size_t k = at;
+    const bool neg = k < s.size() && s[k] == '-';
+    if (neg) ++k;
+    const std::size_t d0 = k;
+    while (k < s.size() && std::isdigit(static_cast<unsigned char>(s[k]))) ++k;
+    end = k;
+    if (k == d0 || k - d0 > 10) return false;
+    const long long v = std::stoll(s.substr(d0, k - d0));
+    if (v > 2147483647LL) return false;
+    out = static_cast<int>(neg ? -v : v);
+    return true;
+}
+
+// A record VALUE the grammar can write back. The lexer closes a quoted value at
+// its first matching quote followed by whitespace, so a value holding BOTH quote
+// characters can be read once and then not re-emitted identically; it is refused
+// on the way in (here) and on the way out (emit) rather than drifting silently.
+bool recordValueSpellable(const std::string& v) {
+    return !v.empty() && v.find('\n') == std::string::npos && v.find('\r') == std::string::npos &&
+           !(v.find('"') != std::string::npos && v.find('\'') != std::string::npos);
+}
+
+// Apply a record's items. Returns "" on success, else the reason the record is
+// malformed. Lexically complete but semantically wrong: always a Syntax error.
+std::string applyRecordItems(const std::vector<RecItem>& items, OpRecord& rec) {
+    std::uint16_t noneBits = 0;     // list fields stated as `none`
+    std::uint16_t valueBits = 0;    // list fields stated with values
+    bool sawSrc = false;
+    for (const RecItem& it : items) {
+        const std::string key = lowerAscii(it.key);
+        if (it.value.empty())
+            return "record key `" + it.key + "` has an empty value" +
+                   ((key == "src" || key == "source") ? std::string() : std::string(" (use none)"));
+        if (!recordValueSpellable(it.value))
+            return "record key `" + it.key + "` holds both quote characters -- write the value "
+                   "with at most one kind of quote";
+        if (key == "src" || key == "source") {
+            if (sawSrc) return "record states `src` twice";
+            sawSrc = true;
+            rec.source = it.value;
+            continue;
+        }
+        const std::uint16_t bit = recordFieldBit(key);
+        if (bit == 0)
+            return "unknown record key `" + it.key +
+                   "` -- known: units deps refs pre post inv conf prov src";
+        const bool isNone = !it.quoted && lowerAscii(it.value) == "none";
+        if (bit == kRecConf || bit == kRecProv) {
+            if (rec.stated & bit) return "record states `" + key + "` twice";
+            rec.stated |= bit;
+            if (bit == kRecConf) {
+                double c = 0;
+                if (!parseDouble(trim(it.value), c))
+                    return "conf takes a number in [0, 1], got `" + it.value + "`";
+                rec.confidence = c;
+            } else if (!provenanceFromWord(upper(trim(it.value)), rec.provenance)) {
+                return "prov takes USER, SOURCE, DERIVED, PROPOSED or UNRESOLVED, got `" +
+                       it.value + "`";
+            }
+            continue;
+        }
+        if (isNone) {
+            if (valueBits & bit) return "record states `" + key + "` as both values and none";
+            noneBits |= bit;
+            rec.stated |= bit;
+            continue;
+        }
+        if (noneBits & bit) return "record states `" + key + "` as both none and values";
+        valueBits |= bit;
+        rec.stated |= bit;
+        if (bit == kRecUnits && it.quoted) {
+            // A QUOTED unit is one unit, verbatim: the quotes are how a unit that
+            // holds a comma or a space is written, so it is neither split nor trimmed.
+            rec.units.push_back(it.value);
+            continue;
+        }
+        if (bit == kRecUnits || bit == kRecDeps) {
+            for (const std::string& piece : splitTop(it.value, ',')) {
+                const std::string p = trim(piece);
+                if (p.empty()) return "record key `" + key + "` has an empty list item";
+                if (bit == kRecUnits) { rec.units.push_back(p); continue; }
+                int id = 0;
+                std::size_t end = 0;
+                if (p[0] != '%' || !readRecordId(p, 1, id, end) || end != p.size())
+                    return "deps takes %<id> refs, got `" + p + "`";
+                rec.deps.push_back(id);
+            }
+            continue;
+        }
+        std::vector<std::string>& list = (bit == kRecRefs) ? rec.refs
+                                       : (bit == kRecPre)  ? rec.pre
+                                       : (bit == kRecPost) ? rec.post
+                                                           : rec.inv;
+        list.push_back(it.value);
+    }
+    return std::string();
+}
+
+// Shortest exact spelling of a number, starting from the UI's own %.10g so that a
+// program forge::ui printed comes back byte-for-byte.
+std::string emitNumber(double v) {
+    char buf[64];
+    if (!std::isfinite(v)) {
+        const int n = std::snprintf(buf, sizeof(buf), "%g", v);
+        return std::string(buf, n > 0 ? static_cast<std::size_t>(n) : 0);
+    }
+    for (int prec = 10; prec <= 17; ++prec) {
+        const int n = std::snprintf(buf, sizeof(buf), "%.*g", prec, v);
+        if (n <= 0) break;
+        const double back = std::strtod(buf, nullptr);
+        if (std::memcmp(&back, &v, sizeof(double)) == 0)
+            return std::string(buf, static_cast<std::size_t>(n));
+    }
+    const int n = std::snprintf(buf, sizeof(buf), "%.17g", v);
+    return std::string(buf, n > 0 ? static_cast<std::size_t>(n) : 0);
+}
+
+// A quoted literal. '"' unless the text holds one, then '\''. Text holding both
+// cannot be spelled by this grammar; it is written with '"' and the round-trip
+// gate reports the difference rather than this function hiding it.
+std::string emitQuoted(const std::string& s) {
+    const char q = (s.find('"') == std::string::npos || s.find('\'') != std::string::npos)
+                       ? '"' : '\'';
+    return std::string(1, q) + s + std::string(1, q);
+}
+
 }  // namespace
+
+const char* provenanceName(Provenance p) noexcept {
+    switch (p) {
+        case Provenance::Unstated:   return "";
+        case Provenance::User:       return "USER";
+        case Provenance::Source:     return "SOURCE";
+        case Provenance::Derived:    return "DERIVED";
+        case Provenance::Proposed:   return "PROPOSED";
+        case Provenance::Unresolved: return "UNRESOLVED";
+    }
+    return "";
+}
+
+std::string recordFieldNames(std::uint16_t fields) {
+    std::string out;
+    for (const RecFieldName& f : kRecFieldNames) {
+        if (!(fields & f.bit)) continue;
+        if (!out.empty()) out += ' ';
+        out += f.name;
+    }
+    return out;
+}
 
 // ============================================================================
 // PARSER
@@ -334,6 +588,7 @@ FeatureTree parse(const std::string& text) {
     // space no emitted tree uses, so they can never collide with a model's own.
     int lastDefinedId = -1;
     int syntheticId = -1;
+    bool sawRequire = false;             // T-132: at most one @REQUIRE contract
     std::string line;                    // current statement, comment stripped
     auto checkpoint = [&]() {
         FeatureTree cp = ft;
@@ -386,6 +641,97 @@ FeatureTree parse(const std::string& text) {
             // of prose in this IR. Counted, never silently discarded.
             if (cut == std::string::npos) ++ft.counts.blank;
             else                          ++ft.counts.comments;
+            continue;
+        }
+
+        // ------------------------------------------------ T-132 OP RECORDS
+        // `@%N key=value ...` attaches a record to op %N; `@REQUIRE fields` states
+        // the tree's contract. Grammar: FeatureTree.hpp, beside OpRecord. Before
+        // this branch an '@' line fell to the s0.5 check below and was refused as
+        // an opaque placeholder, so no program that parsed before can reach here:
+        // every existing program parses to exactly the tree it always did.
+        //
+        // Only a line SHAPED like a record is taken here: `@REQUIRE ...`, or `@`
+        // followed by an op id (`%N`, `N`, `-N`). Any other '@' line -- `@boss
+        // fillet`, `@ apply fillets`, a bare `@` -- is not record syntax and still
+        // falls through to the s0.5 check, which refuses it as an OpaquePlaceholder
+        // exactly as before: the failure CLASS of a non-record line is unchanged.
+        const std::string recBody = line[0] == '@' ? trim(line.substr(1)) : std::string();
+        std::size_t recWordEnd = 0;
+        while (recWordEnd < recBody.size() &&
+               !std::isspace(static_cast<unsigned char>(recBody[recWordEnd])))
+            ++recWordEnd;
+        const bool isRequireLine = line[0] == '@' && upper(recBody.substr(0, recWordEnd)) == "REQUIRE";
+        const bool isOpRecordLine =
+            line[0] == '@' && !recBody.empty() &&
+            (recBody[0] == '%' || std::isdigit(static_cast<unsigned char>(recBody[0])) ||
+             (recBody[0] == '-' && recBody.size() > 1 &&
+              std::isdigit(static_cast<unsigned char>(recBody[1]))));
+        if (isRequireLine || isOpRecordLine) {
+            ++ft.counts.records;
+            // A record that is lexically complete but wrong is wrong wherever it
+            // sits -- it is never "the emission stopped mid-statement", so it does
+            // not go through fail(), which would call a last-line one Incomplete.
+            auto refuseRecord = [&](const std::string& why) {
+                throw ParseError(ParseFailure::Syntax, lineNo, line,
+                                 "ft parse line " + std::to_string(lineNo) + ": " + why);
+            };
+            const std::string& body = recBody;
+            if (isRequireLine) {
+                const std::size_t sp = recWordEnd;
+                if (sawRequire) refuseRecord("a second @REQUIRE -- state the contract once");
+                if (!ft.ops.empty())
+                    refuseRecord("@REQUIRE must come before the first op: a contract that "
+                                 "arrives after ops have been read would govern only some");
+                std::string rest = body.substr(sp);
+                for (char& c : rest) if (c == ',') c = ' ';
+                std::istringstream ws(rest);
+                std::string f;
+                std::uint16_t bits = 0;
+                bool any = false;
+                while (ws >> f) {
+                    any = true;
+                    const std::string lf = lowerAscii(f);
+                    const std::uint16_t b = (lf == "all") ? static_cast<std::uint16_t>(kRecAll)
+                                                          : recordFieldBit(lf);
+                    if (b == 0)
+                        refuseRecord("@REQUIRE names unknown field `" + f +
+                                     "` -- known: units deps refs pre post inv conf prov (or ALL)");
+                    bits |= b;
+                }
+                if (!any) refuseRecord("@REQUIRE names no field");
+                ft.required = bits;
+                sawRequire = true;
+                continue;
+            }
+            // `@%N ...` (or `@N ...`)
+            int recId = 0;
+            std::size_t p = 0;
+            if (!readRecordId(body, (!body.empty() && body[0] == '%') ? 1 : 0, recId, p))
+                refuseRecord("an op record is written `@%<id> key=value ...`");
+            if (p < body.size() && !std::isspace(static_cast<unsigned char>(body[p])))
+                refuseRecord("an op record is written `@%<id> key=value ...` (whitespace "
+                             "after the id)");
+            Op* target = nullptr;
+            for (auto it = ft.ops.rbegin(); it != ft.ops.rend(); ++it)
+                if (it->id == recId) { target = &*it; break; }
+            if (target == nullptr)
+                refuseRecord("record for %" + std::to_string(recId) +
+                             ", which is not an op defined above it -- write the record "
+                             "on a line after its op");
+            if (target->record.srcLine != 0)
+                refuseRecord("a second record for %" + std::to_string(recId) + " (the first is "
+                             "on line " + std::to_string(target->record.srcLine) + ")");
+            std::vector<RecItem> items;
+            std::string why;
+            if (!splitRecordItems(body.substr(p), items, why)) fail(why);
+            if (items.empty())
+                refuseRecord("record for %" + std::to_string(recId) + " states nothing");
+            OpRecord rec;
+            const std::string bad = applyRecordItems(items, rec);
+            if (!bad.empty()) refuseRecord(bad);
+            rec.srcLine = lineNo;
+            target->record = std::move(rec);
             continue;
         }
 
@@ -735,6 +1081,268 @@ FeatureTree parse(const std::string& text) {
                 "N_parsed_semantic_features; a difference is a dropped statement.",
             checkpoint());
     return ft;
+}
+
+// ============================================================================
+// EMIT (T-132) — FeatureTree -> canonical text. The inverse of parse() on every
+// field parse() keeps; see FeatureTree.hpp for the contract.
+// ============================================================================
+namespace {
+
+std::string emitToken(const Token& t) {
+    switch (t.kind) {
+        case TokKind::Number:  return emitNumber(t.num);
+        case TokKind::Ref:     return "%" + std::to_string(t.ref);
+        case TokKind::Keyword: return t.kw;
+        case TokKind::Str:     return emitQuoted(t.str);
+        case TokKind::Points: {
+            std::string out = "[";
+            for (std::size_t i = 0; i < t.pts.size(); ++i) {
+                const Point3& p = t.pts[i];
+                if (i != 0) out += "; ";
+                out += emitNumber(p.x) + " " + emitNumber(p.y);
+                // dim is fixed by the FIRST point; a later point of a 2D ring that
+                // carried a z keeps it, so nothing the lexer stored is dropped.
+                if (t.dim == 3 || p.z != 0.0 || std::signbit(p.z)) out += " " + emitNumber(p.z);
+            }
+            return out + "]";
+        }
+    }
+    return emitNumber(t.num);
+}
+
+// A record value that can stand bare: no whitespace, no quote, no comment
+// introducer (the line's comment strip runs before the record is read), no list
+// comma, and not the word that means "stated empty".
+bool bareSafe(const std::string& s) {
+    if (s.empty() || lowerAscii(s) == "none") return false;
+    for (char c : s)
+        if (std::isspace(static_cast<unsigned char>(c)) || c == '"' || c == '\'' || c == '#' ||
+            c == '/' || c == ',')
+            return false;
+    return true;
+}
+
+// A record value, quoted with the quote character it does not hold. parse()
+// refuses a value it could not write back (recordValueSpellable) and this refuses
+// to write one, so the two directions agree on exactly the same set of values.
+std::string quoteRecordValue(int id, const char* key, const std::string& s) {
+    if (!recordValueSpellable(s))
+        throw std::invalid_argument("emit: the record of %" + std::to_string(id) + " has a `" +
+                                    key + "` value the IR cannot spell (empty, a line break, "
+                                    "or both quote characters): `" + s + "`");
+    const char q = (s.find('"') == std::string::npos) ? '"' : '\'';
+    return std::string(1, q) + s + std::string(1, q);
+}
+
+// A record whose `stated` set and contents disagree cannot be written so that it
+// reads back the same; refuse it rather than drop the half that disagrees.
+void requireConsistentRecord(int id, const OpRecord& r) {
+    auto bad = [&](const std::string& why) {
+        throw std::invalid_argument("emit: the record of %" + std::to_string(id) + " " + why);
+    };
+    if (r.stated & ~static_cast<std::uint16_t>(kRecAll))
+        bad("states field bits outside units..prov");
+    const struct { std::uint16_t bit; bool has; const char* name; } content[] = {
+        {kRecUnits, !r.units.empty(), "units"}, {kRecDeps, !r.deps.empty(), "deps"},
+        {kRecRefs, !r.refs.empty(), "refs"},    {kRecPre, !r.pre.empty(), "pre"},
+        {kRecPost, !r.post.empty(), "post"},    {kRecInv, !r.inv.empty(), "inv"},
+        {kRecConf, r.confidence != -1.0, "conf"},
+        {kRecProv, r.provenance != Provenance::Unstated, "prov"},
+    };
+    for (const auto& c : content)
+        if (c.has && !(r.stated & c.bit))
+            bad(std::string("holds a `") + c.name + "` value but does not mark it stated");
+    if (r.has(kRecProv) && r.provenance == Provenance::Unstated)
+        bad("marks prov stated but names no provenance");
+}
+
+std::string emitRecord(int id, const OpRecord& r) {
+    requireConsistentRecord(id, r);
+    std::string out = "@%" + std::to_string(id);
+    auto list = [&](const char* key, std::uint16_t bit, const std::vector<std::string>& v) {
+        if (!r.has(static_cast<OpRecordField>(bit))) return;
+        if (v.empty()) { out += std::string(" ") + key + "=none"; return; }
+        for (const std::string& s : v)
+            out += std::string(" ") + key + "=" + quoteRecordValue(id, key, s);
+    };
+    if (r.has(kRecUnits)) {
+        if (r.units.empty()) {
+            out += " units=none";
+        } else {
+            bool allBare = true;
+            for (const std::string& u : r.units) allBare = allBare && bareSafe(u);
+            if (allBare) {
+                out += " units=";
+                for (std::size_t i = 0; i < r.units.size(); ++i)
+                    out += (i ? "," : "") + r.units[i];
+            } else {
+                // A quoted unit is read back as ONE unit, verbatim (see parse()).
+                for (const std::string& u : r.units)
+                    out += " units=" + quoteRecordValue(id, "units", u);
+            }
+        }
+    }
+    if (r.has(kRecDeps)) {
+        out += " deps=";
+        if (r.deps.empty()) out += "none";
+        for (std::size_t i = 0; i < r.deps.size(); ++i)
+            out += (i ? ",%" : "%") + std::to_string(r.deps[i]);
+    }
+    list("refs", kRecRefs, r.refs);
+    list("pre", kRecPre, r.pre);
+    list("post", kRecPost, r.post);
+    list("inv", kRecInv, r.inv);
+    if (r.has(kRecConf)) out += " conf=" + emitNumber(r.confidence);
+    if (r.has(kRecProv)) out += std::string(" prov=") + provenanceName(r.provenance);
+    if (!r.source.empty()) out += " src=" + quoteRecordValue(id, "src", r.source);
+    return out;
+}
+
+}  // namespace
+
+std::string emit(const FeatureTree& ft) {
+    std::string out;
+    if (ft.required & ~static_cast<std::uint16_t>(kRecAll))
+        throw std::invalid_argument("emit: FeatureTree::required holds bits outside units..prov");
+    if (ft.required != 0) out += "@REQUIRE " + recordFieldNames(ft.required) + "\n";
+    // parse() turns a BARE `VERIFY "holes=4"` (the ground-truth spelling) into
+    // `%-1 = VERIFY(%<newest>, "holes=4")`, numbering such ops -1, -2, ... in order
+    // and binding each to the newest non-negative id. An op that is exactly what
+    // that rewrite produces is written back BARE: the synthetic id is the parser's,
+    // not the program's ("a space no emitted tree uses"), and the bare line
+    // re-parses to the identical op. Anything else keeps the explicit form.
+    int lastDefined = -1;
+    int nextSynthetic = -1;
+    for (const Op& op : ft.ops) {
+        const bool bare = op.id < 0 && op.id == nextSynthetic && lastDefined >= 0 &&
+                          (op.code == OpCode::Verify || op.code == OpCode::SurfCheck) &&
+                          (op.name == "VERIFY" || op.name == "SURFCHECK") &&
+                          op.args.size() >= 2 && op.args[0].kind == TokKind::Ref &&
+                          op.args[0].ref == lastDefined;
+        if (op.id >= 0) lastDefined = op.id;
+        if (bare) {
+            // `VERIFY(volume=..., genus=1)` -- the bare spelling the corpora use
+            // (11361 of the bare VERIFY lines in archdisc-Models, against none
+            // written `VERIFY "..."`); parse() strips the parentheses either way.
+            --nextSynthetic;
+            out += op.name + "(";
+            for (std::size_t i = 1; i < op.args.size(); ++i) {
+                if (i != 1) out += ", ";
+                out += emitToken(op.args[i]);
+            }
+            out += ")\n";
+            requireConsistentRecord(op.id, op.record);
+            if (op.record.stated != 0 || !op.record.source.empty())
+                out += emitRecord(op.id, op.record) + "\n";
+            continue;
+        }
+        out += "%" + std::to_string(op.id) + " = " + op.name + "(";
+        if (op.code == OpCode::Poly || op.code == OpCode::Arc) {
+            out += "[";
+            for (std::size_t i = 0; i < op.poly.size(); ++i) {
+                if (i != 0) out += "; ";
+                out += emitNumber(op.poly[i].x) + " " + emitNumber(op.poly[i].y);
+                if (op.code == OpCode::Arc && i < op.arcIsArc.size() && op.arcIsArc[i] &&
+                    i < op.arcThrough.size())
+                    out += " " + emitNumber(op.arcThrough[i].x) + " " +
+                           emitNumber(op.arcThrough[i].y);
+            }
+            out += "]";
+        } else {
+            for (std::size_t i = 0; i < op.args.size(); ++i) {
+                if (i != 0) out += ", ";
+                out += emitToken(op.args[i]);
+            }
+        }
+        out += ")\n";
+        requireConsistentRecord(op.id, op.record);   // also for a record not written
+        if (op.record.stated != 0 || !op.record.source.empty())
+            out += emitRecord(op.id, op.record) + "\n";
+    }
+    if (ft.resultId != -1) out += "RESULT(%" + std::to_string(ft.resultId) + ")\n";
+    return out;
+}
+
+// ============================================================================
+// RECORD CHECKS (T-132) — what compile() refuses before it builds anything.
+// ============================================================================
+std::vector<RecordRefusal> checkRecords(const FeatureTree& ft) {
+    std::vector<RecordRefusal> out;
+    std::unordered_map<int, std::size_t> firstAt;   // op id -> index of its first definition
+    for (std::size_t i = 0; i < ft.ops.size(); ++i) {
+        const Op& op = ft.ops[i];
+        const OpRecord& r = op.record;
+        auto refuse = [&](const std::string& why) {
+            out.push_back(RecordRefusal{op.id, op.srcLine,
+                                        "op %" + std::to_string(op.id) + " " + op.name +
+                                            " (line " + std::to_string(op.srcLine) + "): " + why});
+        };
+        auto earlier = [&](int id) {
+            auto it = firstAt.find(id);
+            return it != firstAt.end() && it->second < i;
+        };
+
+        const std::uint16_t missing =
+            static_cast<std::uint16_t>(ft.required & ~r.stated & kRecAll);
+        if (missing != 0) {
+            std::string why = "its record does not state " + recordFieldNames(missing) +
+                              ", which the tree's @REQUIRE contract demands (state `none` "
+                              "for an empty list)";
+            if (!r.present()) why += "; this op has no `@%" + std::to_string(op.id) + "` record";
+            if (op.id < 0)
+                why += "; %" + std::to_string(op.id) + " is the id parse() gave a bare " +
+                       op.name + " -- write it as `%<id> = " + op.name +
+                       "(...)` and give that id a record";
+            refuse(why);
+        }
+        if (r.has(kRecUnits)) {
+            for (const std::string& u : r.units)
+                if (u != "mm" && u != "deg" && u != "1")
+                    refuse("unit `" + u + "` is not an IR unit -- the IR builds lengths in mm, "
+                           "angles in deg and counts in 1; convert the values before emitting "
+                           "them rather than labelling them");
+        }
+        if (r.has(kRecDeps)) {
+            for (int d : r.deps)
+                if (!earlier(d))
+                    refuse("dependency %" + std::to_string(d) +
+                           " is not an op defined before this one");
+            for (const Token& t : op.args) {
+                if (t.kind != TokKind::Ref) continue;
+                if (std::find(r.deps.begin(), r.deps.end(), t.ref) == r.deps.end())
+                    refuse("consumes %" + std::to_string(t.ref) +
+                           " but its record's deps do not list it -- the record contradicts "
+                           "the program");
+            }
+        }
+        if (r.has(kRecRefs)) {
+            for (const std::string& s : r.refs) {
+                if (s.empty() || s[0] != '%') continue;
+                int n = 0;
+                std::size_t end = 0;
+                if (!readRecordId(s, 1, n, end)) {
+                    refuse("semantic reference `" + s + "` starts with % but names no op id");
+                    continue;
+                }
+                if (n != op.id && !earlier(n))
+                    refuse("semantic reference `" + s + "` names %" + std::to_string(n) +
+                           ", which is neither this op nor one defined before it");
+            }
+        }
+        if (r.has(kRecConf) &&
+            (!std::isfinite(r.confidence) || r.confidence < 0.0 || r.confidence > 1.0))
+            refuse("confidence must be in [0, 1], got " + emitNumber(r.confidence));
+        if (r.has(kRecProv)) {
+            if (r.provenance == Provenance::Unresolved)
+                refuse("its provenance is UNRESOLVED -- a value nobody knows is not built with "
+                       "false certainty; resolve it (USER, SOURCE, DERIVED or PROPOSED) first");
+            else if (r.provenance == Provenance::Unstated)
+                refuse("its record marks prov as stated but names no provenance");
+        }
+        if (!firstAt.count(op.id)) firstAt[op.id] = i;
+    }
+    return out;
 }
 
 // ============================================================================
@@ -3797,6 +4405,83 @@ private:
 namespace {
 thread_local CompileProgressHook g_progressHook = nullptr;
 thread_local void*               g_progressUser = nullptr;
+
+// T-132: evaluate ONE record condition with the VERIFY machinery, against the
+// value `targetId`, and label what VERIFY recorded with the phase and op it came
+// from. A condition that cannot be evaluated -- no %ref input to hold a `pre` on,
+// a target that is not a SOLID, a quantity VERIFY does not know -- is a FAILED
+// condition, recorded and failing the compile at the end exactly as a false one
+// does. A stated condition nobody checked would be a false assurance.
+void checkRecordCondition(Builder& b, std::unordered_map<int, Val>& env, CompileResult& out,
+                          const Op& op, bool haveTarget, int targetId,
+                          const std::string& expr, const char* phase) {
+    const int line = op.record.srcLine != 0 ? op.record.srcLine : op.srcLine;
+    const std::string label = std::string(phase) + " %" + std::to_string(op.id) + ": ";
+    std::string phaseUpper = phase;
+    for (char& c : phaseUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    auto failNote = [&](const std::string& why) {
+        out.verify.push_back("FAIL " + label + expr + " (" + why + ")");
+        if (b.firstVerifyFail.empty())
+            b.firstVerifyFail = "op %" + std::to_string(op.id) + " " + op.name + " (record line " +
+                                std::to_string(line) + "): " + phaseUpper +
+                                " condition failed: " + expr + " (" + why + ")";
+    };
+    if (!haveTarget) {
+        failNote("not evaluable: the op has no %ref input to hold it on");
+        return;
+    }
+    Op syn;
+    syn.id = op.id;
+    syn.code = OpCode::Verify;
+    syn.name = "VERIFY";
+    syn.srcLine = line;
+    Token body;
+    body.kind = TokKind::Ref;
+    body.ref = targetId;
+    syn.args.push_back(body);
+    Token e;
+    e.kind = TokKind::Str;
+    e.str = expr;
+    syn.args.push_back(e);
+
+    const std::size_t before = out.verify.size();
+    const bool hadFail = !b.firstVerifyFail.empty();
+    try {
+        (void)b.build(syn, env);
+    } catch (const OpError& err) {
+        failNote(std::string("not evaluable: ") + err.what());
+        return;
+    } catch (const Standard_Failure& f) {
+        const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
+        failNote(std::string("not evaluable: kernel raised ") + (ty ? ty : "Standard_Failure"));
+        return;
+    } catch (const std::exception& ex) {
+        failNote(std::string("not evaluable: ") + ex.what());
+        return;
+    }
+    for (std::size_t i = before; i < out.verify.size(); ++i) {
+        std::string& s = out.verify[i];
+        if (s.rfind("PASS ", 0) == 0 || s.rfind("FAIL ", 0) == 0)
+            s = s.substr(0, 5) + label + s.substr(5);
+    }
+    if (!hadFail && !b.firstVerifyFail.empty()) {
+        std::string& m = b.firstVerifyFail;
+        const std::string from = "VERIFY failed: ";
+        const std::size_t at = m.find(from);
+        if (at != std::string::npos)
+            m = "op %" + std::to_string(op.id) + " " + op.name + " (record line " +
+                std::to_string(line) + "): " + phaseUpper + " condition failed: " +
+                m.substr(at + from.size());
+    }
+}
+
+// The value a `pre` (and the input half of an `inv`) is held on: the op's first
+// %ref argument, i.e. the body it modifies.
+bool firstRefInput(const Op& op, int& id) {
+    for (const Token& t : op.args)
+        if (t.kind == TokKind::Ref) { id = t.ref; return true; }
+    return false;
+}
 }  // namespace
 
 void setCompileProgressHook(CompileProgressHook hook, void* user) {
@@ -3834,6 +4519,24 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
     out.nParsed   = ft.ops.size();
     out.nCompiled = 0;
 
+    // ------------------------------------------------ T-132 RECORD REFUSAL
+    // FIRST, before the boolean budget is touched, before the progress hook
+    // announces anything, before a single kernel call: a tree whose records are
+    // refused is not built at all. Refusing after building would mean the part
+    // existed, however briefly, on the strength of a record that said it must not.
+    {
+        const std::vector<RecordRefusal> refused = checkRecords(ft);
+        if (!refused.empty()) {
+            out.error = "RECORD_REFUSED: " + refused.front().reason;
+            const std::size_t shown = std::min<std::size_t>(refused.size(), 8);
+            for (std::size_t i = 1; i < shown; ++i) out.error += " | " + refused[i].reason;
+            if (refused.size() > shown)
+                out.error += " | (+" + std::to_string(refused.size() - shown) + " more)";
+            out.failedOpId = refused.front().opId;
+            return out;
+        }
+    }
+
     // Each tree is an independent body and gets its own boolean hang-guard
     // budget. Without this, a batch run shares one process-global window and
     // healthy trees start failing once earlier trees have spent it.
@@ -3860,6 +4563,17 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
                         " (line " + std::to_string(op.srcLine) + ")";
             out.failedOpId = op.id;
             return out;
+        }
+        // T-132: the record's `pre` and the input half of its `inv`, held on the
+        // body this op is about to modify. A program with no records skips this.
+        const OpRecord& rec = op.record;
+        if (!rec.pre.empty() || !rec.inv.empty()) {
+            int inputId = 0;
+            const bool haveInput = firstRefInput(op, inputId);
+            for (const std::string& c : rec.pre)
+                checkRecordCondition(builder, env, out, op, haveInput, inputId, c, "pre");
+            for (const std::string& c : rec.inv)
+                checkRecordCondition(builder, env, out, op, haveInput, inputId, c, "inv-in");
         }
         Handle h;
         builder.lastEntity = 0;   // reset before every build; see Builder::lastEntity
@@ -3912,6 +4626,11 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         env[op.id] = v;
         if (v.kind == Val::Solid) { lastSolid = h; lastSolidId = op.id; }
         ++out.nCompiled;
+        // T-132: the record's `post` and the output half of its `inv`.
+        for (const std::string& c : rec.post)
+            checkRecordCondition(builder, env, out, op, true, op.id, c, "post");
+        for (const std::string& c : rec.inv)
+            checkRecordCondition(builder, env, out, op, true, op.id, c, "inv-out");
     }
 
     // ------------------------------------------- s0.4 CARDINALITY RECONCILE
