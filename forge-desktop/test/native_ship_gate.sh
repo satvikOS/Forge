@@ -182,6 +182,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Every path ABSOLUTE: several stages `cd` into a source or probe directory and
+# then name these paths. MEASURED: with a relative --out, the preset probe wrote
+# its cache somewhere else and every pin read back as <unset>.
+absdir() {   # absdir <path> -> the absolute path (the directory need not exist yet)
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *)  printf '%s/%s\n' "$(pwd -P)" "${1#./}" ;;
+  esac
+}
+KERNEL_BUILD="$(absdir "$KERNEL_BUILD")"
+APP_BUILD="$(absdir "$APP_BUILD")"
+DIST="$(absdir "$DIST")"
+OUT="$(absdir "$OUT")"
+
 ALL_MUTATIONS="node-addon node-addon-unpinned python-unpinned python-cache python-by-name werror-off gates-missing optable-drift bundle-node-file bundle-napi-macho worker-stub missing-dylib"
 expected_tags() {
   case "$1" in
@@ -198,6 +212,16 @@ expected_tags() {
     worker-stub)         echo "WORKER" ;;
     missing-dylib)       echo "WORKER LAUNCH" ;;
     *) return 1 ;;
+  esac
+}
+# The RED tags a mutation MAY also raise besides its required ones. Anything else
+# means it went red for a reason it was not designed to produce -- which is how a
+# broken check hides inside a "passing" proof (a probe that resolves nothing
+# turns every pin RED, the intended one included) -- so the proof rejects it.
+extra_tags_allowed() {
+  case "$1" in
+    missing-dylib) echo "BUNDLE" ;;   # the audit also names the missing file
+    *) echo "" ;;
   esac
 }
 
@@ -313,9 +337,13 @@ if [ "$PROVE" = "1" ]; then
          --app-build "$APP_BUILD" --dist "$DIST" --out "$OUT" > "$OUT/mutation.$m.log" 2>&1
     mrc=$?
     want="$(expected_tags "$m")"
-    missing=""
+    allowed=" $want $(extra_tags_allowed "$m") "
+    missing=""; unexpected=""
     for t in $want; do
       grep -qF "RED[$t]" "$OUT/mutation.$m.log" || missing="$missing $t"
+    done
+    for t in $(grep -oE 'RED\[[A-Z-]+\]' "$OUT/mutation.$m.log" | sed 's/^RED\[//; s/\]$//' | sort -u); do
+      case "$allowed" in *" $t "*) ;; *) unexpected="$unexpected $t" ;; esac
     done
     if [ "$mrc" -eq 0 ]; then
       say "  mutation $m: STAYED GREEN — the gate cannot see this defect"; bad=$((bad + 1))
@@ -323,6 +351,10 @@ if [ "$PROVE" = "1" ]; then
       say "  mutation $m: exit $mrc (environment/usage error, not a verdict)"; tail -5 "$OUT/mutation.$m.log"; bad=$((bad + 1))
     elif [ -n "$missing" ]; then
       say "  mutation $m: RED but WITHOUT the expected reason(s):$missing"
+      grep -F 'RED[' "$OUT/mutation.$m.log" | head -5
+      bad=$((bad + 1))
+    elif [ -n "$unexpected" ]; then
+      say "  mutation $m: RED for its reason AND for others it was not designed to raise:$unexpected — a check is misfiring"
       grep -F 'RED[' "$OUT/mutation.$m.log" | head -5
       bad=$((bad + 1))
     else
@@ -852,9 +884,11 @@ mutate_bundle() {   # mutate_bundle <Forge.app copy>
     bundle-napi-macho)
       # A REAL N-API addon shape -- exports napi_register_module_v1, imports
       # napi_create_object -- built with the system compiler and given an
-      # innocent dylib name, so only a CONTENT check can see it.
+      # innocent dylib name and a bundle-relative install name (as the packager
+      # gives every Frameworks dylib), so only a CONTENT check can see it.
       printf 'extern int napi_create_object(void*, void*);\nint napi_register_module_v1(void* e, void* x) { return napi_create_object(e, x); }\n' > "$RUN/addon.c"
-      cc -dynamiclib -undefined dynamic_lookup -o "$app/Contents/Frameworks/libforge_helper.dylib" "$RUN/addon.c" \
+      cc -dynamiclib -undefined dynamic_lookup -install_name @rpath/libforge_helper.dylib \
+         -o "$app/Contents/Frameworks/libforge_helper.dylib" "$RUN/addon.c" \
         > "$RUN/addon.cc.log" 2>&1 || { echo "[ship-gate] cannot build the mutation addon" >&2; cat "$RUN/addon.cc.log" >&2; exit 2; } ;;
     worker-stub)
       cat > "$app/Contents/MacOS/forge_kernel_worker" <<'STUB'
