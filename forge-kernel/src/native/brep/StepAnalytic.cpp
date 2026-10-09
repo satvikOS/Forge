@@ -1263,6 +1263,17 @@ bool decodeEdgeCurve(const std::unordered_map<std::uint64_t, Instance>& tab,
     else return false;
     auto cit = tab.find(cid);
     if (cit == tab.end()) return false;
+    // T-270: an AP214 exporter (OCCT) wraps the 3D curve as SURFACE_CURVE /
+    // SEAM_CURVE('', #curve3d, (pcurves...), .PCURVE_S1.); its first argument is
+    // the edge's 3D geometry. Without it the edge was a bare chord, which the
+    // curved-face trim check (verifyQuadricTrim) rightly finds off the surface.
+    if (cit->second.type == "SURFACE_CURVE" || cit->second.type == "SEAM_CURVE") {   // T270-EDGE-SURFACE-CURVE
+        auto sp = splitTopLevel(cit->second.params);
+        std::uint64_t c3 = 0;
+        if (sp.size() < 2 || !parseRef(sp[1], c3)) return false;
+        cit = tab.find(c3);
+        if (cit == tab.end()) return false;
+    }
     const std::string& ty = cit->second.type;
     const double TWO_PI = 2.0 * 3.14159265358979323846;
 
@@ -1403,6 +1414,14 @@ EdgeCircle circleOfEdgeCurve(const std::unordered_map<std::uint64_t, Instance>& 
     std::uint64_t curveId = 0;
     if (!parseRef(ep[3], curveId)) return out;  // '*' or non-ref -> not a circle
     auto cit = tab.find(curveId);
+    // T-270: the AP214 SURFACE_CURVE / SEAM_CURVE wrapper carries the 3D curve
+    // first (as in decodeEdgeCurve), so an OCCT-dialect disk cap is a disk too.
+    if (cit != tab.end() && (cit->second.type == "SURFACE_CURVE" || cit->second.type == "SEAM_CURVE")) {   // T270-DISK-SURFACE-CURVE
+        auto sp = splitTopLevel(cit->second.params);
+        std::uint64_t c3 = 0;
+        if (sp.size() < 2 || !parseRef(sp[1], c3)) return out;
+        cit = tab.find(c3);
+    }
     if (cit == tab.end() || cit->second.type != "CIRCLE") return out;
     auto cp = splitTopLevel(cit->second.params);
     if (cp.size() != 3) return out;
@@ -1585,7 +1604,11 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
         // through `centre`. A box face that merely has an arc NOTCH (its other
         // edges are box edges, NOT radial) must NOT be treated as a disk — that is
         // the holed top/bottom face of a bored plate, integrated as a polygon.
-        bool diskShaped = haveCentre && consistent && nCircles >= 1 && rOuter > 1e-9;
+        // T-270: the polar disk integral has no holes -- a disk face WITH inner
+        // (hole) loops stays the holed polygon (boolHoled) instead of reading back
+        // as the whole disk.
+        bool diskShaped = haveCentre && consistent && nCircles >= 1 && rOuter > 1e-9 &&
+                          f->innerLoops.empty();   // T270-DISK-HOLES
         if (diskShaped) {
             const std::size_t n = ring.size();
             for (std::size_t i = 0; i < n && diskShaped; ++i) {
@@ -1614,24 +1637,44 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
             if (allArcs) {
                 aMin = 0.0; aMax = TWO_PI;   // full disk / annulus
             } else {
-                // SECTOR: its angular width is the spread of the vertex angles about
-                // the centre. Reference all angles to the first vertex and unwrap to
-                // (-pi,pi], then take [min,max] — robust for the <pi sectors the
-                // primitives emit (and any sector whose vertices fit one half-turn).
-                const std::size_t n = ring.size();
-                Vec3 rel0 = vsub(PV(ring[0]->point), centre);
-                double a0 = std::atan2(vdot(rel0, bdir), vdot(rel0, rdir));
-                double lo = 0, hi = 0;
-                for (std::size_t i = 0; i < n; ++i) {
-                    Vec3 rel = vsub(PV(ring[i]->point), centre);
-                    if (std::sqrt(vdot(rel, rdir) * vdot(rel, rdir) +
-                                  vdot(rel, bdir) * vdot(rel, bdir)) < 1e-9) continue;
-                    double a = std::atan2(vdot(rel, bdir), vdot(rel, rdir)) - a0;
-                    while (a >  3.14159265358979323846) a -= TWO_PI;
-                    while (a < -3.14159265358979323846) a += TWO_PI;
-                    lo = std::min(lo, a); hi = std::max(hi, a);
+                // SECTOR (T-270): its angular span is the angle SWEPT by its
+                // boundary about the centre -- the loop's vertices and the midpoint
+                // of every arc edge (its re-attached Edge::curve), unwrapped
+                // CONTINUOUSLY along the loop from the first point off the centre.
+                // It was the spread of the vertex angles referenced to ring[0] with
+                // [lo,hi] seeded at 0: when ring[0] IS the centre (the apex of a
+                // fillet's cap sector) that seed widened every sector to start at
+                // angle 0 (MEASURED: filletCylinderTopEdgeAnalytic area 394.478 ->
+                // 1197.941 on the round trip, volume unchanged), and a half-disk's
+                // far radial edge at +-pi could land on either side.
+                std::vector<Vec3> bpts;
+                const Coedge* ce = f->outerLoop ? f->outerLoop->first : nullptr;
+                std::size_t guard = 0;
+                while (ce && ce->edge) {
+                    bpts.push_back(PV(ce->originVertex()->point));
+                    const Edge* e = ce->edge;
+                    if (e->curve && e->curve->kind == GeomCurveKind::Circle)
+                        bpts.push_back(e->curve->evaluate(0.5 * (e->curve->t0 + e->curve->t1)));
+                    ce = ce->next;
+                    if (ce == f->outerLoop->first || ++guard > 1000000) break;
                 }
-                aMin = a0 + lo; aMax = a0 + hi;
+                bool have = false;
+                double prev = 0.0, lo = 0.0, hi = 0.0;
+                for (const Vec3& p : bpts) {
+                    const Vec3 rel = vsub(p, centre);
+                    const double x = vdot(rel, rdir), y = vdot(rel, bdir);
+                    if (std::sqrt(x * x + y * y) < 1e-9) continue;   // the centre itself
+                    double a = std::atan2(y, x);
+                    if (have) {
+                        while (a - prev >  3.14159265358979323846) a -= TWO_PI;
+                        while (a - prev < -3.14159265358979323846) a += TWO_PI;
+                        lo = std::min(lo, a); hi = std::max(hi, a);
+                    } else {
+                        have = true; lo = hi = a;   // T270-SECTOR-SWEEP
+                    }
+                    prev = a;
+                }
+                aMin = lo; aMax = hi;
             }
             surf->isDisk = true;
             surf->diskInner = rInner;
@@ -1867,6 +1910,298 @@ bool attachNurbsTrim(Face* f, const NurbsSurface& n, const std::vector<Vertex*>&
         if (seam[i][0] && !(box[0] == ua && box[1] == ub)) u = (box[0] == ua) ? ua : ub;
         if (seam[i][1] && !(box[2] == va && box[3] == vb)) v = (box[2] == va) ? va : vb;
         f->vertexUV.push_back({u, v});
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// CURVED QUADRIC FACE TRIM (T-270). attachTrim() gives a cylinder / cone /
+// sphere / torus face the (u,v) BOX OF ITS LOOP VERTICES, and massProperties()
+// integrates that box. The box IS the face only for a primitive's iso-parameter
+// tiling. A face imported by readForeignStep carries its real trim as a (u,v)
+// region (Face::regionUV) and generally is not its vertex box: a sector with a
+// notch, a full ring split by a seam (the anchor unwrap drops one sub-arc and
+// shifts the box), a wall with holes (the box ignores inner loops). MEASURED on
+// the in-tree corpus at ed241f37: 35 of the 42 solids the import ladder reads
+// via readForeignStep came back from write()->read() ok=1 with the WRONG
+// volume, worst +111.9 %.
+//
+// THE RULE. Every loop of the face is walked: each coedge's origin vertex plus
+// 7 interior samples along the edge's FILE geometry (Edge::curve as re-attached
+// from the EDGE_CURVE, the straight chord when there was none), in the coedge's
+// direction. Each sample must lie ON the surface (a chord of a curved edge does
+// not -- refused). The samples are mapped to the surface's (u,v) with theta (and
+// the torus' minor angle) unwrapped CONTINUOUSLY along the loop; a pole sample
+// (sphere pole, cone apex: theta undefined) stands for the iso-segment between
+// its neighbours' theta. Then:
+//   * the outer loop traverses its (u,v) box exactly once (every sample on a box
+//     side, |signed area| == box area), the face has no inner loop, and the box
+//     is attachTrim()'s window (mod 2 pi): the face IS that rectangle -- kept
+//     untouched (every native primitive tiling; byte-identical);
+//   * otherwise, when every edge is a STRAIGHT segment in (u,v) (generator,
+//     latitude / meridian / minor circle -- the edges whose (u,v) polygon is the
+//     trim EXACTLY), the face is integrated over that region (regionUV: outer
+//     polygon minus the hole polygons, the representation readForeignStep gives
+//     the same face);
+//   * otherwise -- an off-surface edge, an edge curved in (u,v), a loop that
+//     winds around the axis (a full ring with no seam), a hole outside the outer
+//     loop's (u,v) span -- the face is REFUSED with a reason, never read as a
+//     wrong rectangle. importStep then falls through to readForeignStep;
+//     FgCopyBody degrades to its honest mesh copy.
+// ---------------------------------------------------------------------------
+struct QuadSample {
+    Vec3 p{};
+    double u = 0.0, v = 0.0;
+    bool pole = false;    // theta undefined (on the axis: sphere pole / cone apex)
+};
+
+// Raw parameters of p on the (attachTrim-normalised) quadric s: theta in
+// (-pi,pi], v per Surface.hpp. Returns |S(u,v) - p|, the on-surface residual.
+double quadricParams(const Surface& s, const Vec3& p, double tolP, QuadSample& q) {
+    const Vec3 ax = vnorm(s.axis), rd = vnorm(s.refDir), bd = vcross(ax, rd);
+    const Vec3 rel = vsub(p, s.origin);
+    const double x = vdot(rel, rd), y = vdot(rel, bd), z = vdot(rel, ax);
+    const double rho = std::sqrt(x * x + y * y);
+    q.p = p;
+    q.u = std::atan2(y, x);
+    q.pole = (s.kind != SurfaceKind::Cylinder) && rho <= tolP;
+    switch (s.kind) {
+    case SurfaceKind::Cylinder: q.v = z; break;
+    case SurfaceKind::Cone:     q.v = (std::fabs(s.param) > 0.0) ? z / s.param : 0.0; break;
+    case SurfaceKind::Sphere: {
+        const double R = vlen(rel);
+        q.v = (R > 0.0) ? std::acos(std::max(-1.0, std::min(1.0, z / R))) : 0.0;
+        break;
+    }
+    case SurfaceKind::Torus:    q.v = std::atan2(z, rho - s.r1); break;
+    default: return std::numeric_limits<double>::infinity();
+    }
+    return vlen(vsub(s.evaluate(q.u, q.v), p));
+}
+
+// One walked loop: the samples in loop order, and for each coedge the index of
+// its origin-vertex sample (interior samples follow it).
+struct QuadLoop {
+    std::vector<QuadSample> s;
+    std::vector<std::size_t> vtx;
+};
+
+constexpr int kQuadEdgeSamples = 8;   // 7 interior samples per edge
+
+// Walk `lp`, sample, check on-surface, unwrap theta (and the torus minor angle)
+// continuously, and require the loop to close in (u,v) (zero net winding).
+bool walkQuadricLoop(const Surface& s, const Loop* lp, double tolP, QuadLoop& out,
+                     std::string& why) {
+    const double PI = 3.14159265358979323846, TWO_PI = 2.0 * PI;
+    out.s.clear(); out.vtx.clear();
+    if (!lp || !lp->first) { why = "curved face has an empty loop"; return false; }
+    const Coedge* ce = lp->first;
+    std::size_t guard = 0;
+    do {
+        const Edge* e = ce->edge;
+        if (!e || !e->start || !e->end) { why = "curved face loop has a bare coedge"; return false; }
+        out.vtx.push_back(out.s.size());
+        for (int k = 0; k < kQuadEdgeSamples; ++k) {
+            const double fr = static_cast<double>(k) / kQuadEdgeSamples;
+            const double t = ce->forward ? fr : 1.0 - fr;   // edge parameter fraction
+            Vec3 p;
+            if (k == 0) p = PV(ce->originVertex()->point);
+            else if (e->curve) p = e->curve->evaluate(e->curve->t0 + t * (e->curve->t1 - e->curve->t0));
+            else p = vadd(PV(e->start->point), vscale(vsub(PV(e->end->point), PV(e->start->point)), t));
+            QuadSample q;
+            if (quadricParams(s, p, tolP, q) > tolP) {   // T270-QUADRIC-ON-SURFACE
+                why = "a boundary edge of a curved face leaves its surface (a chord of a curved edge)";
+                return false;
+            }
+            out.s.push_back(q);
+        }
+        ce = ce->next;
+    } while (ce && ce != lp->first && ++guard < 1000000);
+
+    // Continuous unwrap along the loop, anchored on the first non-pole sample.
+    const bool wrapV = (s.kind == SurfaceKind::Torus);
+    bool have = false; double pu = 0.0, pv = 0.0, firstU = 0.0, firstV = 0.0;
+    for (QuadSample& q : out.s) {
+        if (q.pole) continue;
+        if (have) {
+            while (q.u - pu >  PI) q.u -= TWO_PI;
+            while (q.u - pu < -PI) q.u += TWO_PI;
+            if (wrapV) {
+                while (q.v - pv >  PI) q.v -= TWO_PI;
+                while (q.v - pv < -PI) q.v += TWO_PI;
+            }
+        } else { have = true; firstU = q.u; firstV = q.v; }
+        pu = q.u; pv = q.v;
+    }
+    if (!have) { why = "curved face loop lies entirely on the surface axis"; return false; }
+    // Closing step back to the first sample: the loop must not wind around the
+    // axis (or the torus tube). A ring bounded by two full circles and no seam
+    // has no (u,v) polygon.   T270-QUADRIC-WINDING
+    auto winds = [&](double last, double first) {
+        double d = first - last;
+        while (d >  PI) d -= TWO_PI;
+        while (d < -PI) d += TWO_PI;
+        return std::fabs(last + d - first) > PI;
+    };
+    if (winds(pu, firstU) || (wrapV && winds(pv, firstV))) {
+        why = "a loop of a curved face winds around the surface (a full ring with no seam edge)";
+        return false;
+    }
+    return true;
+}
+
+// The (u,v) point of sample i of the loop; a pole sample takes the theta of the
+// neighbouring non-pole sample on the side `fromNext` selects.
+std::array<double, 2> quadUV(const QuadLoop& L, std::size_t i, bool fromNext) {
+    const std::size_t n = L.s.size();
+    if (!L.s[i].pole) return {L.s[i].u, L.s[i].v};
+    for (std::size_t k = 1; k < n; ++k) {
+        const std::size_t j = fromNext ? (i + k) % n : (i + n - k) % n;
+        if (!L.s[j].pole) return {L.s[j].u, L.s[i].v};
+    }
+    return {0.0, L.s[i].v};
+}
+
+// The loop's (u,v) polygon over its VERTICES (a pole vertex contributes the two
+// ends of its degenerate iso-segment), shifted by `du`.
+std::vector<std::array<double, 2>> quadPolygon(const QuadLoop& L, double du) {
+    std::vector<std::array<double, 2>> poly;
+    auto push = [&](std::array<double, 2> p) {
+        p[0] += du;
+        if (!poly.empty() && poly.back()[0] == p[0] && poly.back()[1] == p[1]) return;
+        poly.push_back(p);
+    };
+    for (std::size_t i : L.vtx) {
+        if (L.s[i].pole) { push(quadUV(L, i, false)); push(quadUV(L, i, true)); }
+        else push(quadUV(L, i, false));
+    }
+    if (poly.size() > 1 && poly.front() == poly.back()) poly.pop_back();
+    return poly;
+}
+
+double signedArea(const std::vector<std::array<double, 2>>& P) {
+    double a = 0.0;
+    for (std::size_t i = 0; i < P.size(); ++i) {
+        const auto& p = P[i];
+        const auto& q = P[(i + 1) % P.size()];
+        a += p[0] * q[1] - q[0] * p[1];
+    }
+    return 0.5 * a;
+}
+
+// True iff every edge of the loop is a straight segment in (u,v): each interior
+// sample is S() of the closest point of the (u,v) chord between its edge's ends
+// (closest in the surface metric at the sample).
+bool quadEdgesStraight(const Surface& s, const QuadLoop& L, double tolP) {
+    const std::size_t nE = L.vtx.size(), n = L.s.size();
+    for (std::size_t k = 0; k < nE; ++k) {
+        const std::size_t ia = L.vtx[k], ib = (k + 1 < nE) ? L.vtx[k + 1] : n;
+        const std::array<double, 2> A = quadUV(L, ia, true);
+        const std::array<double, 2> B = quadUV(L, ib % n, false);
+        const double du = B[0] - A[0], dv = B[1] - A[1];
+        for (std::size_t i = ia + 1; i < ib; ++i) {
+            const QuadSample& q = L.s[i];
+            if (q.pole) continue;
+            Vec3 P, Su, Sv;
+            s.evaluateDeriv(q.u, q.v, P, Su, Sv);
+            const double gu = vdot(Su, Su), gv = vdot(Sv, Sv);
+            const double den = du * du * gu + dv * dv * gv;
+            double lam = 0.0;
+            if (den > 0.0) lam = ((q.u - A[0]) * du * gu + (q.v - A[1]) * dv * gv) / den;
+            lam = std::max(0.0, std::min(1.0, lam));
+            if (vlen(vsub(s.evaluate(A[0] + lam * du, A[1] + lam * dv), q.p)) > tolP) return false;
+        }
+    }
+    return true;
+}
+
+// Decide the curved face's integration domain (see the block comment above).
+bool verifyQuadricTrim(Face* f, const Surface& s, std::string& why) {
+    const double PI = 3.14159265358979323846, TWO_PI = 2.0 * PI;
+    // Positional tolerance: decodeEdgeCurve's 1e-7 relative, on the face's scale.
+    double scale = 1.0;
+    if (f->outerLoop && f->outerLoop->first) {
+        const Coedge* ce = f->outerLoop->first;
+        std::size_t g = 0;
+        do {
+            if (ce->edge && ce->edge->start) scale = std::max(scale, vlen(PV(ce->originVertex()->point)));
+            ce = ce->next;
+        } while (ce && ce != f->outerLoop->first && ++g < 1000000);
+    }
+    const double tolP = 1e-7 * scale;
+
+    QuadLoop outer;
+    if (!walkQuadricLoop(s, f->outerLoop, tolP, outer, why)) return false;
+    double U0 = std::numeric_limits<double>::infinity(), U1 = -U0, V0 = U0, V1 = -U0;
+    for (std::size_t i = 0; i < outer.s.size(); ++i) {
+        const auto p = quadUV(outer, i, false);
+        U0 = std::min(U0, p[0]); U1 = std::max(U1, p[0]);
+        V0 = std::min(V0, p[1]); V1 = std::max(V1, p[1]);
+    }
+    const std::vector<std::array<double, 2>> poly = quadPolygon(outer, 0.0);
+    const double boxArea = (U1 - U0) * (V1 - V0);
+
+    // Is the outer loop its box, traversed once?   T270-QUADRIC-RECT
+    bool isBox = boxArea > 0.0 &&
+                 std::fabs(std::fabs(signedArea(poly)) - boxArea) <= 1e-9 * boxArea;
+    for (std::size_t i = 0; isBox && i < outer.s.size(); ++i) {
+        const QuadSample& q = outer.s[i];
+        const auto p = quadUV(outer, i, false);
+        auto on = [&](double uu, double vv) {
+            return vlen(vsub(s.evaluate(uu, vv), q.p)) <= tolP;
+        };
+        isBox = on(U0, p[1]) || on(U1, p[1]) || on(p[0], V0) || on(p[0], V1);
+    }
+    if (isBox && f->innerLoops.empty()) {
+        const double k = std::round((U0 - f->u0) / TWO_PI);
+        const double tu = 1e-9 * std::max(1.0, std::fabs(U0) + std::fabs(U1));
+        const double tv = 1e-9 * std::max(1.0, std::fabs(V0) + std::fabs(V1));
+        if (std::fabs(U0 - k * TWO_PI - f->u0) <= tu && std::fabs((U1 - U0) - (f->u1 - f->u0)) <= tu &&
+            std::fabs(V0 - f->v0) <= tv && std::fabs(V1 - f->v1) <= tv)
+            return true;   // attachTrim's rectangle IS the face: untouched
+    }
+
+    // Not attachTrim's rectangle: integrate the real (u,v) region, if it is exact.
+    if (!quadEdgesStraight(s, outer, tolP)) {   // T270-QUADRIC-UV-STRAIGHT
+        why = "a curved face's trim is not its (u,v) rectangle and an edge is curved in (u,v)";
+        return false;
+    }
+    if (!(std::fabs(signedArea(poly)) > 0.0)) {
+        why = "a curved face's (u,v) trim polygon has no area";
+        return false;
+    }
+    std::vector<std::vector<std::array<double, 2>>> holes;
+    for (const Loop* hl : f->innerLoops) {
+        QuadLoop H;
+        if (!walkQuadricLoop(s, hl, tolP, H, why)) return false;
+        if (!quadEdgesStraight(s, H, tolP)) {
+            why = "an inner (hole) loop of a curved face is curved in (u,v)";
+            return false;
+        }
+        // Place the hole in the outer loop's theta range (a whole turn shift).
+        double hu0 = std::numeric_limits<double>::infinity(), hu1 = -hu0, hv0 = hu0, hv1 = -hu0;
+        for (std::size_t i = 0; i < H.s.size(); ++i) {
+            const auto p = quadUV(H, i, false);
+            hu0 = std::min(hu0, p[0]); hu1 = std::max(hu1, p[0]);
+            hv0 = std::min(hv0, p[1]); hv1 = std::max(hv1, p[1]);
+        }
+        const double shift = TWO_PI * std::round((0.5 * (U0 + U1) - 0.5 * (hu0 + hu1)) / TWO_PI);
+        const double tu = 1e-9 * std::max(1.0, std::fabs(U0) + std::fabs(U1));
+        const double tv = 1e-9 * std::max(1.0, std::fabs(V0) + std::fabs(V1));
+        if (hu0 + shift < U0 - tu || hu1 + shift > U1 + tu || hv0 < V0 - tv || hv1 > V1 + tv) {
+            why = "an inner (hole) loop of a curved face is not inside its outer loop's (u,v) span";
+            return false;
+        }
+        holes.push_back(quadPolygon(H, shift));
+    }
+    f->regionOuterUV = poly;
+    f->regionInnerUV = std::move(holes);
+    f->regionUV = true;                     // T270-QUADRIC-REGION
+    f->u0 = U0; f->u1 = U1; f->v0 = V0; f->v1 = V1;
+    f->vertexUV.clear();
+    for (std::size_t i : outer.vtx) {
+        const auto a = quadUV(outer, i, false), b = quadUV(outer, i, true);
+        f->vertexUV.push_back({0.5 * (a[0] + b[0]), a[1]});
     }
     return true;
 }
@@ -2168,6 +2503,12 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
         } else if (!attachTrim(f, surf, ring, ringCircles)) {
             return readFail("StepAnalytic.read: could not parameterise face over "
                             "its analytic surface (trim window)");
+        } else if (surf->kind != SurfaceKind::Plane) {
+            // T-270: the vertex box is the face only when the face IS that box.
+            std::string tw;
+            if (!verifyQuadricTrim(f, *surf, tw))   // T270-QUADRIC-TRIM-GUARD
+                return readFail("StepAnalytic.read: " + tw + " -- refused rather than "
+                                "read as the vertex (u,v) box; readForeignStep reads it");
         }
     }
 
