@@ -476,6 +476,148 @@ bool parameteriseQuadric(Face* f, Surface* surf,
 }
 
 // ---------------------------------------------------------------------------
+// buildPoleAwareRegion — the (u,v) region polygon of a ring that passes through a
+// POLE of a sphere or the APEX of a cone (T-273). At such a point u is undefined
+// (every u names the same 3D point), so the ring's (u,v) boundary must travel
+// ALONG the degenerate row v = v_pole from the u it arrived with to the u it
+// leaves with -- a single (u,v) point there loses area -- and the leaving u is
+// fixed only up to a whole turn, so it must be chosen so the polygon CLOSES.
+//
+// MEASURED on base b609b41d with Forge's own route-3 export (StepWriteOcct) read
+// back by readForeignStep, every one ok=1 closed=1 unsupported=0, so importStep's
+// ladder accepted all of them: a full sphere (the seam meridian down and back up
+// at the SAME u) read vol 0; a lower hemisphere 6.572162705 vs 134.041286553; a
+// 2 rad longitude wedge 53.060 vs 85.333; an apex cone 31.762 vs 47.124; an upper
+// hemisphere lost a near-pole sliver (rel 1.5e-6). The sequential unwrap below
+// held the previous angle at a pole and so could neither draw the pole row nor
+// put the seam's second traversal a turn away.
+//
+// The rule: walk the ring from the first radial sample after a pole run,
+// unwrapping each radial sample within pi of its predecessor; every pole run
+// becomes TWO points on its row, (u_in, v_pole) and (u_out, v_pole). The walk's
+// total winding D (a whole number of turns) is absorbed by the run that closes
+// the ring, so the polygon closes in (u,v). With D == 0 and the plain walk
+// enclosing no area (a closed face bounded only by its seam traversed down and
+// back up -- the full sphere), the first run takes one full turn and the closing
+// run returns it: the region is the full band. Even-odd integration
+// (MassProps::integrateParametricRegion) makes the polygon's orientation
+// irrelevant. Returns false -- the caller keeps the sequential path, byte for
+// byte -- when the ring has no pole/apex sample or no radial one.
+// ---------------------------------------------------------------------------
+bool buildPoleAwareRegion(const std::vector<Vec3>& pts, const Surface* sf,
+                          double thetaAnchor,
+                          std::vector<std::array<double, 2>>& out) {
+    const std::size_t n = pts.size();
+    if (n < 3) return false;
+    if (sf->kind != SurfaceKind::Sphere && sf->kind != SurfaceKind::Cone) return false;
+    const Vec3 ax = vnorm(sf->axis), rd = vnorm(sf->refDir), bd = vcross(ax, rd);
+    // Scale-aware "on the axis" test: a pole vertex read from a file carries the
+    // file's rounding, so an absolute 1e-9 would call a pole of a large part radial
+    // and hand it a random atan2 angle.
+    const double scale = std::max({1.0, std::fabs(sf->r1), std::fabs(sf->r2),
+                                   std::fabs(sf->param)});
+    const double axisTol = 1e-9 * scale;
+    std::vector<double> U(n), V(n);
+    std::vector<char> radial(n);
+    bool anyPole = false, anyRadial = false;
+    for (std::size_t i = 0; i < n; ++i) {
+        const Vec3 rel = vsub(pts[i], sf->origin);
+        const double x = vdot(rel, rd), y = vdot(rel, bd), z = vdot(rel, ax);
+        U[i] = std::atan2(y, x);
+        if (sf->kind == SurfaceKind::Sphere) {
+            const double rr = vlen(rel);
+            V[i] = (rr > 1e-12) ? std::acos(std::max(-1.0, std::min(1.0, z / rr))) : 0.0;
+        } else {
+            V[i] = (std::fabs(sf->param) > 1e-12) ? z / sf->param : z;
+        }
+        radial[i] = (std::sqrt(x * x + y * y) > axisTol) ? 1 : 0;
+        if (radial[i]) anyRadial = true; else anyPole = true;
+    }
+    if (!anyPole || !anyRadial) return false;
+
+    // Start at the first radial sample that FOLLOWS a pole run, so no run is split
+    // by the cyclic wrap and the LAST run is the one that closes the ring.
+    std::size_t s0 = 0;
+    for (std::size_t i = 0; i < n; ++i)
+        if (radial[i] && !radial[(i + n - 1) % n]) { s0 = i; break; }
+
+    std::vector<std::array<double, 2>> seq;       // unwrapped radial samples
+    std::vector<std::size_t> runExit;             // seq index of each run's exit sample
+    std::vector<double> runV;                     // each run's row v
+    seq.reserve(n);
+    double prev = 0.0;
+    for (std::size_t k = 0; k < n;) {
+        const std::size_t i = (s0 + k) % n;
+        if (!radial[i]) {
+            double sv = 0.0; int c = 0;
+            while (k < n && !radial[(s0 + k) % n]) { sv += V[(s0 + k) % n]; ++c; ++k; }
+            runV.push_back(sv / c);
+            runExit.push_back(seq.size());        // == seq.size() at the end: wraps to seq[0]
+            continue;
+        }
+        double u = U[i];
+        if (seq.empty()) {
+            if (!std::isnan(thetaAnchor)) {
+                while (u - thetaAnchor >  PI) u -= 2.0 * PI;
+                while (u - thetaAnchor < -PI) u += 2.0 * PI;
+            }
+        } else {
+            while (u - prev >  PI) u -= 2.0 * PI;
+            while (u - prev < -PI) u += 2.0 * PI;
+        }
+        prev = u;
+        seq.push_back({u, V[i]});
+        ++k;
+    }
+    if (seq.empty() || runExit.empty()) return false;
+
+    // Assemble with per-run shifts: shift[r] is added to every radial sample after
+    // run r (cumulative). The closing run (exit == seq.size()) connects the last
+    // sample back to seq[0] as drawn, which absorbs the winding.
+    auto assemble = [&](const std::vector<double>& jump) {
+        std::vector<std::array<double, 2>> poly;
+        poly.reserve(seq.size() + 2 * runExit.size());
+        double shift = 0.0;
+        std::size_t r = 0;
+        for (std::size_t j = 0; j <= seq.size(); ++j) {
+            while (r < runExit.size() && runExit[r] == j) {
+                const double uIn = poly.empty() ? seq[0][0] : poly.back()[0];
+                shift += jump[r];
+                const double uOut = (j < seq.size()) ? seq[j][0] + shift : seq[0][0];
+                poly.push_back({uIn, runV[r]});
+                poly.push_back({uOut, runV[r]});
+                ++r;
+            }
+            if (j < seq.size()) poly.push_back({seq[j][0] + shift, seq[j][1]});
+        }
+        return poly;
+    };
+    auto area = [](const std::vector<std::array<double, 2>>& p) {
+        double a = 0.0;
+        for (std::size_t i = 0; i < p.size(); ++i) {
+            const auto& P = p[i]; const auto& Q = p[(i + 1) % p.size()];
+            a += P[0] * Q[1] - Q[0] * P[1];
+        }
+        return 0.5 * a;
+    };
+    std::vector<double> jump(runExit.size(), 0.0);
+    out = assemble(jump);
+    // The full-band case: the plain walk encloses nothing and has an intermediate
+    // run (the ring visits two poles). Its winding is 0, so the closing run returns
+    // whatever the first run takes.
+    if (runExit.size() >= 2) {
+        double vlo = out[0][1], vhi = out[0][1];
+        for (const auto& q : out) { vlo = std::min(vlo, q[1]); vhi = std::max(vhi, q[1]); }
+        const double band = 2.0 * PI * std::max(vhi - vlo, 1e-300);
+        if (std::fabs(area(out)) <= 1e-9 * band) {
+            jump[0] = 2.0 * PI;
+            out = assemble(jump);
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // buildRegionPolygon — the (u,v) BOUNDARY POLYGON of a densified 3D ring on an
 // analytic quadric surface, in the surface's OWN parameter space (matching
 // Surface::evaluateDeriv exactly), for the trimmed-region mass integral
@@ -490,6 +632,10 @@ bool parameteriseQuadric(Face* f, Surface* surf,
 std::vector<std::array<double, 2>> buildRegionPolygon(
         const std::vector<Vec3>& pts, const Surface* sf, double thetaAnchor) {
     std::vector<std::array<double, 2>> poly;
+    // A ring through a sphere pole or a cone apex takes the pole-aware path
+    // (T-273); every other ring keeps the sequential path below, unchanged.
+    if (buildPoleAwareRegion(pts, sf, thetaAnchor, poly)) return poly;
+    poly.clear();
     poly.reserve(pts.size());
     const Vec3 ax = vnorm(sf->axis), rd = vnorm(sf->refDir), bd = vcross(ax, rd);
     bool haveTh = false;  double thPrev = 0.0;
@@ -1448,6 +1594,19 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             return false;
         }
         s.reversed = !sameSense;
+        // ── THE NATIVE SPHERE'S PARAMETER NORMAL POINTS INWARD (T-273) ─────────
+        // Every other quadric here has S_u x S_v along the STEP surface's own
+        // normal, so same_sense == .T. means reversed == false. The native sphere
+        // is parameterised by COLATITUDE (v from the +axis pole down), and
+        //   S_u x S_v = -R^2 sin(v) (sin v cos u, sin v sin u, cos v)
+        // is the INWARD radial, while a SPHERICAL_SURFACE's normal points away
+        // from its centre. So for a sphere the flag is the other way round.
+        // MEASURED on base b609b41d (route-3 export read back): a capsule
+        // (cylinder + hemispherical cap) read 46.077 vs 79.587 and a box with a
+        // spherical pocket 601.604 vs 567.275, both ok=1 closed=1 -- the inward
+        // sphere flux was hidden on a lone sphere/hemisphere only because
+        // MassProps flips a wholly negative volume.
+        if (s.kind == SurfaceKind::Sphere) s.reversed = sameSense;
         return true;
     };
 
