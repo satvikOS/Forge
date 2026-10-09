@@ -119,6 +119,8 @@
 #        reported as a broken proof, not counted as a pass)
 #   forge-desktop/test/native_ship_gate.sh --mutate <name> run one mutation
 #   options: --jobs N  --kernel-build DIR  --app-build DIR  --dist DIR  --out DIR
+#   SHIP_GATE_KEEP_COPY=1 keeps each run's relocated bundle copy (deleted by
+#   default: ~40 MB per run, a re-creatable copy of $DIST/Forge.app)
 #
 # MUTATIONS (name -> the RED tags it must produce). No mutation configures the
 # real kernel with the addon, runs node, or runs a Python interpreter: the
@@ -290,6 +292,13 @@ finish() {
     printf '  "logs": "%s"\n' "$RUN"
     printf '}\n'
   } > "$REPORT"
+  # The relocated bundle copy is ~40 MB per run and is re-creatable: it is a ditto
+  # of $DIST/Forge.app (plus, in a bundle mutation, a deterministic edit). Kept, a
+  # --prove-mutations run left ~225 MB behind and every plain run ~44 MB, without
+  # bound. Logs, the trap log and the report stay. SHIP_GATE_KEEP_COPY=1 keeps it.
+  if [ "${SHIP_GATE_KEEP_COPY:-0}" != "1" ]; then
+    case "$RUN" in "$OUT"/run.?*) rm -rf -- "$RUN/relocated" ;; esac
+  fi
   if [ "$verdict" = "GREEN" ]; then
     say "PASS — the shipping build is native: no Node/Electron/Python in its build or its bundle, -Werror intact, the bundled worker models under env -i"
     say "report: $REPORT"
