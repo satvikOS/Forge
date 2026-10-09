@@ -2,19 +2,25 @@
 # run_step_rational_weights_gate.sh — T-158. Build + run step_rational_weights_gate,
 # then PROVE it can fail by reverting each fix it pins.
 #
-#   [0/6] the fixes under test are PRESENT in the source (refuse otherwise)
-#   [1/6] build forge_kernel_core + link the gate against the REAL library
-#   [2/6] clean run: must exit 0
-#   [3/6] mutation M1 — revert the RATIONAL fix (weights dropped again):
+#   [0/8] the fixes under test are PRESENT in the source (refuse otherwise)
+#   [1/8] build forge_kernel_core + link the gate against the REAL library
+#   [2/8] clean run: must exit 0
+#   [3/8] mutation M1 — revert the RATIONAL fix (weights dropped again):
 #         the gate must go RED, and the independent reader must see 1.590990
-#   [4/6] mutation M2 — revert the EDGE fix (Edge::curve ignored again):
+#   [4/8] mutation M2 — revert the EDGE fix (Edge::curve ignored again):
 #         the gate must go RED on the written-arc check
-#   [5/6] mutation M3 — remove the B-spline TRIM GUARD (a trimmed / holed foreign
+#   [5/8] mutation M3 — disable the B-spline SIDE TEST (a trimmed foreign
 #         B-spline face read back as its whole (u,v) rectangle): must go RED
-#   [6/6] rebuild clean, prove the object was recompiled, re-run green
+#   [6/8] mutation M4 — drop the BOX CLAMP from the side test (a point of the
+#         iso-line v = v0 OUTSIDE [u0,u1] counts as on side v0 again, so a face
+#         straddling a closed surface's seam reads as its complement): must go RED
+#   [7/8] mutation M5 — drop the SEAM rule (a seam vertex's u taken at face value,
+#         so the 270->360 deg wall face of a split B-spline cylinder gets the box
+#         u[0,0.75]): must go RED
+#   [8/8] rebuild clean, prove the object was recompiled, re-run green
 #
 # Exit 0 iff the gate built, passed clean, AND every mutation turned it red.
-# The source is rewritten IN PLACE during [3/6]..[5/6] and restored by a trap;
+# The source is rewritten IN PLACE during [3/8]..[7/8] and restored by a trap;
 # do not edit StepAnalytic.cpp while this runs. Native toolchain + POSIX shell
 # tools only (clang++, cmake, awk, grep, sed) — no interpreter is needed.
 # Env: STEP_RATIONAL_BUILD (build dir), JOBS, OCCT_ROOT, STEP_RATIONAL_EVIDENCE
@@ -39,8 +45,8 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/step_rational.XXXXXX")"
 GATE="$TMP/step_rational_weights_gate"
 ORIG="$TMP/StepAnalytic.cpp.orig"
 
-echo "[0/6] the fixes under test are PRESENT in the source"
-for marker in T158-RATIONAL-SURFACE T158-EDGE-OWN-CURVE T158-NURBS-TRIM-GUARD; do
+echo "[0/8] the fixes under test are PRESENT in the source"
+for marker in T158-RATIONAL-SURFACE T158-EDGE-OWN-CURVE T158-NURBS-TRIM-GUARD T158-NURBS-BOX-CLAMP T158-NURBS-SEAM; do
   if ! grep -q "$marker" "$SRC"; then
     echo "[step-rational] FATAL: $SRC has no '$marker' — the fix was reverted or moved." >&2
     echo "[step-rational] Refusing to report success over code that is not there." >&2
@@ -95,13 +101,13 @@ literal_replace() {
   cat "$out" > "$f"
 }
 
-echo "[1/6] build"
+echo "[1/8] build"
 invalidate_obj
 touch "$SRC"
 build_lib || { rm -rf "$TMP"; exit 2; }
 link_gate || { rm -rf "$TMP"; exit 2; }
 
-echo "[2/6] run (clean tree)"
+echo "[2/8] run (clean tree)"
 OUT=$("$GATE" 2>&1); rc=$?
 echo "$OUT" | sed 's/^/      /'
 if [ "$rc" -ne 0 ]; then echo "[step-rational] RED — the clean run failed (exit $rc)."; rm -rf "$TMP"; exit 1; fi
@@ -147,28 +153,42 @@ check_caught() {  # $1 label, $2 exit code
   echo "      $1 caught (exit $2)"
 }
 
-echo "[3/6] mutation M1 — revert the rational fix; the blend must read back wrong"
+echo "[3/8] mutation M1 — revert the rational fix; the blend must read back wrong"
 M1_RC=$(run_mutant T158-RATIONAL-SURFACE \
   "                if (w != 1.0) rational = true;   // T158-RATIONAL-SURFACE" \
   "                // M1: weights dropped again (T158-MUTANT)")
 check_caught M1 "$M1_RC"
 grep -E "independent reader\] blend radius|checks," "$TMP/mutant.out" | head -4 | sed 's/^/      M1> /'
 
-echo "[4/6] mutation M2 — revert the edge fix; the written arc must be caught"
+echo "[4/8] mutation M2 — revert the edge fix; the written arc must be caught"
 M2_RC=$(run_mutant T158-EDGE-OWN-CURVE \
   "curveId = emitEdgeOwnCurve(E, *e, sameSense);   // T158-EDGE-OWN-CURVE" \
   "curveId = 0; (void)&emitEdgeOwnCurve;   // M2: Edge::curve ignored again (T158-MUTANT)")
 check_caught M2 "$M2_RC"
 grep -E "WRITTEN arc edges|checks," "$TMP/mutant.out" | head -3 | sed 's/^/      M2> /'
 
-echo "[5/6] mutation M3 — remove the B-spline trim guard; a trimmed face must be caught"
+echo "[5/8] mutation M3 — disable the B-spline side test; a trimmed face must be caught"
 M3_RC=$(run_mutant T158-NURBS-TRIM-GUARD \
-  "if (!nurbsFaceIsIsoRectangle(f, surf->nurbs, tw))   // T158-NURBS-TRIM-GUARD" \
-  "if ((void)&nurbsFaceIsIsoRectangle, false)   // M3: trim guard removed (T158-MUTANT)")
+  "            return false;   // T158-NURBS-TRIM-GUARD" \
+  "            continue;   // M3: side test disabled, every sample passes (T158-MUTANT)")
 check_caught M3 "$M3_RC"
-grep -E "TRIMMED patch|HOLED B-spline|checks," "$TMP/mutant.out" | head -3 | sed 's/^/      M3> /'
+grep -E "TRIMMED patch|faces 0/90/180/270 \(seam vertices\): read|checks," "$TMP/mutant.out" | head -3 | sed 's/^/      M3> /'
 
-echo "[6/6] rebuild clean and re-run (the mutations must leave no residue)"
+echo "[6/8] mutation M4 — drop the box clamp; a face straddling the seam must be caught"
+M4_RC=$(run_mutant T158-NURBS-BOX-CLAMP \
+  "        const double cu = std::clamp(s.u, u0, u1), cv = std::clamp(s.v, v0, v1);   // T158-NURBS-BOX-CLAMP" \
+  "        const double cu = s.u, cv = s.v;   // M4: box clamp removed (T158-MUTANT)")
+check_caught M4 "$M4_RC"
+grep -E "straddles the seam\): read|checks," "$TMP/mutant.out" | head -3 | sed 's/^/      M4> /'
+
+echo "[7/8] mutation M5 — drop the seam rule; the wall face ending at the seam must be caught"
+M5_RC=$(run_mutant T158-NURBS-SEAM \
+  "        const bool su = closedU && nurbsCoincide(n.evaluate(ua, s.v), s.p), sv = closedV && nurbsCoincide(n.evaluate(s.u, va), s.p);   // T158-NURBS-SEAM" \
+  "        const bool su = false, sv = false; (void)closedU; (void)closedV;   // M5: seam vertices taken at face value (T158-MUTANT)")
+check_caught M5 "$M5_RC"
+grep -E "faces 0/90/180/270 \(seam vertices\): read|checks," "$TMP/mutant.out" | head -3 | sed 's/^/      M5> /'
+
+echo "[8/8] rebuild clean and re-run (the mutations must leave no residue)"
 restore
 trap 'rm -rf "$TMP"' EXIT
 if ! find "$BUILD" -name 'StepAnalytic.cpp.o' | grep -q .; then
@@ -182,5 +202,5 @@ OUT2=$("$GATE" 2>&1); rc2=$?
 if [ "$rc2" -ne 0 ]; then
   echo "[step-rational] RED — the tree did not come back clean:"; echo "$OUT2" | sed 's/^/      /'; exit 1
 fi
-echo "      clean exit $rc2 ; M1 exit $M1_RC ; M2 exit $M2_RC ; M3 exit $M3_RC"
-echo "[step-rational] GREEN — clean run passes and all three mutations were caught."
+echo "      clean exit $rc2 ; M1 exit $M1_RC ; M2 exit $M2_RC ; M3 exit $M3_RC ; M4 exit $M4_RC ; M5 exit $M5_RC"
+echo "[step-rational] GREEN — clean run passes and all five mutations were caught."

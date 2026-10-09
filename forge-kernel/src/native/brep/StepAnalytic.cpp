@@ -38,6 +38,7 @@
 #include "forge/native/brep/NurbsSurface.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -1428,24 +1429,9 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
     f->vertexUV.clear();
     f->vertexUV.reserve(ring.size());
 
-    // NURBS (T-158): the trim window is the (u,v) box of the loop vertices,
-    // INVERTED onto the surface. A vertex that does not lie on the surface means
-    // the file's face does not bound this surface: refuse, never guess.
-    if (surf->kind == SurfaceKind::Nurbs) {
-        double u0 = std::numeric_limits<double>::infinity(), u1 = -u0, v0 = u0, v1 = -u0;
-        for (const Vertex* vx : ring) {
-            const Vec3 p = PV(vx->point);
-            double u = 0, v = 0;
-            const double d = invertNurbs(surf->nurbs, p, u, v);
-            if (!(d <= 1e-6 * std::max(1.0, vlen(p)))) return false;
-            f->vertexUV.push_back({u, v});
-            u0 = std::min(u0, u); u1 = std::max(u1, u);
-            v0 = std::min(v0, v); v1 = std::max(v1, v);
-        }
-        if (!(u1 > u0) || !(v1 > v0)) return false;
-        f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
-        return true;
-    }
+    // NURBS (T-158): a B-spline face's trim window is attachNurbsTrim()'s (below),
+    // which also decides whether the face IS a (u,v) rectangle at all.
+    if (surf->kind == SurfaceKind::Nurbs) return false;
     const Vec3 axis = vnorm(surf->axis);
     const Vec3 rdir = vnorm(surf->refDir);
     const Vec3 bdir = surf->binormal();
@@ -1740,37 +1726,95 @@ std::size_t refacetClosedSphere(TopologyBuilder& tb, Shell* shell,
 }
 
 // ---------------------------------------------------------------------------
-// B-SPLINE FACE TRIM GUARD (T-158). attachTrim() gives a Nurbs face the (u,v)
-// RECTANGLE spanned by its loop vertices, and the mass integrator integrates
-// exactly that rectangle. That is the face only when the face IS the rectangle:
-// no hole, and every boundary edge running along one of its four iso-parameter
-// sides. A foreign file's TRIMMED B-spline face (a triangle cut from a patch, a
-// patch with a hole, an edge that bulges off the vertex box) would otherwise be
-// read back as the whole rectangle -- a wrong solid returned as ok. Each edge is
-// sampled along the geometry the file gave it (Edge::curve as re-attached from
-// the EDGE_CURVE; the straight chord when there was none), and every sample must
-// lie on the surface AND on the rectangle's boundary. Anything else is refused
-// with a reason, so importStep's ladder falls through to readForeignStep (which
-// carries real trim regions) exactly as it did before B-spline faces were read.
-// Returns true iff the face is its iso-parameter rectangle.
-bool nurbsFaceIsIsoRectangle(const Face* f, const NurbsSurface& n, std::string& why) {
-    if (!f->innerLoops.empty()) {
-        why = "B-spline face has an inner (hole) bound";
-        return false;
+// B-SPLINE FACE TRIM (T-158). The mass integrator integrates a Nurbs face over
+// its (u,v) RECTANGLE [u0,u1]x[v0,v1]. That is the face only when the face IS a
+// rectangle of the knot domain: no hole, and its whole boundary on the IMAGE of
+// the rectangle's four sides. A foreign file's TRIMMED B-spline face (a triangle
+// cut from a patch, a patch with a hole, an edge that bulges off the vertex box)
+// would otherwise be read back as the whole rectangle -- a wrong solid returned
+// as ok -- so it is refused with a reason, and importStep's ladder falls through
+// to readForeignStep (which carries real trim regions) exactly as it did before
+// B-spline faces were read.
+//
+// The rectangle is the (u,v) box of the loop vertices inverted onto the surface,
+// EXCEPT on a CLOSED surface (first and last iso-lines coincide, e.g. a B-spline
+// cylinder): a vertex ON the seam inverts to u = ua or u = ub indistinguishably.
+// MEASURED (validator round 1): the 270->360 deg quarter of a split B-spline
+// cylinder came back as u[0,0.75] instead of u[0.75,1] -- ok=1, volume +50.6 %.
+// A seam vertex therefore does not bound the rectangle in that direction; the
+// candidates are [ua,hi], [lo,ub] and [ua,ub] (lo/hi = the other vertices'
+// extent), and the face is read only when EXACTLY ONE candidate has the whole
+// boundary on its sides. A face that CROSSES the seam (315 -> 45 deg) has no
+// rectangle in the knot domain at all: its vertex box is the face's complement,
+// which the side test refuses.
+//
+// SIDE TEST. Every loop vertex and 7 interior samples of every edge (along the
+// geometry the file gave it: Edge::curve as re-attached from the EDGE_CURVE, the
+// straight chord when there was none) are inverted onto the surface ONCE. Each
+// must lie on the surface and on the image of a side: p == S(u0,v*), S(u1,v*),
+// S(u*,v0) or S(u*,v1), with u*, v* the sample's own inverted parameters CLAMPED
+// INTO THE RECTANGLE. Without the clamp, a point of the iso-line v = v0 lying
+// OUTSIDE [u0,u1] passed as "on side v0" -- how the wrong quarter was accepted.
+// (On a seam sample the clamp may pick the far one of ua/ub for side v0, but such
+// a point is on side u0 or u1, which needs no clamp in u.)
+struct NurbsTrimSample { Vec3 p; double u, v; };
+
+bool nurbsCoincide(const Vec3& a, const Vec3& p) {
+    return vlen(vsub(a, p)) <= 1e-6 * std::max(1.0, vlen(p));
+}
+
+// True iff every sample lies on the image of a side of [u0,u1]x[v0,v1].
+bool nurbsSamplesOnBox(const NurbsSurface& n, const std::vector<NurbsTrimSample>& S,
+                       double u0, double u1, double v0, double v1) {
+    for (const NurbsTrimSample& s : S) {
+        const double cu = std::clamp(s.u, u0, u1), cv = std::clamp(s.v, v0, v1);   // T158-NURBS-BOX-CLAMP
+        if (!nurbsCoincide(n.evaluate(u0, cv), s.p) && !nurbsCoincide(n.evaluate(u1, cv), s.p) &&
+            !nurbsCoincide(n.evaluate(cu, v0), s.p) && !nurbsCoincide(n.evaluate(cu, v1), s.p))
+            return false;   // T158-NURBS-TRIM-GUARD
     }
+    return true;
+}
+
+// Sets f's (u,v) rectangle and vertexUV and returns true iff the B-spline face is
+// exactly one rectangle of the knot domain (see above); otherwise `why` says why.
+bool attachNurbsTrim(Face* f, const NurbsSurface& n, const std::vector<Vertex*>& ring,
+                     std::string& why) {
+    const char* const trimmed = "B-spline face is trimmed (an edge leaves its iso-parameter rectangle)";
+    if (!f->innerLoops.empty()) { why = "B-spline face has an inner (hole) bound"; return false; }
     const Loop* lp = f->outerLoop;
-    if (!lp || !lp->first) { why = "B-spline face has no outer loop"; return false; }
-    const double u0 = f->u0, u1 = f->u1, v0 = f->v0, v1 = f->v1;
-    auto onBoundary = [&](const Vec3& p) {
-        const double tol = 1e-6 * std::max(1.0, vlen(p));
-        double u = 0, v = 0;
-        if (!(invertNurbs(n, p, u, v) <= tol)) return false;          // off the surface
-        const Vec3 sides[4] = {n.evaluate(u0, v), n.evaluate(u1, v),
-                               n.evaluate(u, v0), n.evaluate(u, v1)};
-        for (const Vec3& q : sides)
-            if (vlen(vsub(q, p)) <= tol) return true;
-        return false;                                                 // inside or outside the box
+    if (!lp || !lp->first || ring.empty()) { why = "B-spline face has no outer loop"; return false; }
+    if (!n.valid()) { why = "B-spline surface does not validate"; return false; }
+    const double ua = n.knotsU.front(), ub = n.knotsU.back();
+    const double va = n.knotsV.front(), vb = n.knotsV.back();
+
+    // A direction is CLOSED when the surface's first and last iso-lines coincide.
+    bool closedU = true, closedV = true;
+    for (int j = 0; j <= 8; ++j) {
+        const double t = j / 8.0;
+        const double v = va + t * (vb - va), u = ua + t * (ub - ua);
+        closedU = closedU && nurbsCoincide(n.evaluate(ua, v), n.evaluate(ub, v));
+        closedV = closedV && nurbsCoincide(n.evaluate(u, va), n.evaluate(u, vb));
+    }
+
+    // Loop vertices, inverted once; a vertex on a seam bounds nothing in that direction.
+    auto invert = [&](NurbsTrimSample& s) {
+        return invertNurbs(n, s.p, s.u, s.v) <= 1e-6 * std::max(1.0, vlen(s.p));
     };
+    std::vector<NurbsTrimSample> S;
+    std::vector<std::array<bool, 2>> seam;
+    const double inf = std::numeric_limits<double>::infinity();
+    double uLo = inf, uHi = -inf, vLo = inf, vHi = -inf;
+    bool anySeamU = false, anySeamV = false;
+    for (const Vertex* vx : ring) {
+        NurbsTrimSample s{PV(vx->point), 0.0, 0.0};
+        if (!invert(s)) { why = "a B-spline face loop vertex is not on its surface"; return false; }
+        const bool su = closedU && nurbsCoincide(n.evaluate(ua, s.v), s.p), sv = closedV && nurbsCoincide(n.evaluate(s.u, va), s.p);   // T158-NURBS-SEAM
+        if (su) anySeamU = true; else { uLo = std::min(uLo, s.u); uHi = std::max(uHi, s.u); }
+        if (sv) anySeamV = true; else { vLo = std::min(vLo, s.v); vHi = std::max(vHi, s.v); }
+        seam.push_back({su, sv});
+        S.push_back(s);
+    }
+    // Interior samples of every loop edge.
     const Coedge* ce = lp->first;
     std::size_t guard = 0;
     do {
@@ -1778,16 +1822,52 @@ bool nurbsFaceIsIsoRectangle(const Face* f, const NurbsSurface& n, std::string& 
         if (!e || !e->start || !e->end) { why = "B-spline face loop has a bare coedge"; return false; }
         for (int k = 1; k < 8; ++k) {
             const double fr = k / 8.0;
-            const Vec3 p = e->curve
+            NurbsTrimSample s{e->curve
                 ? e->curve->evaluate(e->curve->t0 + fr * (e->curve->t1 - e->curve->t0))
-                : vadd(PV(e->start->point), vscale(vsub(PV(e->end->point), PV(e->start->point)), fr));
-            if (!onBoundary(p)) {
-                why = "B-spline face is trimmed (an edge leaves its iso-parameter rectangle)";
-                return false;
-            }
+                : vadd(PV(e->start->point), vscale(vsub(PV(e->end->point), PV(e->start->point)), fr)),
+                0.0, 0.0};
+            if (!invert(s)) { why = trimmed; return false; }   // the edge leaves the surface
+            S.push_back(s);
         }
         ce = ce->next;
     } while (ce && ce != lp->first && ++guard < 1000000);
+
+    // Candidate extents per direction (deduplicated, positive length only).
+    auto extents = [](bool anySeam, double lo, double hi, double a, double b) {
+        std::vector<std::array<double, 2>> r;
+        if (lo <= hi) {
+            if (anySeam) { r.push_back({a, hi}); r.push_back({lo, b}); }
+            else r.push_back({lo, hi});
+        }
+        if (anySeam) r.push_back({a, b});
+        r.erase(std::remove_if(r.begin(), r.end(),
+                               [](const std::array<double, 2>& x) { return !(x[1] > x[0]); }), r.end());
+        std::sort(r.begin(), r.end());
+        r.erase(std::unique(r.begin(), r.end()), r.end());
+        return r;
+    };
+    std::array<double, 4> box{};
+    int fits = 0;
+    for (const auto& eu : extents(anySeamU, uLo, uHi, ua, ub))
+        for (const auto& ev : extents(anySeamV, vLo, vHi, va, vb))
+            if (nurbsSamplesOnBox(n, S, eu[0], eu[1], ev[0], ev[1])) {
+                box = {eu[0], eu[1], ev[0], ev[1]};
+                ++fits;
+            }
+    if (fits == 0) { why = trimmed; return false; }
+    if (fits > 1) {
+        why = "B-spline face on a closed surface fits more than one (u,v) rectangle";
+        return false;
+    }
+    f->u0 = box[0]; f->u1 = box[1]; f->v0 = box[2]; f->v1 = box[3];
+    f->vertexUV.clear();
+    f->vertexUV.reserve(ring.size());
+    for (std::size_t i = 0; i < ring.size(); ++i) {
+        double u = S[i].u, v = S[i].v;   // a seam vertex takes the side its rectangle owns
+        if (seam[i][0] && !(box[0] == ua && box[1] == ub)) u = (box[0] == ua) ? ua : ub;
+        if (seam[i][1] && !(box[2] == va && box[3] == vb)) v = (box[2] == va) ? va : vb;
+        f->vertexUV.push_back({u, v});
+    }
     return true;
 }
 
@@ -2077,15 +2157,17 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
         // vertex's parametric (u,v) — CRUCIALLY unwrapping the angular theta so a
         // sector that straddles the atan2 -pi/+pi seam stays a small contiguous
         // span (NOT a spurious full-circle sweep that would over-count its mass).
-        if (!attachTrim(f, surf, ring, ringCircles))
-            return readFail("StepAnalytic.read: could not parameterise face over "
-                            "its analytic surface (trim window)");
+        // A B-spline face's window is its (u,v) rectangle, and only when the face
+        // IS one (attachNurbsTrim, T-158).
         if (surf->kind == SurfaceKind::Nurbs) {
             std::string tw;
-            if (!nurbsFaceIsIsoRectangle(f, surf->nurbs, tw))   // T158-NURBS-TRIM-GUARD
+            if (!attachNurbsTrim(f, surf->nurbs, ring, tw))
                 return readFail("StepAnalytic.read: " + tw + " -- only a B-spline face "
                                 "that is its iso-parameter rectangle is read here; a "
                                 "general trimmed B-spline face is readForeignStep's");
+        } else if (!attachTrim(f, surf, ring, ringCircles)) {
+            return readFail("StepAnalytic.read: could not parameterise face over "
+                            "its analytic surface (trim window)");
         }
     }
 

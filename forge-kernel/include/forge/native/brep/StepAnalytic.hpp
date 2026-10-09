@@ -73,15 +73,26 @@
 // Pinned by test/step_rational_weights_gate.cpp against CLOSED-FORM geometry,
 // read back by BOTH this reader and the independent readForeignStep.
 //
-// B-SPLINE READ BOUNDARY (T-158): read() integrates a B-spline face over the
-// (u,v) RECTANGLE of its loop vertices, so it accepts a B-spline face ONLY when
-// the face IS that rectangle: no inner bound, and every boundary edge (sampled
-// along its file geometry) on one of the four iso-parameter sides. A trimmed or
-// holed B-spline face is REFUSED with a reason (importStep then falls through to
-// readForeignStep, which carries real trim regions) -- never read as the whole
+// B-SPLINE READ BOUNDARY (T-158): read() gives a B-spline face a (u,v)
+// RECTANGLE of the knot domain, and accepts the face ONLY when the face IS that
+// rectangle: no inner bound, and every loop vertex and boundary-edge sample
+// (taken along the edge's file geometry) on the image of one of the rectangle's
+// four sides -- the side's free parameter clamped INTO the rectangle, so a point
+// on the iso-line v = v0 beyond [u0,u1] does not count. The rectangle is the box
+// of the loop vertices inverted onto the surface; on a CLOSED surface (first and
+// last iso-lines coincide) a vertex ON the seam is u0 and u1 at once, so it does
+// not bound the box, and the face is read only when exactly one of the
+// candidate rectangles [ua,hi], [lo,ub], [ua,ub] passes the side test (the
+// 270->360 deg wall face of a split B-spline cylinder was read as u[0,0.75],
+// ok=1, +50.6 % volume, before this rule). A trimmed or holed B-spline face, and
+// a face that crosses a closed surface's seam (it has no rectangle in the knot
+// domain), is REFUSED with a reason (importStep then falls through to
+// readForeignStep, which carries real trim regions) -- never read as a wrong
 // rectangle. Every B-spline face this writer gets from Forge's own builders is
 // such a rectangle; a B-spline face IMPORTED with a general trim is not, and is
-// outside the guarantee above.
+// outside the guarantee above. (The read rectangle is exact; massProperties()
+// integrates it with ONE Gauss rule, which is exact only when no interior knot
+// lies inside the rectangle -- a MassProps limit, not this reader's.)
 //
 // KNOWN PRE-EXISTING VIOLATION (measured, NOT introduced or fixed by T-158): a
 // CURVED quadric face whose trim is not its (u,v) rectangle -- the readForeign-

@@ -25,6 +25,13 @@
 // StepAnalytic code) and asks whether each exact arc edge's written geometry lies
 // on the closed-form circle, inside the arc's own angular span.
 //
+// FOREIGN B-SPLINE FACES. read() integrates a B-spline face over a (u,v)
+// rectangle, so a face that is not one must be refused, never read as a wrong
+// rectangle: trimmed / holed open patches ([foreign-bspline]) and, since the
+// validator's round 1 (2026-10-09), faces of a CLOSED B-spline surface
+// ([closed-bspline]): a split rational B-spline cylinder whose 270->360 deg wall
+// face read back as u[0,0.75] (ok=1, volume 1182.519 vs 785.398, +50.6 %).
+//
 // NO-REGRESSION SET. Every analytic builder the codec already handled (box,
 // cylinder, cone, sphere, torus, tube, prism, wedge, pyramid, constant-radius
 // fillet, torus fillet, chamfer) must still round-trip through StepAnalytic with
@@ -50,6 +57,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -794,6 +802,123 @@ std::string boxStep(bool hole, bool bsplineTop) {
     return polyhedronStep(V, F);
 }
 
+// A CLOSED B-spline surface (validator round 1, 2026-10-09). The exact rational
+// quadratic circle -- 9 control points, knots (0,.25,.5,.75,1), weights
+// 1,sqrt(1/2),1,... -- extruded to a cylinder r = 5, h = 10, whose first and last
+// control rows COINCIDE: the knot domain closes on itself at u = 0 == u = 1 (the
+// SEAM). The lateral wall is split along the axis into one face per pair of
+// consecutive angles in `splitsDeg` (ascending, in [0,360)); the caps are planes
+// bounded by the circle arcs. A loop vertex ON the seam inverts to u = 0 or u = 1
+// indistinguishably, so the face ending at 360 deg was read back as the box
+// u[0,0.75] instead of u[0.75,1] -- ok=1, volume +50.6 %. A face whose arc
+// crosses the seam (e.g. 315 -> 45) has NO rectangle inside the knot domain at
+// all. With `circleAlongV` the circle runs along v instead (control order
+// reversed, so S_u x S_v stays outward; the seam is v = 0 == v = 1). A non-empty
+// `wallSplitsDeg` (a subset of `splitsDeg`, which still splits the cap arcs)
+// cuts the wall only there, so one wall face can run over several arcs.
+// Closed form: volume pi r^2 h, area 2 pi r h + 2 pi r^2.
+std::string splitCylinderStep(const std::vector<double>& splitsDeg, bool circleAlongV,
+                              const std::vector<double>& wallSplitsDeg = {}) {
+    const double R = 5.0, H = 10.0;
+    std::string d;
+    int id = 0;
+    auto num = [](double x) { char b[40]; std::snprintf(b, sizeof b, "%.17g", x);
+                              std::string s = b; if (s.find_first_of(".eE") == std::string::npos) s += '.'; return s; };
+    auto ent = [&](const std::string& body) { ++id; d += "#" + std::to_string(id) + "=" + body + ";\n"; return id; };
+    auto ref = [](int i) { return "#" + std::to_string(i); };
+    auto pt = [&](double x, double y, double z) {
+        return ent("CARTESIAN_POINT('',(" + num(x) + "," + num(y) + "," + num(z) + "))"); };
+    auto at = [&](double deg, double z, int& out) {
+        const double a = deg * kPi / 180.0;
+        out = pt(R * std::cos(a), R * std::sin(a), z);
+    };
+    const std::size_t k = splitsDeg.size();
+    std::map<std::pair<std::size_t, int>, int> V;            // (split index, z level) -> VERTEX_POINT
+    for (int lv = 0; lv < 2; ++lv)
+        for (std::size_t i = 0; i < k; ++i) { int p; at(splitsDeg[i], lv * H, p); V[{i, lv}] = ent("VERTEX_POINT(''," + ref(p) + ")"); }
+    const int zd = ent("DIRECTION('',(0.,0.,1.))"), xd = ent("DIRECTION('',(1.,0.,0.))");
+    int ax[2], circ[2];
+    for (int lv = 0; lv < 2; ++lv) {
+        ax[lv] = ent("AXIS2_PLACEMENT_3D(''," + ref(pt(0, 0, lv * H)) + "," + ref(zd) + "," + ref(xd) + ")");
+        circ[lv] = ent("CIRCLE(''," + ref(ax[lv]) + "," + num(R) + ")");
+    }
+    std::map<std::pair<std::size_t, int>, int> arc;          // arc from split i to split i+1 (CCW)
+    for (int lv = 0; lv < 2; ++lv)
+        for (std::size_t i = 0; i < k; ++i)
+            arc[{i, lv}] = ent("EDGE_CURVE(''," + ref(V[{i, lv}]) + "," + ref(V[{(i + 1) % k, lv}]) + "," +
+                               ref(circ[lv]) + ",.T.)");
+    const int vec = ent("VECTOR(''," + ref(zd) + "," + num(H) + ")");
+    std::vector<std::size_t> wall;                           // indices of the splits the wall is cut at
+    for (std::size_t i = 0; i < k; ++i)
+        if (wallSplitsDeg.empty() ||
+            std::find(wallSplitsDeg.begin(), wallSplitsDeg.end(), splitsDeg[i]) != wallSplitsDeg.end())
+            wall.push_back(i);
+    std::vector<int> seam(k, 0);                             // the axial edge at wall split i, bottom -> top
+    for (std::size_t i : wall) {
+        int p; at(splitsDeg[i], 0.0, p);
+        const int ln = ent("LINE(''," + ref(p) + "," + ref(vec) + ")");
+        seam[i] = ent("EDGE_CURVE(''," + ref(V[{i, 0}]) + "," + ref(V[{i, 1}]) + "," + ref(ln) + ",.T.)");
+    }
+    std::vector<std::pair<double, double>> cp{{5, 0}, {5, 5}, {0, 5}, {-5, 5}, {-5, 0}, {-5, -5}, {0, -5}, {5, -5}, {5, 0}};
+    if (circleAlongV) std::reverse(cp.begin(), cp.end());
+    const double w = std::sqrt(0.5);
+    std::string surf;
+    if (!circleAlongV) {   // u = around the circle (degree 2), v = along the axis (degree 1)
+        std::string rows, ws;
+        for (std::size_t i = 0; i < cp.size(); ++i) {
+            rows += (i ? ",(" : "(") + ref(pt(cp[i].first, cp[i].second, 0)) + "," + ref(pt(cp[i].first, cp[i].second, H)) + ")";
+            const std::string wi = num(i % 2 ? w : 1.0);
+            ws += (i ? ",(" : "(") + wi + "," + wi + ")";
+        }
+        surf = "(BOUNDED_SURFACE()B_SPLINE_SURFACE(2,1,(" + rows + "),.UNSPECIFIED.,.F.,.F.,.F.)"
+               "B_SPLINE_SURFACE_WITH_KNOTS((3,2,2,2,3),(2,2),(0.,0.25,0.5,0.75,1.),(0.,1.),.UNSPECIFIED.)"
+               "GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_SURFACE((" + ws + "))REPRESENTATION_ITEM('')SURFACE())";
+    } else {               // u = along the axis (degree 1), v = around the circle (degree 2)
+        std::string rows = "(", ws = "(";
+        for (int lv = 0; lv < 2; ++lv) {
+            if (lv) { rows += "),("; ws += "),("; }
+            for (std::size_t i = 0; i < cp.size(); ++i) {
+                rows += (i ? "," : "") + ref(pt(cp[i].first, cp[i].second, lv * H));
+                ws += (i ? "," : "") + num(i % 2 ? w : 1.0);
+            }
+        }
+        rows += ")"; ws += ")";
+        surf = "(BOUNDED_SURFACE()B_SPLINE_SURFACE(1,2,(" + rows + "),.UNSPECIFIED.,.F.,.F.,.F.)"
+               "B_SPLINE_SURFACE_WITH_KNOTS((2,2),(3,2,2,2,3),(0.,1.),(0.,0.25,0.5,0.75,1.),.UNSPECIFIED.)"
+               "GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_SURFACE((" + ws + "))REPRESENTATION_ITEM('')SURFACE())";
+    }
+    const int sf = ent(surf);
+    auto face = [&](const std::vector<std::pair<int, bool>>& oes, int s) {
+        std::string l = "(";
+        for (std::size_t i = 0; i < oes.size(); ++i)
+            l += (i ? "," : "") + ref(ent("ORIENTED_EDGE('',*,*," + ref(oes[i].first) + (oes[i].second ? ",.T.)" : ",.F.)")));
+        const int lp = ent("EDGE_LOOP(''," + l + "))");
+        return ent("ADVANCED_FACE('',(" + ref(ent("FACE_OUTER_BOUND(''," + ref(lp) + ",.T.)")) + ")," + ref(s) + ",.T.)");
+    };
+    const int mz = ent("DIRECTION('',(0.,0.,-1.))");
+    const int bot = ent("PLANE(''," + ref(ent("AXIS2_PLACEMENT_3D(''," + ref(pt(0, 0, 0)) + "," + ref(mz) + "," + ref(xd) + ")")) + ")");
+    const int top = ent("PLANE(''," + ref(ax[1]) + ")");
+    std::vector<std::pair<int, bool>> botLoop, topLoop;
+    for (std::size_t i = k; i-- > 0;) botLoop.push_back({arc[{i, 0}], false});
+    for (std::size_t i = 0; i < k; ++i) topLoop.push_back({arc[{i, 1}], true});
+    std::vector<int> F{face(botLoop, bot), face(topLoop, top)};
+    for (std::size_t j = 0; j < wall.size(); ++j) {   // wall face from wall split a to the next one, b
+        const std::size_t a = wall[j], b = wall[(j + 1) % wall.size()];
+        std::vector<std::pair<int, bool>> lp;
+        std::size_t i = a;
+        do { lp.push_back({arc[{i, 0}], true}); i = (i + 1) % k; } while (i != b);
+        lp.push_back({seam[b], true});
+        do { i = (i + k - 1) % k; lp.push_back({arc[{i, 1}], false}); } while (i != a);
+        lp.push_back({seam[a], false});
+        F.push_back(face(lp, sf));
+    }
+    std::string fl = "(";
+    for (std::size_t i = 0; i < F.size(); ++i) fl += (i ? "," : "") + ref(F[i]);
+    ent("MANIFOLD_SOLID_BREP('split_cyl'," + ref(ent("CLOSED_SHELL(''," + fl + "))")) + ")");
+    return "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('split_cyl.step','',(''),(''),'','','');\n"
+           "FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\n" + d + "ENDSEC;\nEND-ISO-10303-21;\n";
+}
+
 void runForeignBspline() {
     std::printf("[foreign-bspline] a B-spline face StepAnalytic::read cannot reconstruct exactly is refused, never mis-trimmed\n");
     // Two observables, because each alone is blind somewhere: MassProps' volume is
@@ -823,6 +948,125 @@ void runForeignBspline() {
         // wrong geometry is the defect. A case marked mustRead must also succeed.
         const bool exact = r.ok && r.solid && rv <= 1e-9 && ra <= 1e-9;
         check(exact || (!c.mustRead && !r.ok), buf);
+    }
+}
+
+// Gauss-Legendre nodes/weights on [0,1] by Newton on P_n -- the gate's own rule,
+// not MassProps' table.
+void gaussLegendre01(int n, std::vector<double>& x, std::vector<double>& w) {
+    x.assign(n, 0.0); w.assign(n, 0.0);
+    for (int i = 0; i < n; ++i) {
+        double z = std::cos(kPi * (i + 0.75) / (n + 0.5)), dp = 1.0;
+        for (int it = 0; it < 100; ++it) {
+            double p1 = 1.0, p0 = 0.0;
+            for (int j = 0; j < n; ++j) { const double pm = p0; p0 = p1; p1 = ((2 * j + 1) * z * p0 - j * pm) / (j + 1); }
+            dp = n * (z * p1 - p0) / (z * z - 1.0);
+            const double dz = p1 / dp;
+            z -= dz;
+            if (std::fabs(dz) < 1e-16) break;
+        }
+        x[i] = 0.5 * (1.0 - z);
+        w[i] = 1.0 / ((1.0 - z * z) * dp * dp);
+    }
+}
+
+// The B-spline faces of a read-back solid integrated INDEPENDENTLY of MassProps:
+// every face's (u,v) box is cut at the surface's interior knots and each cell gets
+// its own 12-point tensor rule (a rational B-spline is smooth only between knots).
+// Returns {area, x-flux}; the x-flux is MassProps' own volume form, x n_x dA.
+std::array<double, 2> nurbsKnotSplitIntegrals(const Solid& s) {
+    std::vector<double> gx, gw;
+    gaussLegendre01(12, gx, gw);
+    auto cuts = [](double a, double b, const std::vector<double>& knots) {
+        std::vector<double> c{a};
+        for (double k : knots) if (k > c.back() && k < b) c.push_back(k);
+        c.push_back(b);
+        return c;
+    };
+    std::array<double, 2> out{0.0, 0.0};
+    for (const Face* f : facesOf(s)) {
+        if (!f->surface || f->surface->kind != SurfaceKind::Nurbs) continue;
+        const std::vector<double> cu = cuts(f->u0, f->u1, f->surface->nurbs.knotsU);
+        const std::vector<double> cv = cuts(f->v0, f->v1, f->surface->nurbs.knotsV);
+        for (std::size_t i = 0; i + 1 < cu.size(); ++i)
+            for (std::size_t j = 0; j + 1 < cv.size(); ++j)
+                for (std::size_t a = 0; a < gx.size(); ++a)
+                    for (std::size_t b = 0; b < gx.size(); ++b) {
+                        const double du = cu[i + 1] - cu[i], dv = cv[j + 1] - cv[j];
+                        const double u = cu[i] + du * gx[a], v = cv[j] + dv * gx[b];
+                        Vec3 p, su, sv;
+                        f->surface->evaluateDeriv(u, v, p, su, sv);
+                        const double wt = vlen(vcross(su, sv)) * gw[a] * gw[b] * du * dv;
+                        out[0] += wt;
+                        out[1] += p.x * f->surface->normalAt(u, v).x * wt;
+                    }
+    }
+    return out;
+}
+
+void runClosedBspline() {
+    std::printf("[closed-bspline] a B-spline face on a CLOSED surface reads as ITS OWN rectangle, or is refused\n");
+    // Validator round 1 (2026-10-09): on a closed B-spline cylinder a loop vertex
+    // ON the seam inverts to u = 0 or u = 1 indistinguishably, and the 270->360 deg
+    // quarter came back as u[0,0.75] -- read ok=1 at volume 1182.519 vs 785.398
+    // (+50.6 %). Two observables per accepted file:
+    //   READER   the B-spline faces' area and x-flux, integrated by the gate's own
+    //            knot-split quadrature, against the closed-form lateral area 2 pi r h
+    //            and volume pi r^2 h (the caps' normals are +-z, so they carry no
+    //            x-flux: the solid's whole volume is the wall's x-flux).
+    //   END TO END  massProperties() volume and area against closed form. MassProps
+    //            integrates a B-spline face with ONE 8-point rule over its whole
+    //            box, which is exact only when no interior knot lies inside the box
+    //            (MEASURED: the 120 deg faces span the C0 knot u = 0.5 and give
+    //            786.524110981, rel 1.43e-3, while the same read-back faces cut at
+    //            the knot give 785.398163393). Required where `mpExact`; otherwise
+    //            printed as a known MassProps limitation, not a reader defect.
+    struct Case { const char* name; std::string text; bool mustRead, mpExact; };
+    const double R = 5.0, H = 10.0;
+    const double vol = kPi * R * R * H, wallArea = 2.0 * kPi * R * H, area = wallArea + 2.0 * kPi * R * R;
+    const std::vector<Case> cases{
+        // A face ENDING at the seam must read as its own box ...
+        {"split B-spline cylinder, faces 0/90/180/270 (seam vertices)",
+         splitCylinderStep({0, 90, 180, 270}, false), true, true},
+        {"split B-spline cylinder, circle along v, faces 0/90/180/270 (seam vertices)",
+         splitCylinderStep({0, 90, 180, 270}, true), true, true},
+        {"split B-spline cylinder, faces 0/120/240 (seam vertices; boxes span interior knots)",
+         splitCylinderStep({0, 120, 240}, false), true, false},
+        {"split B-spline cylinder, wall faces 0/90, caps 0/90/180 (90->360 face: 2 bottom arcs, 3 knot spans)",
+         splitCylinderStep({0, 90, 180}, false, {0, 90}), true, false},
+        // ... a face whose arc CROSSES the seam has no rectangle in the knot domain
+        // (its vertex box is the face's COMPLEMENT): refused, or exact ...
+        {"split B-spline cylinder, faces 45/135/225/315 (315->45 straddles the seam)",
+         splitCylinderStep({45, 135, 225, 315}, false), false, true},
+        {"split B-spline cylinder, circle along v, faces 45/135/225/315 (straddles the seam)",
+         splitCylinderStep({45, 135, 225, 315}, true), false, true},
+        // ... and one face round the whole wall (its seam edge used twice).
+        {"B-spline cylinder, ONE wall face (seam edge used twice)",
+         splitCylinderStep({0}, false), false, false},
+    };
+    for (const Case& c : cases) {
+        const AnalyticReadResult r = StepAnalytic::read(c.text);
+        if (!r.ok || !r.solid) {
+            check(!c.mustRead, std::string(c.name) + ": read ok=0 -- " + r.reason);
+            continue;
+        }
+        const std::array<double, 2> ks = nurbsKnotSplitIntegrals(*r.solid);
+        const double rWall = std::fabs(ks[0] - wallArea) / wallArea, rFlux = std::fabs(ks[1] - vol) / vol;
+        char buf[480];
+        std::snprintf(buf, sizeof buf,
+                      "%s: read ok=1; READER: B-spline wall area %.9f (closed form %.9f, rel %.2e), "
+                      "x-flux %.9f (closed form volume %.9f, rel %.2e)",
+                      c.name, ks[0], wallArea, rWall, ks[1], vol, rFlux);
+        check(rWall <= 1e-9 && rFlux <= 1e-9, buf);
+        const MassProps mp = massProperties(*r.solid);
+        const double rv = std::fabs(mp.volume - vol) / vol, ra = std::fabs(mp.area - area) / area;
+        std::snprintf(buf, sizeof buf, "%s: END TO END massProperties volume %.9f (rel %.2e) area %.9f (rel %.2e)",
+                      c.name, mp.volume, rv, mp.area, ra);
+        if (c.mpExact) check(rv <= 1e-9 && ra <= 1e-9, buf);
+        else std::printf("  info  %s -- KNOWN MassProps limitation (one Gauss rule across interior knots), not checked here\n", buf);
+        for (const Face* f : facesOf(*r.solid))
+            if (f->surface && f->surface->kind == SurfaceKind::Nurbs)
+                std::printf("        B-spline face read as box u[%.6f,%.6f] v[%.6f,%.6f]\n", f->u0, f->u1, f->v0, f->v1);
     }
 }
 
@@ -1011,6 +1255,7 @@ int main(int argc, char** argv) {
     runBlendCase("blend-law-1-2", 10.0, 1.0, 2.0, /*splineEdge=*/false);
     runBlendCase("blend-1.5-spline-edge", 10.0, 1.5, 1.5, /*splineEdge=*/true);
     runForeignBspline();
+    runClosedBspline();
     runNoRegression();
     std::printf("[step-rational] %d checks, %d failed\n", g_checks, g_fail);
     return g_fail == 0 ? 0 : 1;
