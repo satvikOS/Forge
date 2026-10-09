@@ -225,14 +225,30 @@ bool parseRealList(const std::string& tok, std::vector<double>& out) {
     return true;
 }
 
+// T-153: the `unsupported` key for a B-spline the importer REFUSED because
+// NurbsCurve/NurbsSurface::validate() rejected its file data, e.g.
+// "B_SPLINE_CURVE_WITH_KNOTS(knot_multiplicity_too_high)" — the census then
+// names the defect instead of counting an opaque "EDGE_LOOP(unreadable)". The
+// bare keyword (unchanged key) when the failure was a PARSE failure.
+std::string nurbsRefusalKey(const char* keyword, NurbsInputError bad) {
+    if (bad == NurbsInputError::None) return keyword;
+    return std::string(keyword) + "(" + nurbsInputErrorName(bad) + ")";
+}
+
 // Reconstruct a B-spline surface from a B_SPLINE_SURFACE_WITH_KNOTS field set
 // (degreeU, degreeV, control-grid-of-#refs, ..., uMult, vMult, uKnots, vKnots).
 // `fields` are the surface's parameters AFTER the leading "''" name field has been
 // dropped (so fields[0] = degreeU). `rationalWeights` (optional, nU x nV) applies
 // the rational variant. Points are scaled to mm by `scale`.
+//
+// T-153: the parsed surface is VALIDATED before it is returned (it used to be
+// returned with no check at all — not even the knot count — and the evaluator
+// then read past the knot vector or divided by a zero denominator under
+// -DNDEBUG). On a validation refusal `*bad` names the defect.
 bool buildBSplineSurface(const Resolver& R, const std::vector<std::string>& fields,
                          const std::vector<std::vector<double>>* rationalWeights,
-                         double scale, NurbsSurface& out, std::string& why) {
+                         double scale, NurbsSurface& out, std::string& why,
+                         NurbsInputError* bad = nullptr) {
     // fields layout for B_SPLINE_SURFACE_WITH_KNOTS (post-name):
     //   0:uDeg 1:vDeg 2:ctrlGrid 3:surfForm 4:uClosed 5:vClosed 6:selfInt
     //   7:uMult 8:vMult 9:uKnots 10:vKnots [11:knotSpec]
@@ -270,6 +286,12 @@ bool buildBSplineSurface(const Resolver& R, const std::vector<std::string>& fiel
     }
     out.knotsU = expandKnots(uMult, uK);
     out.knotsV = expandKnots(vMult, vK);
+    const NurbsInputError e = out.validate();
+    if (e != NurbsInputError::None) {
+        if (bad) *bad = e;
+        why = nurbsRefusalKey("B_SPLINE_SURFACE_WITH_KNOTS", e);
+        return false;
+    }
     return true;
 }
 
@@ -699,13 +721,23 @@ struct EdgeGeom {
     // B_SPLINE_CURVE_WITH_KNOTS
     NurbsCurve nurbs;
     std::string typeKeyword;          // for the honest unsupported report
+    // T-153: non-empty iff the curve was parsed but REFUSED by
+    // NurbsCurve::validate(); the named key (nurbsRefusalKey) to report.
+    std::string refusal;
 };
 
 // Parse a B_SPLINE_CURVE_WITH_KNOTS field set (post-name) into a NurbsCurve.
 // fields: 0:degree 1:ctrlPts 2:form 3:closed 4:selfInt 5:mult 6:knots [7:knotSpec].
+//
+// T-153: the result is VALIDATED (NurbsCurve::validate()), not just size-checked.
+// The size check alone let all 22 corpus files that reached the evaluator's zero
+// denominator through: their degree-3 knot vectors repeat the first value 6-9
+// times, are entirely one value, or decrease — the right COUNT, an empty span.
+// On a validation refusal `*bad` names the defect.
 bool buildBSplineCurve(const Resolver& R, const std::vector<std::string>& fields,
                        const std::vector<double>* rationalWeights,
-                       double scale, NurbsCurve& out) {
+                       double scale, NurbsCurve& out,
+                       NurbsInputError* bad = nullptr) {
     if (fields.size() < 7) return false;
     double deg = 0;
     if (!stepNum(fields[0], deg)) return false;
@@ -724,7 +756,12 @@ bool buildBSplineCurve(const Resolver& R, const std::vector<std::string>& fields
     std::vector<int> mult; std::vector<double> kv;
     if (!parseIntList(fields[5], mult) || !parseRealList(fields[6], kv)) return false;
     out.knots = expandKnots(mult, kv);
-    return out.knots.size() == out.controlPoints.size() + out.degree + 1;
+    const NurbsInputError defect = out.validate();
+    if (defect != NurbsInputError::None) {
+        if (bad) *bad = defect;
+        return false;
+    }
+    return true;
 }
 
 // Unwrap a curve reference through the ISO-10303 "curve on surface" wrappers that
@@ -803,7 +840,12 @@ EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
         auto p = splitTopLevel(ci.params);
         if (p.size() < 2) { g.typeKeyword = "B_SPLINE_CURVE_WITH_KNOTS"; return g; }
         fields.assign(p.begin() + 1, p.end());     // drop the leading name field
-        if (!buildBSplineCurve(R, fields, nullptr, scale, g.nurbs)) { g.typeKeyword = "B_SPLINE_CURVE_WITH_KNOTS"; return g; }
+        NurbsInputError bad = NurbsInputError::None;
+        if (!buildBSplineCurve(R, fields, nullptr, scale, g.nurbs, &bad)) {
+            g.typeKeyword = nurbsRefusalKey("B_SPLINE_CURVE_WITH_KNOTS", bad);
+            if (bad != NurbsInputError::None) g.refusal = g.typeKeyword;
+            return g;
+        }
         g.kind = EdgeGeomKind::BSpline; g.ok = true; return g;
     }
     if (ci.type.empty()) {
@@ -829,8 +871,13 @@ EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
                     auto rf = splitTopLevel(rational->params);
                     if (!rf.empty() && parseRealList(rf[0], w)) wp = &w;
                 }
-                if (buildBSplineCurve(R, fields, wp, scale, g.nurbs)) {
+                NurbsInputError bad = NurbsInputError::None;
+                if (buildBSplineCurve(R, fields, wp, scale, g.nurbs, &bad)) {
                     g.kind = EdgeGeomKind::BSpline; g.ok = true; return g;
+                }
+                if (bad != NurbsInputError::None) {   // parsed, then REFUSED
+                    g.typeKeyword = g.refusal = nurbsRefusalKey("B_SPLINE_CURVE_WITH_KNOTS", bad);
+                    return g;
                 }
             }
         }
@@ -1280,7 +1327,14 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                     auto rf = splitTopLevel(rational->params);
                     if (!rf.empty() && readRationalWeights(rf[0], w)) wp = &w;
                 }
-                if (!buildBSplineSurface(R, fields, wp, scale, nurbsOut, localWhy)) return false;
+                NurbsInputError bad = NurbsInputError::None;
+                if (!buildBSplineSurface(R, fields, wp, scale, nurbsOut, localWhy, &bad)) {
+                    // T-153: a parsed-then-REFUSED surface is reported under its
+                    // named defect, not as an anonymous COMPLEX_SURFACE.
+                    if (bad != NurbsInputError::None)
+                        surfType = nurbsRefusalKey("B_SPLINE_SURFACE_WITH_KNOTS", bad);
+                    return false;
+                }
                 isBSpline = true; surfType = "B_SPLINE_SURFACE_WITH_KNOTS";
                 return true;
             }
@@ -1319,7 +1373,12 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         } else if (ins.type == "B_SPLINE_SURFACE_WITH_KNOTS") {
             // simple (non-rational) form: drop the leading name field.
             std::vector<std::string> fields(p.begin() + 1, p.end());
-            if (!buildBSplineSurface(R, fields, nullptr, scale, nurbsOut, localWhy)) return false;
+            NurbsInputError bad = NurbsInputError::None;
+            if (!buildBSplineSurface(R, fields, nullptr, scale, nurbsOut, localWhy, &bad)) {
+                if (bad != NurbsInputError::None)   // T-153: named refusal
+                    surfType = nurbsRefusalKey("B_SPLINE_SURFACE_WITH_KNOTS", bad);
+                return false;
+            }
             isBSpline = true; return true;
         } else if (ins.type == "SURFACE_OF_REVOLUTION") {
             // Revolve a generating CURVE about AXIS1. The common mechanical case is a
@@ -1467,6 +1526,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         bool isSeam = false;        // an EDGE_CURVE is used >=2x (cylinder/cone seam)
         bool hasFullCircle = false; // a closed full-circle edge (start vertex==end)
         int  edgeCount = 0;
+        std::string refusal;        // T-153: named B-spline refusal that failed the loop
     };
     auto readEdgeLoop = [&](std::uint64_t loopId) -> LoopRing {
         LoopRing ring;
@@ -1491,7 +1551,11 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             const bool sense = (op[4] == ".T.");
             if (++ecCount[ecId] >= 2) ring.isSeam = true;      // shared seam edge
             EdgeGeom eg = readEdgeGeom(R, ecId, scale);
-            if (!eg.ok) return LoopRing{};                     // unreadable edge geometry
+            if (!eg.ok) {                                      // unreadable edge geometry
+                LoopRing bad;
+                bad.refusal = eg.refusal;   // T-153: keep the NAMED reason, if any
+                return bad;
+            }
             const Vec3 pStart = sense ? eg.v0 : eg.v1;
             const Vec3 pEnd   = sense ? eg.v1 : eg.v0;
             const bool closedEdge = (vlen(vsub(eg.v0, eg.v1)) < 1e-9);
@@ -1794,6 +1858,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         std::vector<LoopRing> outerRings;     // 0 or 1
         std::vector<LoopRing> innerRings;
         bool loopFail = false;
+        std::string loopRefusal;   // T-153: named B-spline refusal behind loopFail
         for (const auto& bref : boundRefs) {
             std::uint64_t bId = 0;
             if (!parseRef(bref, bId)) continue;
@@ -1805,7 +1870,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             std::uint64_t lId = 0;
             if (!parseRef(bp[1], lId)) continue;
             LoopRing ring = readEdgeLoop(lId);
-            if (!ring.ok) { loopFail = true; break; }
+            if (!ring.ok) { loopFail = true; loopRefusal = ring.refusal; break; }
             if (bi.type == "FACE_OUTER_BOUND" && outerRings.empty())
                 outerRings.push_back(std::move(ring));
             else
@@ -1813,7 +1878,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         }
         if (loopFail) {
             info.supported = false;
-            result.unsupported["EDGE_LOOP(unreadable)"]++;
+            result.unsupported[loopRefusal.empty() ? std::string("EDGE_LOOP(unreadable)") : loopRefusal]++;
             result.faceInfos.push_back(info);
             continue;
         }
@@ -2242,8 +2307,15 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         builtFaces.push_back(f);
     }
 
-    if (builtFaces.empty())
-        return fail("readForeignStep: no supported faces were built (all unsupported)");
+    if (builtFaces.empty()) {
+        // T-153: keep the unsupported report so the caller sees WHY, exactly as
+        // readForeignIges already does. A fresh fail() result discarded it, so a
+        // file whose only B-spline face was REFUSED by validate() reported no
+        // named defect at all. The reason text is unchanged (census buckets on it).
+        result.ok = false;
+        result.reason = "readForeignStep: no supported faces were built (all unsupported)";
+        return result;
+    }
 
     // --- NATIVE SEW the independent faces into a shell (K1.4) ------------------
     double tol = sewTol;
