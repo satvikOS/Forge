@@ -782,7 +782,7 @@ void emit(const std::string& file, const std::string& corpusList) {
         for (const forge::SolidBodyAlignment& a : inv.alignments)
             std::fprintf(o, "align\t%s\t%d\t%u\t%u\t%u\t%u\t%a\n", s.name.c_str(), static_cast<int>(a.kind),
                          a.a, a.b, a.faceA, a.faceB, a.deviation);
-        std::fprintf(o, "inv\t%s\t%d\t%u\t%d\n", s.name.c_str(), inv.analysed ? 1 : 0,
+        std::fprintf(o, "inv\t%s\t%d\t%zu\t%d\n", s.name.c_str(), inv.analysed ? 1 : 0,
                      inv.pairsEvaluated, inv.pairsTruncated ? 1 : 0);
     }
 #endif
