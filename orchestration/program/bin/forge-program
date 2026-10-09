@@ -224,7 +224,9 @@ def main():
                         f"REFUSED: {args.id} is already IN_PROGRESS under owner {t.get('owner')}. "
                         f"Two agents must never own one task; to reassign, `forge-program reset {args.id}` first.")
                 for o in d["tasks"].values():
-                    if o["state"] == "IN_PROGRESS" and o["id"] != args.id:
+                    # Overlap with a task held by the SAME owner is that owner's own stacked work
+                    # (e.g. T-255 on top of T-253, same file), not two agents on one file.
+                    if o["state"] == "IN_PROGRESS" and o["id"] != args.id and o.get("owner") != args.owner:
                         c = overlaps(t.get("write_set", []), o.get("write_set", []))
                         if c:
                             raise SystemExit(
