@@ -460,13 +460,28 @@ struct Curve3 {
     double radius = 0.0, radius2 = 0.0;
     NurbsCurve nurbs;
     int typeNum = 0;
+    // T-153: non-empty iff a 126 B-spline was parsed but REFUSED by
+    // NurbsCurve::validate(); the named key to report, e.g.
+    // "IGES_126(non_positive_weight)".
+    std::string refusal;
 };
+
+// T-153: the `unsupported` key for a B-spline entity REFUSED by validate().
+std::string igesNurbsRefusalKey(int entity, NurbsInputError bad) {
+    return "IGES_" + std::to_string(entity) + "(" + nurbsInputErrorName(bad) + ")";
+}
 
 // Build a NurbsCurve from a 126 RATIONAL B-SPLINE CURVE PD record. Layout:
 //   [0]=126 [1]=K (upper ctrl index, n=K+1 pts) [2]=M (degree) [3]=PROP1 [4]=PROP2
 //   [5]=PROP3 [6]=PROP4  then (A+1) knots (A = K+M+1), then (K+1) weights, then
 //   (K+1) xyz triples, then 4 trailing params (V0,V1,XNORM,YNORM,ZNORM) ignored.
-bool readBSplineCurve(const IgesModel& m, long deSeq, NurbsCurve& out) {
+//
+// T-153: the result is VALIDATED (NurbsCurve::validate()), not just size-checked:
+// IGES weights and knots are file content (the spec requires every weight > 0
+// and a non-decreasing knot sequence), and an unvalidated zero weight or empty
+// span reached the evaluator's division. On a refusal `*bad` names the defect.
+bool readBSplineCurve(const IgesModel& m, long deSeq, NurbsCurve& out,
+                      NurbsInputError* bad = nullptr) {
     const auto* p = params(m, deSeq);
     if (!p || p->size() < 7) return false;
     long K, M;
@@ -494,7 +509,12 @@ bool readBSplineCurve(const IgesModel& m, long deSeq, NurbsCurve& out) {
             return false;
         out.controlPoints.push_back(vscale(Vec3{x, y, z}, m.scaleToMm));
     }
-    return out.knots.size() == out.controlPoints.size() + out.degree + 1;
+    const NurbsInputError defect = out.validate();
+    if (defect != NurbsInputError::None) {
+        if (bad) *bad = defect;
+        return false;
+    }
+    return true;
 }
 
 // Reconstruct the 3D curve at DE `deSeq` (110/100/104/126) with its directed
@@ -588,7 +608,12 @@ Curve3 readCurve3(const IgesModel& m, long deSeq) {
         g.ok = true; return g;
     }
     if (t == E_RBSPLINE_CURVE) {
-        if (!readBSplineCurve(m, deSeq, g.nurbs)) { g.kind = CurveKind3::Unsupported; return g; }
+        NurbsInputError bad = NurbsInputError::None;
+        if (!readBSplineCurve(m, deSeq, g.nurbs, &bad)) {
+            g.kind = CurveKind3::Unsupported;
+            if (bad != NurbsInputError::None) g.refusal = igesNurbsRefusalKey(t, bad);
+            return g;
+        }
         g.kind = CurveKind3::BSpline;
         g.v0 = g.nurbs.evaluate(g.nurbs.knots.front());
         g.v1 = g.nurbs.evaluate(g.nurbs.knots.back());
@@ -606,8 +631,13 @@ Curve3 readCurve3(const IgesModel& m, long deSeq) {
 //   then (K1+1)*(K2+1) xyz control points (same order), then U0,U1,V0,V1.
 // Forge's NurbsSurface stores control[iu][iv] (U outer, V inner). IGES stores
 // the grid V-major (index = i + (K1+1)*j), so we transpose accordingly.
+//
+// T-153: the result is VALIDATED (NurbsSurface::validate()) — it used to be
+// returned with no check of its weights or knots at all. On a refusal `*bad`
+// names the defect.
 // ---------------------------------------------------------------------------
-bool readBSplineSurface(const IgesModel& m, long deSeq, NurbsSurface& out) {
+bool readBSplineSurface(const IgesModel& m, long deSeq, NurbsSurface& out,
+                        NurbsInputError* bad = nullptr) {
     const auto* p = params(m, deSeq);
     if (!p || p->size() < 10) return false;
     long K1, K2, M1, M2;
@@ -646,6 +676,11 @@ bool readBSplineSurface(const IgesModel& m, long deSeq, NurbsSurface& out) {
             out.control[i][j] = cflat[flat];
             out.weights[i][j] = wflat[flat];
         }
+    const NurbsInputError e = out.validate();
+    if (e != NurbsInputError::None) {
+        if (bad) *bad = e;
+        return false;
+    }
     return true;
 }
 
@@ -826,7 +861,11 @@ ForeignReadResult readForeignIges(const std::string& text, double sewTol) {
         if (t == E_PLANE_SURFACE) { kw = "IGES_190"; return readPlaneSurface(m, surfDe, s); }
         if (t == E_RBSPLINE_SURFACE) {
             kw = "IGES_128";
-            if (!readBSplineSurface(m, surfDe, nurbs)) return false;
+            NurbsInputError bad = NurbsInputError::None;
+            if (!readBSplineSurface(m, surfDe, nurbs, &bad)) {
+                if (bad != NurbsInputError::None) kw = igesNurbsRefusalKey(t, bad);   // T-153
+                return false;
+            }
             isBSpline = true; return true;
         }
         kw = "IGES_" + std::to_string(t < 0 ? 0 : t);
@@ -930,7 +969,11 @@ ForeignReadResult readForeignIges(const std::string& text, double sewTol) {
             return true;
         }
         Curve3 c = readCurve3(m, de);
-        if (!c.ok) { kw = "IGES_" + std::to_string(t < 0 ? 0 : t); return false; }
+        if (!c.ok) {
+            kw = !c.refusal.empty() ? c.refusal                       // T-153: named
+                                    : "IGES_" + std::to_string(t < 0 ? 0 : t);
+            return false;
+        }
         out.push_back(c);
         return true;
     };
@@ -1120,7 +1163,11 @@ ForeignReadResult readForeignIges(const std::string& text, double sewTol) {
             !igesInt((*p)[base+2], svI) || !igesPtr((*p)[base+3], tvP) ||
             !igesInt((*p)[base+4], tvI)) { kw = "IGES_504"; return false; }
         Curve3 c = readCurve3(m, curveP);
-        if (!c.ok) { kw = "IGES_" + std::to_string(c.typeNum); return false; }
+        if (!c.ok) {
+            kw = !c.refusal.empty() ? c.refusal                       // T-153: named
+                                    : "IGES_" + std::to_string(c.typeNum);
+            return false;
+        }
         Vec3 sv, tv;
         if (vertexFromList(svP, svI, sv)) c.v0 = sv;
         if (vertexFromList(tvP, tvI, tv)) c.v1 = tv;
