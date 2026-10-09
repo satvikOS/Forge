@@ -95,11 +95,11 @@ fi
 # here, on a second-boundary mtime race, and printed "mutation stayed GREEN --
 # the gate does not test the defect" about itself.
 #
-# The selftest is nine cases over a three-file fixture, about five seconds. It
-# proves a source edit, a header edit and a flag change each reach the binary,
-# that identical bytes at different paths do not collide, and -- deterministically
-# rather than by racing the clock -- that a source stamped OLDER than its own
-# cached object is still recompiled.
+# The selftest is ten cases over small fixtures, a few seconds. It proves a
+# source edit, a header edit, a flag change and an edit to an #included .c each
+# reach the binary, that identical bytes at different paths do not collide, and
+# -- deterministically rather than by racing the clock -- that a source stamped
+# OLDER than its own cached object is still recompiled.
 if bash "$ROOT/tools/gates/forge_cxx_cache_selftest.sh" > "$T/fcc.out" 2>&1; then
   ok "D: the gate compile cache cannot serve a stale object ($(sed -n 's/^\[fcc-selftest\] //p' "$T/fcc.out"))"
 else

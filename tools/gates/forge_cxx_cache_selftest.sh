@@ -30,6 +30,8 @@
 #   7  two sources with IDENTICAL bytes at DIFFERENT paths get different objects
 #   8  a rewrite STAMPED OLDER than its own cached object is still seen -- the
 #      deterministic, stronger form of the race that defeated the gate above
+#   9  an edit to a .c that a unit #includes reaches the binary (the epoch
+#      excludes TU extensions, so the premise check must know all of them)
 #
 # Exit 0 iff every case passes. Anything else means the cache is not safe to use
 # and the four gates above are no longer proving what they claim.
@@ -205,6 +207,36 @@ if [ "$r8" = "511" ] && [ "$c8" -eq 1 ]; then
   ok "8: ★ a source rewritten and then stamped OLDER than its cached object still recompiled (511)"
 else
   bad "8: ★ a source stamped older than its object gave [$r8] (want 511), compiled=$c8 (want 1) — THE MUTATION DID NOT REACH THE BINARY"
+fi
+
+# ── 9. ★ AN #included .c / .m / .mm IS AN INPUT TOO ─────────────────────────
+# The epoch leaves out every file with a translation-unit extension (.cpp .cc
+# .cxx .C .c .m .mm) and relies on a CHECKED premise: no unit #includes another.
+# Until T-160's resume that check only recognised .cpp/.cc/.cxx/.C, so a unit
+# that does `#include "impl.c"` (the bison/flex idiom: third_party's
+# Expression.cpp includes Expression.tab.c and Expression.lex.c) had its .c
+# excluded from the epoch AND undetected by the premise check: editing the .c
+# moved no key, the stale object was reused, and the edit never reached the
+# binary. MEASURED on PR #284's forge_cxx_cache.sh (d2fdcb9b): answered 3, then 3.
+mkdir -p "$W/tree9/src"
+cat > "$W/tree9/src/impl9.c" <<'EOF'
+static int implValue() { return 3; }
+EOF
+cat > "$W/tree9/src/main9.cpp" <<'EOF'
+#include <cstdio>
+#include "impl9.c"
+int main() { std::printf("%d\n", implValue()); return 0; }
+EOF
+FCC_CACHE="$W/cache9"
+FCC_CFLAGS=(-std=c++20 -O1 -Wall -Wextra -Werror "$DEF")
+FCC_SRCS=("$W/tree9/src/main9.cpp")
+fcc_build "$W/bin9a" "$W/bin9a.log" >/dev/null 2>&1; r9a="$("$W/bin9a" 2>/dev/null)"
+subst 's/return 3;/return 4;/' "$W/tree9/src/impl9.c"
+fcc_build "$W/bin9b" "$W/bin9b.log" >/dev/null 2>&1; r9b="$("$W/bin9b" 2>/dev/null)"; c9="$FCC_COMPILED"
+if [ "$r9a" = "3" ] && [ "$r9b" = "4" ]; then
+  ok "9: ★ editing a .c that a unit #includes reaches the binary (3 -> 4, compiled=$c9)"
+else
+  bad "9: ★ STALE OBJECT — a unit #including impl9.c answered [$r9a] then [$r9b] after the .c changed (want 3 then 4), compiled=$c9"
 fi
 
 echo

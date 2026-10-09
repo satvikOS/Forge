@@ -177,7 +177,9 @@ fcc__epoch_dirs() {
 # Excluding them is sound ONLY while no translation unit is #included by another
 # one, because then a .cpp's bytes reach exactly one object: its own, whose key
 # already hashes it directly. That premise is CHECKED here on every call rather
-# than assumed: if any file in these directories includes a .cpp/.cc/.cxx, the
+# than assumed: if any file in these directories includes a file with ANY of the
+# extensions excluded below (.cpp .cc .cxx .C .c .m .mm -- the list must match
+# the exclusion list exactly; selftest case 9 is the .c that once slipped), the
 # epoch falls back to hashing EVERYTHING, the cache stops hitting, and the run is
 # merely slow instead of wrong.
 fcc__epoch() {
@@ -190,7 +192,7 @@ fcc__epoch() {
   IFS="$old_ifs"
 
   bad="$(find "$@" -type f -print0 2>/dev/null \
-         | xargs -0 grep -lE '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<][^">]*\.(cpp|cc|cxx|C)[">]' \
+         | xargs -0 grep -lE '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<][^">]*\.(cpp|cc|cxx|C|c|m|mm)[">]' \
                  2>/dev/null | head -1)"
   if [ -n "$bad" ]; then
     # A translation unit IS includable content here. Hash everything: correct,
