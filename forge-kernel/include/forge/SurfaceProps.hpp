@@ -164,17 +164,30 @@ SurfProps surfaceProps(const native::brep::Surface& surface, double u, double v)
 // differentiate ANY Geom_Surface, revolutions and offsets included. A native
 // facade that silently declined those two would have bought its symbol delta
 // with capability. These two forms are what keeps the replacement whole.
+//
+// ── AND A THIRD, FOR THE SAME REASON (T-151, 2026-10-08) ───────────────────
+// Form::Extruded — a profile CURVE swept along a straight direction. A linear
+// extrusion IS expressible as a brep::Surface (an exact tensor NURBS), and that
+// is how the solid importer carries it; but for a CONIC profile (circle,
+// ellipse) that tensor form's u is the rational arc's PROJECTIVE parameter, not
+// the conic's angle, so it cannot answer at the (u,v) a caller holds. The
+// frozen 19-kind probe, re-run on b609b41d, measured exactly that kind DECLINED
+// (18/19): "linear extrusion (circle profile)". Read as itself — profile plus
+// direction — its parameters are OCCT's own and the map is the IDENTITY, the
+// same cure the revolution needed.
 // ---------------------------------------------------------------------------
 struct PropSurface {
     enum class Form {
         Native,    // `base` IS the surface (all seven brep SurfaceKinds)
         Revolved,  // a meridian curve swept about an axis
-        Offset     // `base` displaced by `offsetDistance` along its own normal
+        Offset,    // `base` displaced by `offsetDistance` along its own normal
+        Extruded   // a profile curve swept along a straight direction (T-151)
     };
     Form form = Form::Native;
 
     // Form::Native — the surface. Form::Offset — the BASE surface being offset.
-    // Form::Revolved — UNUSED (see `reversed` below for the one exception).
+    // Form::Revolved / Form::Extruded — UNUSED (each has its own orientation
+    // flag below).
     native::brep::Surface base{};
 
     // Form::Revolved. THE PARAMETER ORDER IS PART OF THE CONTRACT:
@@ -198,12 +211,26 @@ struct PropSurface {
     // DECLINED (both flags false) rather than answered with a large number.
     double offsetDistance = 0.0;
 
+    // Form::Extruded. THE PARAMETER ORDER IS PART OF THE CONTRACT:
+    //     S(u, v) = C(u) + v * D
+    // i.e. **u is the PROFILE parameter and v the distance along D**, where
+    // C = profile (any curve curveProps supports) and D = extrusionDir. That is
+    // the order an importer hands a linear extrusion over in, so the
+    // OCCT->native map for this form is the IDENTITY. D need not be unit
+    // (v is then measured in units of |D|) but must be finite and non-zero, and
+    // must not be parallel to the profile's tangent where it is evaluated: there
+    // S_u x S_v vanishes, and that point is DECLINED, never answered.
+    native::brep::Curve profile{};
+    Vec3 extrusionDir{0, 0, 1};
+
     // ORIENTATION, in ONE place per form so there is never a second flag to
     // forget: Form::Native and Form::Offset use `base.reversed` (for Offset it
     // is the base's own flag, which governs both surfaces); Form::Revolved has
-    // no base surface and uses THIS flag. The names are deliberately different
-    // so a caller cannot set the wrong one and have it silently read.
+    // no base surface and uses THIS flag; Form::Extruded uses the one after it.
+    // The names are deliberately different so a caller cannot set the wrong one
+    // and have it silently read.
     bool revolvedReversed = false;
+    bool extrudedReversed = false;
 
     static PropSurface fromNative(const native::brep::Surface& s) {
         PropSurface p;
@@ -214,13 +241,16 @@ struct PropSurface {
     // The orientation flag that actually governs THIS form. One accessor so a
     // reader never has to remember the rule above.
     bool isReversed() const {
-        return form == Form::Revolved ? revolvedReversed : base.reversed;
+        if (form == Form::Revolved) return revolvedReversed;
+        if (form == Form::Extruded) return extrudedReversed;
+        return base.reversed;
     }
 };
 
-// Differential properties of ANY of the three forms at (u,v). Never throws;
-// degeneracy (a pole of the revolution, a singular point of the offset, an
-// unusable base) is reported through the two flags, never by a wrong number.
+// Differential properties of ANY of the four forms at (u,v). Never throws;
+// degeneracy (a pole of the revolution, a singular point of the offset, a
+// profile tangent parallel to the extrusion, an unusable base) is reported
+// through the two flags, never by a wrong number.
 SurfProps surfaceProps(const PropSurface& surface, double u, double v);
 
 // ---------------------------------------------------------------------------

@@ -5,22 +5,24 @@
 # Builds and runs test/surface_props_closed_form_gate.cpp, which verifies
 # forge/SurfaceProps (the native differential-property facade) against TEXTBOOK
 # CLOSED FORMS — sphere, cylinder, cone, plane, torus, elliptical cylinder,
-# circle, ellipse, rational arc — and NEVER against OCCT. Nothing here links,
+# circle, ellipse, rational arc, the T-151 kinds (parabola, hyperbola,
+# revolution, offset, linear extrusion) — and NEVER against OCCT. Nothing here links,
 # includes, or names OCCT: the whole point of the facade is to be the one place
 # the GeomLProp_/BRepLProp_ cluster gets deleted from, so its gate cannot depend
 # on the thing being deleted.
 #
 # ── THEN IT PROVES THE GATE CAN FAIL ────────────────────────────────────────
-# A curvature gate that has only ever been seen green is not evidence. FOURTEEN
+# A curvature gate that has only ever been seen green is not evidence. SEVENTEEN
 # mutants of the CODE UNDER TEST (never of the test) must each turn it RED, and
 # each must do so ON ITS OWN ASSERTION — a mutant that goes red somewhere else
 # has proved something, just not the thing it was written for.
 #
 # M1..M6 are T-147's, on the shared fundamental-form algebra and the analytic
-# second derivatives. M7..M14 are T-151's: ONE PER RESTORED GEOMETRY KIND, so no
-# kind can be called "carried" on the strength of an assertion nobody has seen
-# fail. The five restored kinds are parabola, hyperbola, surface of revolution
-# (two meridian families), and offset surface.
+# second derivatives. M7..M17 are T-151's: ONE OR MORE PER RESTORED GEOMETRY
+# KIND, so no kind can be called "carried" on the strength of an assertion nobody
+# has seen fail. The restored kinds are parabola, hyperbola, surface of
+# revolution (two meridian families), offset surface, and (M15..M17, found by
+# re-running the frozen 19-kind probe on b609b41d) linear extrusion.
 #
 #   M1  the sign of M^2 in the Gaussian numerator  (L*N - M*M -> L*N + M*M)
 #   M2  the sign of the -2FM cross term in the mean numerator
@@ -37,6 +39,9 @@
 #   M12 one sign in the offset's second-order quotient rule    (T-151)
 #   M13 an analytic THIRD derivative, which only the offset reads (T-151)
 #   M14 the revolution's MIXED partial S_uv — invisible to K and H (T-151)
+#   M15 the extrusion's S_uu perturbed by a RELATIVE 1e-6       (T-151)
+#   M16 the extrusion's orientation flag ignored                (T-151)
+#   M17 the extrusion's profile read at v instead of u          (T-151)
 #
 # ★ M1 AND M2 ARE THE REASON THE SHEAR FIXTURE EXISTS. Every analytic quadric in
 #   the gate is parameterised ORTHOGONALLY, so F = S_u.S_v = 0 and M = S_uv.n = 0
@@ -231,7 +236,7 @@ kill_check M6 "$PROPS" "$WORK/m6.cpp" "cyl(out) H == -1/(2R)"
 # assertion has never been seen RED is not restored, it is merely quiet. So each
 # of the five gets a mutant that must kill it ON ITS OWN ASSERTION.
 echo
-echo "[surfprops] ── SEVEN MORE MUTANTS: ONE PER RESTORED KIND (T-151) ──"
+echo "[surfprops] ── EIGHT MORE MUTANTS: ONE OR MORE PER RESTORED KIND (T-151) ──"
 
 # M7 — the PARABOLA's constant second derivative. It is the only conic whose C''
 #      does not depend on t, so a wrong constant is invisible in the SHAPE of the
@@ -334,9 +339,49 @@ mutate "$PROPS" "$WORK/m14.cpp" \
 echo "[surfprops] M14: revolution S_uv p'-term scaled by 1 + 1e-6"
 kill_check M14 "$WORK/m14.cpp" "$ALGEBRA" "rev(circle) S_uv == rho' \* e_theta"
 
+# ═══════════════ T-151 (2026-10-08): THE FROZEN PROBE'S 19th KIND ═══════════
+# Re-running the frozen 19-kind probe on b609b41d measured 18/19, not 19/19:
+# "linear extrusion (circle profile)" was declined by the bridge. It is carried
+# now by PropSurface::Form::Extruded, and gets its own mutants for the same
+# reason the other restored kinds did.
+echo
+echo "[surfprops] ── THREE MORE MUTANTS: THE LINEAR EXTRUSION (T-151) ──"
+
+# M15 — the extrusion's ONE non-trivial second partial, S_uu = C''(u), perturbed
+#       by a RELATIVE 1e-6. It is the only partial that carries the profile's
+#       bending into L (S_uv and S_vv are exactly zero), so it is the derivative
+#       every curvature of this form rests on. Read on the OBLIQUE ellipse, the
+#       fixture whose closed form never forms an F.
+mutate "$PROPS" "$WORK/m15.cpp" \
+  'finishProps(out, cp.d1, Dir, cp.d2, zero, zero, ps.extrudedReversed);' \
+  'finishProps(out, cp.d1, Dir, cp.d2 * (1.0 + 1.0e-6), zero, zero, ps.extrudedReversed);' || exit 2
+echo "[surfprops] M15: extrusion S_uu = C'' scaled by 1 + 1e-6"
+kill_check M15 "$WORK/m15.cpp" "$ALGEBRA" "extr(ellipse, OBLIQUE).*H == cross-section form"
+
+# M16 — the extrusion's ORIENTATION flag dropped. The form has its own flag
+#       (extrudedReversed) precisely so it cannot silently read another form's;
+#       a reader that ignored it would publish the outward normal for a face
+#       whose material lies the other way. Only the reversed fixture can see it.
+mutate "$PROPS" "$WORK/m16.cpp" \
+  'finishProps(out, cp.d1, Dir, cp.d2, zero, zero, ps.extrudedReversed);' \
+  'finishProps(out, cp.d1, Dir, cp.d2, zero, zero, false);' || exit 2
+echo "[surfprops] M16: extrusion orientation flag ignored"
+kill_check M16 "$WORK/m16.cpp" "$ALGEBRA" "extr(circle, reversed) H == +1/(2r)"
+
+# M17 — the PARAMETER ORDER, which SurfaceProps.hpp makes part of the contract
+#       (u = profile, v = distance along D, so the bridge's map is the identity).
+#       Reading the profile at v swaps the roles of the two parameters: on the
+#       circle the curvature is the same everywhere and could not tell, so it is
+#       read on the POINT of the oblique ellipse.
+mutate "$PROPS" "$WORK/m17.cpp" \
+  'const CurveProps cp = curveProps(ps.profile, u);' \
+  'const CurveProps cp = curveProps(ps.profile, v);' || exit 2
+echo "[surfprops] M17: extrusion profile evaluated at v instead of u"
+kill_check M17 "$WORK/m17.cpp" "$ALGEBRA" "extr(ellipse, OBLIQUE).*S == C(u) + v D"
+
 echo
 if [ "$bad" = "0" ]; then
-  echo "PASS: $STOCK_SCORE against textbook closed forms, and all FOURTEEN mutants"
+  echo "PASS: $STOCK_SCORE against textbook closed forms, and all SEVENTEEN mutants"
   echo "      are killed, each on the assertion it was written for."
 else
   echo "FAIL: a control is inert — see above."

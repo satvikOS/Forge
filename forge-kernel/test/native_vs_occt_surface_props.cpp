@@ -58,10 +58,27 @@
 #include <string>
 #include <vector>
 
+#include <stdexcept>
+
+#include "forge/ClassASurfacing.hpp"   // the PRODUCTION entry points (frozen 19)
 #include "forge/OcctImport.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/SurfaceProps.hpp"
 #include "forge/native/brep/Curve.hpp"
 #include "forge/native/brep/Surface.hpp"
+
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <GC_MakeArcOfEllipse.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <Geom_BezierCurve.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_Ellipse.hxx>
+#include <Geom_Hyperbola.hxx>
+#include <Geom_Parabola.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <gp_Ax3.hxx>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -164,13 +181,79 @@ static Vec3 v3(const gp_Pnt& p) { return Vec3{p.X(), p.Y(), p.Z()}; }
 static Vec3 v3(const gp_Vec& p) { return Vec3{p.X(), p.Y(), p.Z()}; }
 static Vec3 v3(const gp_Dir& p) { return Vec3{p.X(), p.Y(), p.Z()}; }
 
+// --------------------------------------------------------------------------- per-kind table
+// ONE ROW PER FIXTURE, printed at the end, so "carried" is read kind by kind and
+// never as a total that a single missing kind can hide inside.
+//
+// A row is CARRIED only when ALL of these hold — never because something merely
+// returned without throwing:
+//   * the bridge imported the geometry (ok = true), AND
+//   * every LProp quantity it was asked for matched live OCCT (zero failures in
+//     the row, at least one comparison made), AND, for the FROZEN 19 only,
+//   * the PRODUCTION entry point (forge::classa::gaussianAndMeanCurvature /
+//     curvatureComb — what the user's curvature readout and comb call) answered,
+//     and every K/H (face) or kappa/position (edge) it returned matched live OCCT
+//     at the (u,v)/t it reports.
+struct KindRow {
+    std::string label;
+    bool frozen = false;          // one of the FROZEN 19 (see main)
+    int pass0 = 0, fail0 = 0;     // the global counters when the row began
+    int checks = 0, fails = 0;    // this row's own comparisons
+    bool bridgeOk = false;
+    std::string bridgeReason;
+    std::string bridgeForm;       // which PropSurface form carried it ("-" for edges)
+    bool classaRan = false;       // frozen rows only
+    bool classaAnswered = false;
+    int classaStations = 0;
+    std::string classaWhy;
+    bool carried() const {
+        return bridgeOk && fails == 0 && checks > 0 &&
+               (!classaRan || (classaAnswered && classaStations > 0));
+    }
+};
+static std::vector<KindRow> g_rows;
+static bool g_lastBridgeOk = false;
+static std::string g_lastBridgeReason;
+static std::string g_lastBridgeForm = "-";
+
+static const char* formName(forge::props::PropSurface::Form f) {
+    switch (f) {
+    case forge::props::PropSurface::Form::Native:   return "Native";
+    case forge::props::PropSurface::Form::Revolved: return "Revolved";
+    case forge::props::PropSurface::Form::Offset:   return "Offset";
+    case forge::props::PropSurface::Form::Extruded: return "Extruded";
+    }
+    return "?";
+}
+
+static std::size_t rowBegin(const std::string& label, bool frozen) {
+    KindRow r;
+    r.label = label;
+    r.frozen = frozen;
+    r.pass0 = g_pass;
+    r.fail0 = g_fail;
+    g_lastBridgeOk = false;
+    g_lastBridgeReason.clear();
+    g_lastBridgeForm = "-";
+    g_rows.push_back(r);
+    return g_rows.size() - 1;
+}
+static void rowEnd(std::size_t i) {
+    KindRow& r = g_rows[i];
+    r.fails = g_fail - r.fail0;
+    r.checks = (g_pass - r.pass0) + r.fails;
+}
+
 // --------------------------------------------------------------------------- faces
 // Compare EVERY LProp surface quantity, OCCT vs native-through-the-bridge, on a
 // grid inset off the parameter boundary (poles are a separate, deliberate case).
-static void compareFace(const char* label, const TopoDS_Face& face, int n = 5) {
+static void compareFaceImpl(const char* label, const TopoDS_Face& face, int n) {
     std::printf("-- %s --\n", label);
 
     forge::SurfaceImportResult imp = forge::importOcctFaceSurface(face);
+    g_lastBridgeOk = imp.ok;
+    g_lastBridgeReason = imp.reason;
+    if (imp.ok) g_lastBridgeForm = formName(imp.surface.form);
     if (!imp.ok) {
         ++g_fail;
         std::printf("  [FAIL] bridge DEFERRED on %s: %s\n", label, imp.reason.c_str());
@@ -342,10 +425,12 @@ static void compareFace(const char* label, const TopoDS_Face& face, int n = 5) {
 }
 
 // --------------------------------------------------------------------------- edges
-static void compareEdge(const char* label, const TopoDS_Edge& edge, int n = 7) {
+static void compareEdgeImpl(const char* label, const TopoDS_Edge& edge, int n) {
     std::printf("-- %s --\n", label);
 
     forge::CurveImportResult imp = forge::importOcctEdgeCurve(edge);
+    g_lastBridgeOk = imp.ok;
+    g_lastBridgeReason = imp.reason;
     if (!imp.ok) {
         ++g_fail;
         std::printf("  [FAIL] edge bridge DEFERRED on %s: %s\n", label, imp.reason.c_str());
@@ -397,6 +482,161 @@ static void compareEdge(const char* label, const TopoDS_Edge& edge, int n = 7) {
     std::printf("   [ok] %d stations compared\n", n);
 }
 
+// ------------------------------------------------- the PRODUCTION entry points
+// The bridge+facade comparison above is the mathematics. These two check the
+// path the USER's numbers actually take — ShapeRegistry -> forge::classa ->
+// bridge -> forge::props — and they check VALUES, not survival: every sample the
+// entry point returns is compared with live OCCT LProp at the parameter the
+// sample itself reports. A kind that "answers" with a wrong number is red here.
+static void classaFaceCheck(const char* label, const TopoDS_Face& face, std::size_t r) {
+    g_rows[r].classaRan = true;
+    forge::ShapeHandle h = forge::ShapeRegistry::instance().add(face);
+    std::vector<forge::classa::CurvatureSample> v;
+    try {
+        v = forge::classa::gaussianAndMeanCurvature(h, 4, 4);
+    } catch (const std::exception& e) {
+        ++g_fail;
+        g_rows[r].classaWhy = e.what();
+        std::printf("  [FAIL] %s: forge::classa::gaussianAndMeanCurvature THREW: %s\n",
+                    label, e.what());
+        return;
+    }
+    g_rows[r].classaAnswered = true;
+
+    Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);
+    double scale = 1.0;
+    {
+        gp_Pnt p = gs->Value(0.5 * (u0 + u1), 0.5 * (v0 + v1));
+        scale = std::max(1.0, std::sqrt(p.X() * p.X() + p.Y() * p.Y() + p.Z() * p.Z()));
+    }
+    const double kScale = 1.0 / scale;
+    int compared = 0;
+    char tag[200];
+    for (const auto& s : v) {
+        GeomLProp_SLProps g(gs, s.u, s.v, /*N*/ 2, Precision::Confusion());
+        if (!g.IsNormalDefined() || !g.IsCurvatureDefined()) continue;
+        std::snprintf(tag, sizeof tag, "%s classa K @occt(%.4f,%.4f)", label, s.u, s.v);
+        ckNum(tag, s.K_gaussian, g.GaussianCurvature(), kScale * kScale);
+        std::snprintf(tag, sizeof tag, "%s classa H @occt(%.4f,%.4f)", label, s.u, s.v);
+        ckNum(tag, s.H_mean, g.MeanCurvature(), kScale);
+        ++compared;
+    }
+    g_rows[r].classaStations = compared;
+    std::snprintf(tag, sizeof tag, "%s classa returned comparable stations", label);
+    ckBool(tag, compared > 0, true);
+    std::printf("   [classa] gaussianAndMeanCurvature: %zu samples, %d compared to LProp\n",
+                v.size(), compared);
+}
+
+static void classaEdgeCheck(const char* label, const TopoDS_Edge& edge, std::size_t r) {
+    g_rows[r].classaRan = true;
+    forge::ShapeHandle h = forge::ShapeRegistry::instance().add(edge);
+    std::vector<forge::classa::CurvatureCombSample> v;
+    try {
+        v = forge::classa::curvatureComb(h, 7, 1.0);
+    } catch (const std::exception& e) {
+        ++g_fail;
+        g_rows[r].classaWhy = e.what();
+        std::printf("  [FAIL] %s: forge::classa::curvatureComb THREW: %s\n", label, e.what());
+        return;
+    }
+    g_rows[r].classaAnswered = true;
+
+    BRepAdaptor_Curve ad(edge);
+    BRepLProp_CLProps c(ad, /*N*/ 2, Precision::Confusion());
+    double scale = 1.0;
+    {
+        gp_Pnt p = ad.Value(0.5 * (ad.FirstParameter() + ad.LastParameter()));
+        scale = std::max(1.0, std::sqrt(p.X() * p.X() + p.Y() * p.Y() + p.Z() * p.Z()));
+    }
+    int compared = 0;
+    char tag[200];
+    for (const auto& s : v) {
+        c.SetParameter(s.u);
+        std::snprintf(tag, sizeof tag, "%s classa comb position @t=%.4f", label, s.u);
+        ckVec(tag, Vec3{s.position3d[0], s.position3d[1], s.position3d[2]},
+              v3(c.Value()), scale);
+        std::snprintf(tag, sizeof tag, "%s classa comb kappa @t=%.4f", label, s.u);
+        ckNum(tag, s.curvature, c.Curvature(), 1.0 / scale);
+        ++compared;
+    }
+    g_rows[r].classaStations = compared;
+    std::snprintf(tag, sizeof tag, "%s classa returned comparable stations", label);
+    ckBool(tag, compared > 0, true);
+    std::printf("   [classa] curvatureComb: %d samples compared to LProp\n", compared);
+}
+
+// An ADDITIONAL fixture: bridge+facade vs LProp, one table row.
+static void compareFace(const char* label, const TopoDS_Face& face, int n = 5) {
+    const std::size_t r = rowBegin(label, false);
+    compareFaceImpl(label, face, n);
+    g_rows[r].bridgeOk = g_lastBridgeOk;
+    g_rows[r].bridgeReason = g_lastBridgeReason;
+    g_rows[r].bridgeForm = g_lastBridgeForm;
+    rowEnd(r);
+}
+static void compareEdge(const char* label, const TopoDS_Edge& edge, int n = 7) {
+    const std::size_t r = rowBegin(label, false);
+    compareEdgeImpl(label, edge, n);
+    g_rows[r].bridgeOk = g_lastBridgeOk;
+    g_rows[r].bridgeReason = g_lastBridgeReason;
+    g_rows[r].bridgeForm = g_lastBridgeForm;
+    rowEnd(r);
+}
+// One of the FROZEN 19: the same, PLUS the production entry point's values.
+static void probeFace(const char* label, const TopoDS_Face& face) {
+    const std::size_t r = rowBegin(label, true);
+    compareFaceImpl(label, face, 5);
+    g_rows[r].bridgeOk = g_lastBridgeOk;
+    g_rows[r].bridgeReason = g_lastBridgeReason;
+    g_rows[r].bridgeForm = g_lastBridgeForm;
+    classaFaceCheck(label, face, r);
+    rowEnd(r);
+}
+static void probeEdge(const char* label, const TopoDS_Edge& edge) {
+    const std::size_t r = rowBegin(label, true);
+    compareEdgeImpl(label, edge, 7);
+    g_rows[r].bridgeOk = g_lastBridgeOk;
+    g_rows[r].bridgeReason = g_lastBridgeReason;
+    g_rows[r].bridgeForm = g_lastBridgeForm;
+    classaEdgeCheck(label, edge, r);
+    rowEnd(r);
+}
+
+// An ADDITIONAL fixture that ALSO runs the production entry point (as the frozen
+// rows do) — for faces taken off a real solid, where the face's own trim window
+// and orientation are whatever the modelling operation produced.
+static void compareFaceWithClassa(const char* label, const TopoDS_Face& face) {
+    const std::size_t r = rowBegin(label, false);
+    compareFaceImpl(label, face, 5);
+    g_rows[r].bridgeOk = g_lastBridgeOk;
+    g_rows[r].bridgeReason = g_lastBridgeReason;
+    g_rows[r].bridgeForm = g_lastBridgeForm;
+    classaFaceCheck(label, face, r);
+    rowEnd(r);
+}
+
+// The first face of `s` whose Geom_ surface has dynamic type `dynType`; a null
+// face if there is none (the caller FAILS on that, never skips).
+static TopoDS_Face faceOfType(const TopoDS_Shape& s, const char* dynType) {
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        Handle(Geom_Surface) g = BRep_Tool::Surface(f);
+        if (!g.IsNull() && g->DynamicType()->Name() == std::string(dynType)) return f;
+    }
+    return TopoDS_Face();
+}
+
+static Handle(Geom_Surface) surfaceOfType(const TopoDS_Shape& s, const char* dynType) {
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        Handle(Geom_Surface) g = BRep_Tool::Surface(TopoDS::Face(ex.Current()));
+        if (!g.IsNull() && g->DynamicType()->Name() == std::string(dynType)) return g;
+    }
+    return Handle(Geom_Surface)();
+}
+
 // --------------------------------------------------------------------------- helpers
 static TopoDS_Face firstFaceOfType(const TopoDS_Shape& s, GeomAbs_SurfaceType want) {
     for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
@@ -412,6 +652,128 @@ int main() {
     std::printf("=== per-face/per-edge bridge vs LIVE OCCT LProp, same process.\n");
     std::printf("=== rel tol %.0e, absolute floor 1e-12 x the fixture's own scale.\n\n",
                 kRelTol);
+
+    // ═══════════════ THE FROZEN 19-KIND PROBE ══════════════════════════════
+    // T-147's adversarial pass built a 19-kind capability probe (cap3.cpp, run
+    // against the pre-migration and migrated dylibs on 2026-09-18) and measured
+    // 19/19 before the migration and 14/19 after; T-151 exists to restore the
+    // five. That probe was never committed, so "19/19" could not be re-run from
+    // the tree. These are ITS NINETEEN FIXTURES, geometry for geometry and label
+    // for label, recovered from that session and now part of the gate.
+    //
+    // ★ THE KIND LIST IS FROZEN AT 19. Nothing is ever removed from it to make
+    //   the denominator match the answer; a new kind goes in the ADDITIONAL
+    //   section below and is reported separately. The count is asserted.
+    //
+    // ★ The original probe called a kind CARRIED when the production entry point
+    //   merely RETURNED. That is not enough and is not what is asserted here:
+    //   each row must ALSO match live OCCT LProp on a station grid through the
+    //   bridge, and the production entry point's own returned K/H (or kappa) must
+    //   match LProp at the parameters it reports.
+    //
+    // ★ WHAT RE-RUNNING IT FOUND (T-151, 2026-10-08, on b609b41d): 18/19, not the
+    //   19/19 the merge recorded. "linear extrusion (circle profile)" THROWS. The
+    //   original probe's 19/19 run predates 8341ad68, which added a correct
+    //   round-trip check to the extrusion reader: the tensor B-spline built from
+    //   a CIRCLE basis is the rational-quadratic arc, whose parameter is NOT the
+    //   circle's angle, so the bridge had been handing callers the wrong point at
+    //   OCCT's (u,v) — invisible to the original probe because a cylinder's K and
+    //   H are the same everywhere. The check made it decline honestly, and the
+    //   kind fell out. It is restored as props::PropSurface::Form::Extruded.
+    std::printf("=== THE FROZEN 19-KIND PROBE (bridge+facade AND forge::classa vs LProp)\n\n");
+    {   // 1. plane (box face)
+        TopoDS_Shape b = BRepPrimAPI_MakeBox(2., 3., 4.).Shape();
+        TopExp_Explorer ex(b, TopAbs_FACE);
+        probeFace("plane (box face)", TopoDS::Face(ex.Current()));
+    }
+    {   // 2. cylinder
+        TopoDS_Shape c = BRepPrimAPI_MakeCylinder(2.5, 4.).Shape();
+        Handle(Geom_Surface) g = surfaceOfType(c, "Geom_CylindricalSurface");
+        probeFace("cylinder", BRepBuilderAPI_MakeFace(g, 0., 6.283, 0., 4., 1e-6).Face());
+    }
+    {   // 3. cone
+        TopoDS_Shape c = BRepPrimAPI_MakeCone(3., 1., 4.).Shape();
+        Handle(Geom_Surface) g = surfaceOfType(c, "Geom_ConicalSurface");
+        probeFace("cone", BRepBuilderAPI_MakeFace(g, 0., 6.283, 0., 4., 1e-6).Face());
+    }
+    {   // 4. sphere
+        TopoDS_Shape s = BRepPrimAPI_MakeSphere(1.75).Shape();
+        TopExp_Explorer ex(s, TopAbs_FACE);
+        probeFace("sphere", TopoDS::Face(ex.Current()));
+    }
+    {   // 5. torus
+        TopoDS_Shape s = BRepPrimAPI_MakeTorus(5., 1.5).Shape();
+        TopExp_Explorer ex(s, TopAbs_FACE);
+        probeFace("torus", TopoDS::Face(ex.Current()));
+    }
+    {   // 6. bezier surface 4x4
+        TColgp_Array2OfPnt p(1, 4, 1, 4);
+        for (int i = 1; i <= 4; ++i)
+            for (int j = 1; j <= 4; ++j) p(i, j) = gp_Pnt(i * 1.0, j * 1.0, 0.15 * i * j);
+        Handle(Geom_BezierSurface) bz = new Geom_BezierSurface(p);
+        probeFace("bezier surface 4x4", BRepBuilderAPI_MakeFace(bz, 1e-6).Face());
+    }
+    {   // 7. linear extrusion (circle profile)
+        Handle(Geom_Circle) c = new Geom_Circle(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 2.0);
+        Handle(Geom_SurfaceOfLinearExtrusion) ex =
+            new Geom_SurfaceOfLinearExtrusion(c, gp_Dir(0, 0, 1));
+        probeFace("linear extrusion (circle profile)",
+                  BRepBuilderAPI_MakeFace(ex, 0., 6.283, 0., 3., 1e-6).Face());
+    }
+    {   // 8. offset of PLANE
+        Handle(Geom_Surface) pl = new Geom_Plane(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+        Handle(Geom_OffsetSurface) off = new Geom_OffsetSurface(pl, 0.5);
+        probeFace("offset of PLANE", BRepBuilderAPI_MakeFace(off, -1., 1., -1., 1., 1e-6).Face());
+    }
+    {   // 9. offset of CYLINDER
+        TopoDS_Shape c = BRepPrimAPI_MakeCylinder(2.5, 4.).Shape();
+        Handle(Geom_OffsetSurface) off =
+            new Geom_OffsetSurface(surfaceOfType(c, "Geom_CylindricalSurface"), 0.3);
+        probeFace("offset of CYLINDER",
+                  BRepBuilderAPI_MakeFace(off, 0., 6.283, 0.5, 3.5, 1e-6).Face());
+    }
+    {   // 10. offset of CONE (bounded)                                   [T-151]
+        TopoDS_Shape c = BRepPrimAPI_MakeCone(3., 1., 4.).Shape();
+        Handle(Geom_OffsetSurface) off =
+            new Geom_OffsetSurface(surfaceOfType(c, "Geom_ConicalSurface"), 0.25);
+        probeFace("offset of CONE (bounded)",
+                  BRepBuilderAPI_MakeFace(off, 0., 6.283, 0.5, 3.5, 1e-6).Face());
+    }
+    {   // 11. revolution of a B-SPLINE meridian                          [T-151]
+        TColgp_Array1OfPnt pts(1, 5);
+        pts(1) = gp_Pnt(1, 0, 0); pts(2) = gp_Pnt(1.4, 0, 1); pts(3) = gp_Pnt(1.1, 0, 2);
+        pts(4) = gp_Pnt(1.6, 0, 3); pts(5) = gp_Pnt(1.2, 0, 4);
+        Handle(Geom_BSplineCurve) m = GeomAPI_PointsToBSpline(pts).Curve();
+        Handle(Geom_SurfaceOfRevolution) rv =
+            new Geom_SurfaceOfRevolution(m, gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+        probeFace("revolution of a B-SPLINE meridian", BRepBuilderAPI_MakeFace(rv, 1e-6).Face());
+    }
+    {   // 12. revolution of a CIRCLE (== torus)                          [T-151]
+        Handle(Geom_Circle) c = new Geom_Circle(gp_Ax2(gp_Pnt(6, 0, 0), gp_Dir(0, 1, 0)), 1.5);
+        Handle(Geom_SurfaceOfRevolution) rv =
+            new Geom_SurfaceOfRevolution(c, gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+        probeFace("revolution of a CIRCLE (== torus)", BRepBuilderAPI_MakeFace(rv, 1e-6).Face());
+    }
+    // edges
+    probeEdge("line", BRepBuilderAPI_MakeEdge(gp_Lin(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), 0., 5.).Edge());
+    probeEdge("circle", BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 2.5)).Edge());
+    probeEdge("ellipse", BRepBuilderAPI_MakeEdge(gp_Elips(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 3., 2.)).Edge());
+    {
+        TColgp_Array1OfPnt p(1, 4);
+        p(1) = gp_Pnt(0, 0, 0); p(2) = gp_Pnt(1, 2, 0); p(3) = gp_Pnt(3, 2, 0); p(4) = gp_Pnt(4, 0, 0);
+        probeEdge("bezier", BRepBuilderAPI_MakeEdge(new Geom_BezierCurve(p)).Edge());
+    }
+    {
+        TColgp_Array1OfPnt p(1, 5);
+        for (int i = 1; i <= 5; ++i) p(i) = gp_Pnt(i * 1.0, (i % 2) ? 1.0 : 0.0, 0.0);
+        probeEdge("b-spline", BRepBuilderAPI_MakeEdge(GeomAPI_PointsToBSpline(p).Curve()).Edge());
+    }
+    probeEdge("PARABOLA",                                               // [T-151]
+              BRepBuilderAPI_MakeEdge(gp_Parab(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 2.), -1., 1.).Edge());
+    probeEdge("HYPERBOLA",                                              // [T-151]
+              BRepBuilderAPI_MakeEdge(gp_Hypr(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 3., 2.), 0.2, 1.).Edge());
+
+    std::printf("\n=== ADDITIONAL FIXTURES (NOT part of the frozen 19)\n\n");
 
     // ---------------------------------------------------------------- PLANE
     {
@@ -572,15 +934,220 @@ int main() {
         compareEdge("HYPERBOLA a=3 b=2 (placed frame)", mk.Edge());
     }
     {
-        // A B-spline edge — the rational derivative table on the curve side.
+        // A circle edge taken off a real solid (the sphere's seam), so its frame
+        // is whatever the primitive builder placed — not one this file chose.
+        // (This fixture was previously commented as "a B-spline edge"; it never
+        // was one. The RATIONAL B-spline edge below is the one that is.) A
+        // missing seam is a FAILURE, not a silently skipped row.
         BRepPrimAPI_MakeSphere sp(1.75);
         TopoDS_Edge got;
         for (TopExp_Explorer ex(sp.Shape(), TopAbs_EDGE); ex.More(); ex.Next()) {
             BRepAdaptor_Curve ac(TopoDS::Edge(ex.Current()));
             if (ac.GetType() == GeomAbs_Circle) { got = TopoDS::Edge(ex.Current()); break; }
         }
-        if (!got.IsNull()) compareEdge("SPHERE seam CIRCLE (placed frame)", got);
+        if (!got.IsNull()) {
+            compareEdge("SPHERE seam CIRCLE (placed frame)", got);
+        } else {
+            ++g_fail;
+            std::printf("  [FAIL] the sphere has no circular seam edge to compare\n");
+        }
     }
+    {
+        // A RATIONAL B-spline edge: the exact quarter circle (weights 1, 1/sqrt2,
+        // 1), so the rational branch of the curve derivative table is what runs.
+        TColgp_Array1OfPnt poles(1, 3);
+        poles(1) = gp_Pnt(2.0, 0.0, 0.5);
+        poles(2) = gp_Pnt(2.0, 2.0, 0.5);
+        poles(3) = gp_Pnt(0.0, 2.0, 0.5);
+        TColStd_Array1OfReal w(1, 3);
+        w(1) = 1.0; w(2) = std::sqrt(0.5); w(3) = 1.0;
+        TColStd_Array1OfReal k(1, 2);
+        k(1) = 0.0; k(2) = 1.0;
+        TColStd_Array1OfInteger m(1, 2);
+        m(1) = 3; m(2) = 3;
+        Handle(Geom_BSplineCurve) arc = new Geom_BSplineCurve(poles, w, k, m, 2);
+        compareEdge("RATIONAL B-SPLINE edge (exact quarter circle)",
+                    BRepBuilderAPI_MakeEdge(arc).Edge());
+    }
+
+    // ── EXTRUSIONS the frozen row does not reach (T-151) ──────────────────────
+    // The frozen "linear extrusion (circle profile)" is a RIGHT circular
+    // cylinder in disguise: orthogonal parameters (F = S_u.S_v = 0). An OBLIQUE
+    // direction makes F != 0, which is the term an extrusion evaluator that
+    // assumed a right cylinder would get wrong; an ELLIPSE profile makes the
+    // curvature vary along u, which a constant-curvature profile cannot test.
+    {
+        Handle(Geom_Ellipse) el = new Geom_Ellipse(
+            gp_Ax2(gp_Pnt(0.3, -0.2, 0.1), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 3.0, 1.25);
+        Handle(Geom_SurfaceOfLinearExtrusion) ex =
+            new Geom_SurfaceOfLinearExtrusion(el, gp_Dir(0.35, -0.2, 0.915));
+        compareFace("EXTRUSION(ellipse profile, OBLIQUE direction)",
+                    BRepBuilderAPI_MakeFace(ex, 0.1, 6.0, -1.0, 2.5, 1e-6).Face());
+    }
+    {
+        // A NON-rational B-spline profile: the tensor path's own territory (its
+        // u IS the basis parameter), kept here so that path stays measured too.
+        TColgp_Array1OfPnt p(1, 5);
+        p(1) = gp_Pnt(0, 0, 0); p(2) = gp_Pnt(1, 1.2, 0); p(3) = gp_Pnt(2.5, 0.4, 0);
+        p(4) = gp_Pnt(3.5, 1.5, 0); p(5) = gp_Pnt(5, 0.8, 0);
+        Handle(Geom_BSplineCurve) prof = GeomAPI_PointsToBSpline(p).Curve();
+        Handle(Geom_SurfaceOfLinearExtrusion) ex =
+            new Geom_SurfaceOfLinearExtrusion(prof, gp_Dir(0, 0, 1));
+        compareFace("EXTRUSION(B-spline profile)",
+                    BRepBuilderAPI_MakeFace(ex, prof->FirstParameter(), prof->LastParameter(),
+                                            0.0, 2.0, 1e-6).Face());
+    }
+    {
+        // The two UNBOUNDED conics as profiles, each in a placed frame and swept
+        // OBLIQUELY. A hyperbola's tensor form is rational like the circle's; a
+        // parabola's is polynomial. Whichever route the bridge takes for each
+        // (the form column says which), the values must match LProp.
+        Handle(Geom_Hyperbola) hy = new Geom_Hyperbola(
+            gp_Ax2(gp_Pnt(-0.5, 0.4, 0.2), gp_Dir(0.1, 0.2, 1.0), gp_Dir(1, 0, -0.1)), 3.0, 2.0);
+        Handle(Geom_SurfaceOfLinearExtrusion) ex =
+            new Geom_SurfaceOfLinearExtrusion(hy, gp_Dir(0.4, 0.3, 0.866));
+        compareFace("EXTRUSION(hyperbola profile, OBLIQUE direction)",
+                    BRepBuilderAPI_MakeFace(ex, -1.2, 0.9, -0.5, 1.5, 1e-6).Face());
+    }
+    {
+        Handle(Geom_Parabola) pa = new Geom_Parabola(
+            gp_Ax2(gp_Pnt(0.3, -0.6, 0.4), gp_Dir(0.0, 0.3, 1.0), gp_Dir(1, 0, 0)), 1.6);
+        Handle(Geom_SurfaceOfLinearExtrusion) ex =
+            new Geom_SurfaceOfLinearExtrusion(pa, gp_Dir(-0.3, 0.5, 0.81));
+        compareFace("EXTRUSION(parabola profile, OBLIQUE direction)",
+                    BRepBuilderAPI_MakeFace(ex, -2.5, 3.0, 0.0, 2.0, 1e-6).Face());
+    }
+
+    // ── EXTRUSION FACES OFF A REAL PRISM (T-151) ───────────────────────────────
+    // Every extrusion above is a face MADE from a bare Geom_ surface over a
+    // window this file chose. A modelling operation hands the bridge something
+    // else: BRepPrimAPI_MakePrism's side face, with the u-window, the basis
+    // trim and the face ORIENTATION the sweep produced. The D-profile's basis is
+    // an elliptical ARC (a Geom_TrimmedCurve over a sub-range of the ellipse), so
+    // the u-window is not the conic's natural [0, 2pi) — the case where a wrong
+    // parameter origin would show; the third draws that arc the other way, so
+    // the basis is a REVERSED ellipse. The production entry point is run on all
+    // three.
+    {
+        const gp_Ax2 ax(gp_Pnt(0.2, -0.3, 0.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+        TopoDS_Edge el = BRepBuilderAPI_MakeEdge(gp_Elips(ax, 3.0, 1.25)).Edge();
+        TopoDS_Face prof = BRepBuilderAPI_MakeFace(BRepBuilderAPI_MakeWire(el).Wire()).Face();
+        TopoDS_Shape prism = BRepPrimAPI_MakePrism(prof, gp_Vec(0.6, -0.4, 2.5)).Shape();
+        TopoDS_Face side = faceOfType(prism, "Geom_SurfaceOfLinearExtrusion");
+        if (side.IsNull()) {
+            ++g_fail;
+            std::printf("  [FAIL] the elliptic prism has no extrusion side face\n");
+        } else {
+            std::printf("   [fixture] elliptic prism side face orientation = %s\n",
+                        side.Orientation() == TopAbs_REVERSED ? "REVERSED" : "FORWARD");
+            // Every fixture above is a FORWARD face, so none of them can tell a
+            // bridge that (wrongly) folds the FACE's orientation into the
+            // SURFACE's normal from one that does not. LProp ignores the face
+            // orientation; so must the bridge. This row only proves that if the
+            // sweep really did hand back a REVERSED face — asserted, not assumed.
+            ckBool("the elliptic prism side face is REVERSED (else no fixture here "
+                   "can see a face-orientation / surface-normal confusion)",
+                   side.Orientation() == TopAbs_REVERSED, true);
+            compareFaceWithClassa("PRISM side face (ellipse, OBLIQUE sweep)", side);
+        }
+    }
+    {
+        const gp_Elips E(gp_Ax2(gp_Pnt(-0.4, 0.1, 0.3), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 2.5, 1.5);
+        Handle(Geom_TrimmedCurve) arc = GC_MakeArcOfEllipse(E, 0.35, 2.65, Standard_True).Value();
+        TopoDS_Edge ea = BRepBuilderAPI_MakeEdge(arc).Edge();
+        TopoDS_Edge chord = BRepBuilderAPI_MakeEdge(arc->EndPoint(), arc->StartPoint()).Edge();
+        TopoDS_Wire w = BRepBuilderAPI_MakeWire(ea, chord).Wire();
+        TopoDS_Face prof = BRepBuilderAPI_MakeFace(w).Face();
+        TopoDS_Shape prism = BRepPrimAPI_MakePrism(prof, gp_Vec(0.0, 0.5, 3.0)).Shape();
+        TopoDS_Face side = faceOfType(prism, "Geom_SurfaceOfLinearExtrusion");
+        if (side.IsNull()) {
+            ++g_fail;
+            std::printf("  [FAIL] the D-profile prism has no extrusion side face\n");
+        } else {
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(side, u0, u1, v0, v1);
+            std::printf("   [fixture] D-prism side face u-window [%.4f, %.4f] orientation = %s\n",
+                        u0, u1, side.Orientation() == TopAbs_REVERSED ? "REVERSED" : "FORWARD");
+            ckBool("the D-prism side face's u-window is a SUB-range of the ellipse "
+                   "(else this fixture proves nothing the full one does not)",
+                   u0 > 0.3 && u1 < 2.7, true);
+            compareFaceWithClassa("PRISM side face (elliptical ARC, trimmed basis)", side);
+        }
+    }
+    // The same D-profile with the arc drawn the OTHER WAY (Sense = false): the
+    // trimmed curve then stores an already-REVERSED copy of the ellipse, whose
+    // parameter is not the original's. readGeomCurve unwraps the trim on the
+    // claim that this is parameter-preserving; a bridge that read the ORIGINAL
+    // ellipse's frame at this u would return the MIRROR point across the major
+    // axis (the reversed conic's C(u) is the original's C(-u)).
+    {
+        const gp_Elips E(gp_Ax2(gp_Pnt(0.3, -0.2, -0.1), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 2.5, 1.5);
+        Handle(Geom_TrimmedCurve) arc = GC_MakeArcOfEllipse(E, 0.35, 2.65, Standard_False).Value();
+        TopoDS_Edge ea = BRepBuilderAPI_MakeEdge(arc).Edge();
+        TopoDS_Edge chord = BRepBuilderAPI_MakeEdge(arc->EndPoint(), arc->StartPoint()).Edge();
+        TopoDS_Wire w = BRepBuilderAPI_MakeWire(ea, chord).Wire();
+        TopoDS_Face prof = BRepBuilderAPI_MakeFace(w).Face();
+        TopoDS_Shape prism = BRepPrimAPI_MakePrism(prof, gp_Vec(0.4, 0.0, 2.0)).Shape();
+        TopoDS_Face side = faceOfType(prism, "Geom_SurfaceOfLinearExtrusion");
+        if (side.IsNull()) {
+            ++g_fail;
+            std::printf("  [FAIL] the reversed-sense D-profile prism has no extrusion side face\n");
+        } else {
+            Handle(Geom_SurfaceOfLinearExtrusion) sx =
+                Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(BRep_Tool::Surface(side));
+            Handle(Geom_Curve) basis = sx->BasisCurve();
+            while (Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(basis))
+                basis = tc->BasisCurve();
+            Handle(Geom_Ellipse) be = Handle(Geom_Ellipse)::DownCast(basis);
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(side, u0, u1, v0, v1);
+            std::printf("   [fixture] reversed-sense D-prism side face u-window [%.4f, %.4f] "
+                        "orientation = %s, basis ellipse axis z = %+.0f\n",
+                        u0, u1, side.Orientation() == TopAbs_REVERSED ? "REVERSED" : "FORWARD",
+                        be.IsNull() ? 0.0 : be->Position().Direction().Z());
+            ckBool("the reversed-sense D-prism's basis is an ellipse whose axis is FLIPPED "
+                   "(else this fixture proves nothing the forward arc does not)",
+                   !be.IsNull() && be->Position().Direction().Z() < 0.0, true);
+            compareFaceWithClassa("PRISM side face (elliptical ARC, REVERSED sense)", side);
+        }
+    }
+
+    // ═══════════════ THE PER-KIND TABLE ════════════════════════════════════
+    int frozenRows = 0, frozenCarried = 0, extraRows = 0, extraCarried = 0;
+    std::printf("\n=== PER-KIND TABLE (CARRIED = bridge ok AND every value matched LProp"
+                "\n===   AND, for the frozen 19, forge::classa answered with matching values)\n");
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool frozen = (pass == 0);
+        std::printf("\n  %s\n", frozen ? "FROZEN 19-KIND PROBE"
+                                       : "ADDITIONAL FIXTURES (not part of the frozen 19)");
+        std::printf("  %-3s %-48s %-7s %-9s %7s %5s  %-9s %-8s\n", "#", "kind", "bridge",
+                    "form", "checks", "fail", "classa", "VERDICT");
+        int idx = 0;
+        for (const KindRow& r : g_rows) {
+            if (r.frozen != frozen) continue;
+            ++idx;
+            const char* cl = !r.classaRan ? "-"
+                             : (!r.classaAnswered ? "THREW"
+                                                  : (r.classaStations > 0 ? "answered" : "no-data"));
+            std::printf("  %-3d %-48s %-7s %-9s %7d %5d  %-9s %-8s\n", idx, r.label.c_str(),
+                        r.bridgeOk ? "ok" : "DEFER", r.bridgeForm.c_str(), r.checks,
+                        r.fails, cl, r.carried() ? "CARRIED" : "NOT");
+            if (!r.bridgeOk)
+                std::printf("      bridge reason: %s\n", r.bridgeReason.c_str());
+            if (r.classaRan && !r.classaAnswered)
+                std::printf("      classa threw:  %s\n", r.classaWhy.c_str());
+            if (frozen) { ++frozenRows; if (r.carried()) ++frozenCarried; }
+            else        { ++extraRows;  if (r.carried()) ++extraCarried; }
+        }
+    }
+    std::printf("\n  FROZEN 19-KIND PROBE: %d of %d carried\n", frozenCarried, frozenRows);
+    std::printf("  ADDITIONAL FIXTURES:  %d of %d carried   (reported separately, never"
+                " merged into the 19)\n", extraCarried, extraRows);
+    // The denominator is part of the claim. A frozen list that quietly shrank
+    // would make "N of N" true and meaningless.
+    ckBool("the frozen probe has EXACTLY 19 kinds", frozenRows == 19, true);
+    ckBool("every frozen kind is CARRIED", frozenCarried == frozenRows, true);
+    ckBool("every additional fixture is CARRIED", extraCarried == extraRows, true);
 
     std::printf("\n=== RESULT %d passed, %d failed\n", g_pass, g_fail);
     if (g_fail == 0) {

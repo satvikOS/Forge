@@ -53,6 +53,17 @@
 // test/surface_props_closed_form_gate.cpp, never against OCCT, so the gate
 // survives OCCT leaving the link.
 //
+// AND A SIXTH, FOUND BY RE-RUNNING THE SAME PROBE (2026-10-08, b609b41d): the
+// merged tree carried 18 of the 19, not 19. "linear extrusion (circle profile)"
+// had been answered through the solid importer's tensor NURBS, whose u is the
+// rational arc's projective parameter rather than the circle's angle — wrong
+// POINTS at the caller's (u,v), invisible to a probe that only asked whether a
+// constant-curvature cylinder threw. 8341ad68's round-trip check then made it
+// decline honestly. It is carried now by
+//   linear EXTRUSION        PropSurface::Form::Extruded (S = C(u) + v D, direct
+//                           differentiation), reusing curveProps for C
+// and asserted the same way (closed forms, including an OBLIQUE direction).
+//
 // Pure C++20 + the standard library. No OCCT type is named anywhere in this file.
 
 #include "forge/SurfaceProps.hpp"
@@ -570,6 +581,52 @@ SurfProps offsetProps(const PropSurface& ps, double u, double v) {
     return out;
 }
 
+// ── FORM 3: LINEAR EXTRUSION (GENERAL CYLINDER) ─────────────────────────────
+// IDENTITY: a GENERALISED CYLINDER (ruled, developable) S(u,v) = C(u) + v*D for a
+// profile curve C and a constant direction D. v enters LINEARLY and u only
+// through C, so by direct differentiation
+//     S_u  = C'(u)      S_v  = D
+//     S_uu = C''(u)     S_uv = 0      S_vv = 0
+// — every partial is a profile derivative or the constant D, and the two that
+// vanish vanish EXACTLY (they are set, not computed, so they are bit-zero).
+// The fundamental forms then give M = N = 0, hence K = (LN - M^2)/(EG - F^2) = 0
+// identically (developable), and H = G L / (2(EG - F^2)) with
+// L = C''.n, n = (C' x D)/|C' x D|, EG - F^2 = |C' x D|^2 (Lagrange's identity).
+// The shared algebra in finishProps forms all of that; nothing is restated here.
+//
+// ★ F IS NOT ZERO IN GENERAL. For an OBLIQUE direction C'.D != 0, so this form
+//   exercises the fundamental-form terms an orthogonal right cylinder never does;
+//   the closed-form gate asserts the oblique case against the curvature of the
+//   profile's projection onto the plane perpendicular to D, which is the
+//   textbook normal-section curvature of a cylinder and an INDEPENDENT closed
+//   form (it does not go through C x D at all).
+//
+// ★ THE PROFILE DERIVATIVES ARE NOT RE-DERIVED HERE. C, C', C'' come from
+//   curveProps() — the same evaluator every other caller of this facade uses —
+//   so an extrusion inherits exactly the curve kinds the curve side supports,
+//   just as a revolution does.
+//
+// DEGENERACY: where C' is parallel to D the frame COLLAPSES (S_u x S_v = 0), and
+// finishProps' own scale-relative criterion declines that point. A cusp of the
+// profile (C' = 0) is declined before that, by curveProps' own flag.
+SurfProps extrudedProps(const PropSurface& ps, double u, double v) {
+    SurfProps out;
+
+    const Vec3 Dir = ps.extrusionDir;
+    const double dLen = Dir.length();
+    // A zero or non-finite direction is not a surface at all: refuse it rather
+    // than let a NaN through to the caller.
+    if (!(dLen > 0.0) || !std::isfinite(dLen)) return out;     // flags stay false
+
+    const CurveProps cp = curveProps(ps.profile, u);
+    if (!cp.defined) return out;    // the profile has no tangent here (a cusp)
+
+    out.p = cp.p + Dir * v;
+    const Vec3 zero{};
+    finishProps(out, cp.d1, Dir, cp.d2, zero, zero, ps.extrudedReversed);
+    return out;
+}
+
 } // namespace
 
 SurfProps surfaceProps(const PropSurface& surface, double u, double v) {
@@ -580,6 +637,8 @@ SurfProps surfaceProps(const PropSurface& surface, double u, double v) {
         return revolvedProps(surface, u, v);
     case PropSurface::Form::Offset:
         return offsetProps(surface, u, v);
+    case PropSurface::Form::Extruded:
+        return extrudedProps(surface, u, v);
     }
     return SurfProps{};
 }
