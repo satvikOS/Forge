@@ -417,12 +417,16 @@ bool isoArcForEdge(const Surface& s, const Vec3& a, const Vec3& b,
 
 // Closest-point inversion of p onto a NURBS surface: a coarse grid seed, then
 // Gauss-Newton on |S(u,v) - p|^2 clamped to the knot domain. Returns the final
-// distance (infinity when the surface cannot be evaluated).
-double invertNurbs(const NurbsSurface& n, const Vec3& p, double& uOut, double& vOut) {
+// distance (infinity when the surface cannot be evaluated). `G` is the seed grid
+// (G+1)^2: a seed that misses the global minimum can only make the distance
+// LARGER, so a coarse grid may refuse / over-count, never certify a false hit.
+// The same holds for `maxIt` (fewer Gauss-Newton steps) and `acceptBelow` (stop
+// as soon as a point within that distance is FOUND -- that point certifies it).
+double invertNurbs(const NurbsSurface& n, const Vec3& p, double& uOut, double& vOut,
+                   int G = 16, int maxIt = 50, double acceptBelow = -1.0) {
     if (!n.valid()) return std::numeric_limits<double>::infinity();
     const double u0 = n.knotsU.front(), u1 = n.knotsU.back();
     const double v0 = n.knotsV.front(), v1 = n.knotsV.back();
-    const int G = 16;
     double best = std::numeric_limits<double>::infinity(), bu = u0, bv = v0;
     for (int i = 0; i <= G; ++i)
         for (int j = 0; j <= G; ++j) {
@@ -431,10 +435,11 @@ double invertNurbs(const NurbsSurface& n, const Vec3& p, double& uOut, double& v
             if (d < best) { best = d; bu = u; bv = v; }
         }
     double u = bu, v = bv;
-    for (int it = 0; it < 50; ++it) {
+    for (int it = 0; it < maxIt; ++it) {
         const SurfaceSample ss = evaluateWithDerivatives(n, u, v);
         if (!ss.ok && vlen(ss.du) == 0.0 && vlen(ss.dv) == 0.0) break;
         const Vec3 r = vsub(ss.point, p);
+        if (vlen(r) <= acceptBelow) break;   // found: the final check returns it
         const double a11 = vdot(ss.du, ss.du), a12 = vdot(ss.du, ss.dv), a22 = vdot(ss.dv, ss.dv);
         const double g1 = vdot(r, ss.du), g2 = vdot(r, ss.dv);
         const double det = a11 * a22 - a12 * a12;
@@ -455,8 +460,9 @@ double invertNurbs(const NurbsSurface& n, const Vec3& p, double& uOut, double& v
 
 // Distance-like residual of p from surface s (0 on the surface). Used ONLY to
 // decide whether a straight chord written for an edge with no exact curve is in
-// fact a line of both adjacent faces (then it is exact, not a chord).
-double surfaceResidual(const Surface& s, const Vec3& p) {
+// fact a line of both adjacent faces (then it is exact, not a chord). `tol` is
+// that decision's threshold: a NURBS search may stop once it is met.
+double surfaceResidual(const Surface& s, const Vec3& p, double tol) {
     const Vec3 axis = vnorm(s.axis);
     const Vec3 q = vsub(p, s.origin);
     const double h = vdot(q, axis);
@@ -478,7 +484,10 @@ double surfaceResidual(const Surface& s, const Vec3& p) {
     }
     case SurfaceKind::Nurbs: {
         double u = 0, v = 0;
-        return invertNurbs(s.nurbs, p, u, v);
+        // Diagnostic only (edgesLine vs edgesChord): a 7x7 seed, at most 12
+        // Gauss-Newton steps, stop once within `tol`. A miss can only count a
+        // straight edge as an unverified chord, never certify a curved one.
+        return invertNurbs(s.nurbs, p, u, v, 6, 12, tol);
     }
     }
     return std::numeric_limits<double>::infinity();
@@ -653,10 +662,13 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
     };
 
     // EDGE_CURVE for a topological Edge (deduped). Stored start->end of the Edge.
-    // The geometry curve is a CIRCLE iff EITHER adjacent face's surface makes
-    // (start,end) a circular arc (so a cap-boundary arc shared with a curved wall
-    // is recorded as a CIRCLE regardless of which face is emitted first — this is
-    // what lets the reader recover the exact-disk cap). Otherwise a LINE.
+    // Geometry, in priority order (T-158; see the EDGE MAP in StepAnalytic.hpp):
+    // the edge's OWN Edge::curve; else a CIRCLE iff EITHER adjacent face's surface
+    // makes (start,end) a circular arc (so a cap-boundary arc shared with a curved
+    // wall is recorded as a CIRCLE regardless of which face is emitted first — this
+    // is what lets the reader recover the exact-disk cap), or an iso-line arc of
+    // one shared surface; otherwise a LINE, counted as edgesLine when verified on
+    // both adjacent surfaces and as edgesChord when not.
     auto edgeCurveFor = [&](const Coedge* ce) -> std::uint64_t {
         const Edge* e = ce->edge;
         auto it = edgeCurveId.find(e);
@@ -701,10 +713,19 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
                 Vec3 dir = (L > 1e-12) ? vscale(d, 1.0 / L) : Vec3{1, 0, 0};
                 const double tolL = 1e-7 * std::max(1.0, std::max(vlen(ps), vlen(pe)));
                 bool straight = (sA != nullptr) || (sB != nullptr);
-                for (double f : {0.25, 0.5, 0.75}) {
+                // Cheapest decisive test first, stop at the first failure: the
+                // midpoint before the quarter points, and an analytic surface
+                // before a NURBS one (whose residual is a closest-point search).
+                // A curved edge almost always fails at once, so an imported part
+                // whose every edge lacks Edge::curve pays ~one residual per edge.
+                const Surface* order[2] = {sA, sB};
+                if (sA && sB && sA->kind == SurfaceKind::Nurbs && sB->kind != SurfaceKind::Nurbs)
+                    std::swap(order[0], order[1]);
+                for (double f : {0.5, 0.25, 0.75}) {
                     const Vec3 q = vadd(ps, vscale(d, f));
-                    if (sA && !(surfaceResidual(*sA, q) <= tolL)) straight = false;
-                    if (sB && !(surfaceResidual(*sB, q) <= tolL)) straight = false;
+                    for (const Surface* s : order)
+                        if (s && !(surfaceResidual(*s, q, tolL) <= tolL)) { straight = false; break; }
+                    if (!straight) break;
                 }
                 if (straight) ++edgesLine; else ++edgesChord;
                 std::uint64_t pId = E.emitPoint(ps);
@@ -830,8 +851,9 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
             // 3) Surface entity (analytic; 0 means we could not emit it).
             std::uint64_t surfId = emitSurface(E, surf);
             if (surfId == 0)
-                return writeFail("StepAnalytic.write: unsupported NURBS face "
-                                 "(incomplete surface data — no analytic emit)");
+                return writeFail("StepAnalytic.write: face surface cannot be written "
+                                 "exactly (a NURBS with incomplete data or a weight "
+                                 "that is not finite and > 0, or an EllipseExtrusion)");
 
             // 4) ADVANCED_FACE over the full bound list. same_sense = .T. iff the
             //    surface normal already points OUT of the solid. Our Surface.reversed

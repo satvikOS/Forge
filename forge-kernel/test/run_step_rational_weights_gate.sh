@@ -17,6 +17,8 @@
 # The source is rewritten IN PLACE during [3/6]..[5/6] and restored by a trap;
 # do not edit StepAnalytic.cpp while this runs. Native toolchain + POSIX shell
 # tools only (clang++, cmake, awk, grep, sed) — no interpreter is needed.
+# Env: STEP_RATIONAL_BUILD (build dir), JOBS, OCCT_ROOT, STEP_RATIONAL_EVIDENCE
+# (an existing directory that receives each mutant's full gate transcript).
 set -uo pipefail
 KERNEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$KERNEL/.." || exit 2
@@ -125,7 +127,10 @@ run_mutant() {
   invalidate_obj
   touch "$SRC"
   if build_lib && link_gate; then
-    "$GATE" > "$TMP/mutant.out" 2>&1; echo "$?"
+    "$GATE" > "$TMP/mutant.out" 2>&1; local mrc=$?
+    # Keep each mutant's full transcript when an evidence directory is given.
+    [ -n "${STEP_RATIONAL_EVIDENCE:-}" ] && cp "$TMP/mutant.out" "$STEP_RATIONAL_EVIDENCE/mutant_${marker}.txt"
+    echo "$mrc"
   else
     echo 2
   fi
@@ -147,7 +152,7 @@ M1_RC=$(run_mutant T158-RATIONAL-SURFACE \
   "                if (w != 1.0) rational = true;   // T158-RATIONAL-SURFACE" \
   "                // M1: weights dropped again (T158-MUTANT)")
 check_caught M1 "$M1_RC"
-grep -E "independent reader\] blend radius|reads its own output|checks," "$TMP/mutant.out" | head -4 | sed 's/^/      M1> /'
+grep -E "independent reader\] blend radius|checks," "$TMP/mutant.out" | head -4 | sed 's/^/      M1> /'
 
 echo "[4/6] mutation M2 — revert the edge fix; the written arc must be caught"
 M2_RC=$(run_mutant T158-EDGE-OWN-CURVE \

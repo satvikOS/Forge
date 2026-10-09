@@ -36,6 +36,7 @@
 //                                                A1 slot census (always exit 0
 //                                                unless I/O fails)
 #include "forge/native/brep/ChamferAnalytic.hpp"
+#include "forge/native/brep/Check.hpp"
 #include "forge/native/brep/Curve.hpp"
 #include "forge/native/brep/FilletAnalytic.hpp"
 #include "forge/native/brep/MassProps.hpp"
@@ -171,6 +172,20 @@ const Surface* firstNurbsSurface(const Solid& s) {
     for (const Face* f : facesOf(s))
         if (f->surface && f->surface->kind == SurfaceKind::Nurbs) return f->surface;
     return nullptr;
+}
+
+// Independent validity observable (Check.cpp, the kernel's BRepCheck analogue):
+// no predicate that PASSES on the source may FAIL on the solid read back.
+std::string g_validityNote;
+bool noNewInvalidity(const Solid& src, const Solid& back) {
+    const CheckReport a = checkBRep(&src), b = checkBRep(&back);
+    std::string broke;
+    for (const CheckPredicate& p : a.predicates)
+        if (p.passed && b.failedPredicate(p.name)) broke += " " + p.name + "(" + b.find(p.name)->detail + ")";
+    g_validityNote = "source " + std::to_string(a.passed()) + "/" + std::to_string(a.total()) +
+                     " predicates pass, read-back " + std::to_string(b.passed()) + "/" +
+                     std::to_string(b.total()) + (broke.empty() ? "; none newly failing" : "; NEWLY FAILING:" + broke);
+    return broke.empty();
 }
 
 std::size_t countNurbsFaces(const Solid& s) {
@@ -569,9 +584,13 @@ void runBlendCase(const char* tag, double L, double R0, double R1, bool splineEd
     {
         const ForeignReadResult fr = readForeignStep(w.text);
         const bool usable = fr.ok && fr.solid && fr.unsupported.empty();
+        std::string unsup;
+        for (const auto& kv : fr.unsupported) unsup += " " + kv.first + "x" + std::to_string(kv.second);
         check(usable, std::string(tag) + " readForeignStep reads the written file" +
-              (fr.ok ? "" : (" — " + fr.reason)));
-        if (usable) {
+              (!fr.ok ? (" — " + fr.reason) : (unsup.empty() ? "" : (" — unsupported:" + unsup))));
+        // Sample the surface whenever a solid came back (even with unsupported
+        // edges), so a wrong surface is MEASURED, not merely flagged unreadable.
+        if (fr.ok && fr.solid) {
             const Surface* rs = firstNurbsSurface(*fr.solid);
             RadialReport rr = rs ? radialReport(*rs, F.truth) : RadialReport{};
             char buf[240];
@@ -605,6 +624,8 @@ void runBlendCase(const char* tag, double L, double R0, double R1, bool splineEd
               std::string(tag) + " topology round-trips: faces " + std::to_string(a.faces) + "->" +
               std::to_string(b.faces) + ", edges " + std::to_string(a.edges) + "->" + std::to_string(b.edges) +
               ", nurbs faces " + std::to_string(countNurbsFaces(src)) + "->" + std::to_string(countNurbsFaces(rs)));
+
+        check(noNewInvalidity(src, rs), std::string(tag) + " checkBRep: " + g_validityNote);
 
         const MassProps mp = massProperties(rs);
         const double rel = std::fabs(mp.volume - F.volumeTruth) / F.volumeTruth;
@@ -862,6 +883,11 @@ void runNoRegression() {
         // read, so its face count legitimately changes; its volume may not.
         const bool facesOk = (b.name.rfind("sphere", 0) == 0) || fa == fc;
         check(rel <= 1e-9 && facesOk, b.name + buf);
+        // The read-back now carries the exact Edge::curve the file wrote, which
+        // the validator samples: it must not make a valid solid invalid. (The
+        // sphere comes back re-tiled, so its predicates are not comparable.)
+        if (b.name.rfind("sphere", 0) != 0)
+            check(noNewInvalidity(*b.s, *r.solid), b.name + " checkBRep: " + g_validityNote);
         // Provenance of every written edge, and the INDEPENDENT reader's volume.
         const ForeignReadResult fr = readForeignStep(w.text);
         double frel = -1.0;
