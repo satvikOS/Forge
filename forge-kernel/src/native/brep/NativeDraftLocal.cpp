@@ -365,6 +365,38 @@ bool surfaceResidual(const Handle(Geom_Surface)& raw, const gp_Pnt& p, double& r
     return false;
 }
 
+// ─────────────────────────────────────────────────────── periodic parameter lift
+// The representative of t in the half-open window [lo, hi) of a periodic
+// parameter, period = hi - lo: t shifted by the whole number of periods that
+// lands it there, i.e. t - period*floor((t - lo)/period), clamped below at lo
+// because that product can round one ulp under the window.
+//
+// WHY IT IS HERE (T-148). This was ElCLib::InPeriod, and MEASURED on b609b41d
+// this file was the only owner of that OCCT symbol in libforge_kernel_core. The
+// arithmetic is written from the definition above, not ported, and two details
+// are what make it AGREE with ElCLib to the bit rather than to an ulp — both
+// were found by measurement (test/occt_query_tail_gate.cpp, 3.7M (t, lo) pairs
+// incl. every k*period boundary +/- 1 ulp, 0 differences):
+//   * the period is taken as hi - lo, NOT as the caller's 2*pi, because for a
+//     large lo the two differ in the last place (measured at lo = 100);
+//   * the shift is ONE rounding, std::fma(-k, period, t). A two-rounding
+//     t - k*period disagreed on 34,830 of those pairs when compiled with
+//     -ffp-contract=off and agreed under contraction, so the result depended on
+//     a compiler flag; fma removes that dependency.
+// Non-finite or enormous inputs (|x| >= 1e100, OCCT's documented "infinite"
+// threshold, Precision::Infinite()/2) and an empty window are returned unchanged.
+double liftIntoPeriod(double t, double lo, double hi) {
+    constexpr double kInfinite = 1.0e100;
+    if (!(std::fabs(t) < kInfinite) || !(std::fabs(lo) < kInfinite) ||
+        !(std::fabs(hi) < kInfinite))
+        return t;
+    const double period = hi - lo;
+    if (!(period > 0.0)) return t;
+    const double k = std::floor((t - lo) / period);
+    const double u = std::fma(-k, period, t);
+    return u < lo ? lo : u;
+}
+
 // ───────────────────────────────────────────────────── curve parameter solving
 // Where on `c` is `target`? Exact by ElCLib for the elementary curves (TKMath),
 // and a bracketed Newton with a sampled start for everything else. `dist` is
@@ -402,7 +434,7 @@ bool curveParamAt(const Handle(Geom_Curve)& c, double lo, double hi,
         // A periodic parameter must be lifted into the EDGE's own range, not
         // into [0, 2pi): an arc from 5.9 to 6.5 rad is a real edge and its
         // parameters are not reduced.
-        if (period > 0.0) t = ElCLib::InPeriod(t, lo, lo + period);
+        if (period > 0.0) t = liftIntoPeriod(t, lo, lo + period);
         dist = c->Value(t).Distance(target);
         return true;
     }
