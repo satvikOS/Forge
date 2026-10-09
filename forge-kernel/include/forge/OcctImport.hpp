@@ -256,7 +256,10 @@ struct SurfaceImportResult {
     // distance) — because the OCCT classes this bridge feeds the replacement of
     // differentiated those too, and declining them would have paid for the symbol
     // delta in capability. Call sites are unchanged: they pass this straight to
-    // forge::props::surfaceProps, which dispatches on the form.
+    // forge::props::surfaceProps, which dispatches on the form. A third composite,
+    // Form::Extruded (profile + direction, identity map), carries the linear
+    // extrusions whose tensor form cannot be published at OCCT's (u,v) — a conic
+    // profile — which the frozen 19-kind probe measured declined (T-151).
     props::PropSurface surface;
 
     // OCCT -> native:  un = uScale*uo + uShift,  vn = vScale*vo + vShift.

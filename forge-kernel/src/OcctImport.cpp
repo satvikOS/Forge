@@ -2676,6 +2676,55 @@ SurfaceImportResult offsetFaceSurface(const TopoDS_Face& face) {
     return res;
 }
 
+// ---------------------------------------------------------------------------
+// LINEAR EXTRUSION whose tensor form readSurface could not publish at the
+// caller's (u,v) -> the exact composite form (T-151, 2026-10-08).
+//
+// readExtrusionSurface stays the FIRST route and is unchanged: for a line or a
+// non-rational B-spline profile its tensor NURBS's u IS the basis parameter, and
+// the solid importer and every existing property caller keep exactly that. For a
+// CONIC profile (circle, ellipse) the tensor form's u is the rational arc's
+// projective parameter, which its own round-trip check (8341ad68) detects and
+// DECLINES — correctly, since the alternative was a wrong point at OCCT's (u,v).
+// That decline is what the frozen 19-kind probe measured as 18/19. A property
+// query needs no tensor form, only derivatives, so this reads the extrusion as
+// itself — profile curve + direction — with the SAME readGeomCurve the edge
+// bridge and the revolution meridian use. Nothing is fitted or approximated.
+//
+// PARAMETER ORDER: Geom_SurfaceOfLinearExtrusion is Value(U,V) = C(U) + V*Dir
+// (U = basis-curve parameter, V = distance along the unit Dir), and
+// props::PropSurface::Form::Extruded is defined in that order, so the map is the
+// IDENTITY and S_u x S_v is OCCT's own normal: extrudedReversed stays false.
+//
+// ★ NO NEW OCCT SYMBOL: BasisCurve(), Direction(), the handle DownCast and
+//   BRepTools::UVBounds are all already named by readExtrusionSurface above.
+SurfaceImportResult extrudedFaceSurface(const TopoDS_Face& face) {
+    SurfaceImportResult res;
+
+    Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+    Handle(Geom_SurfaceOfLinearExtrusion) ext =
+        Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(gs);
+    if (ext.IsNull()) return res;          // not an extrusion: caller keeps its reason
+
+    nb::Curve prof;
+    if (!readGeomCurve(ext->BasisCurve(), prof, res.reason)) {
+        res.reason = "extrusion profile: " + res.reason;
+        return res;
+    }
+
+    double umin = 0.0, umax = 1.0, vmin = 0.0, vmax = 1.0;
+    BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+    prof.t0 = umin;                        // the profile's trim IS the face's u-window
+    prof.t1 = umax;
+
+    res.surface.form = props::PropSurface::Form::Extruded;
+    res.surface.profile = prof;
+    res.surface.extrusionDir = toV3(ext->Direction());
+    res.surface.extrudedReversed = false;  // the map is the identity (see above)
+    res.ok = true;
+    return res;
+}
+
 }  // namespace
 
 SurfaceImportResult importOcctFaceSurface(const TopoDS_Face& face) {
@@ -2700,7 +2749,14 @@ SurfaceImportResult importOcctFaceSurface(const TopoDS_Face& face) {
         // Only what it declined arrives here.
         SurfaceImportResult off = offsetFaceSurface(face);
         if (off.ok) return off;
-        res.reason = off.reason.empty() ? why : off.reason;
+        // ── AND THE EXACT EXTRUSION IS THE SECOND CHANCE FOR ITS KIND (T-151) ─
+        // Same ordering, same reason: readSurface keeps every extrusion its
+        // tensor form CAN publish at the caller's (u,v); only the ones it
+        // declined (a conic profile) are read as profile + direction.
+        SurfaceImportResult ex = extrudedFaceSurface(face);
+        if (ex.ok) return ex;
+        res.reason = !off.reason.empty() ? off.reason
+                   : (!ex.reason.empty() ? ex.reason : why);
         return res;
     }
 

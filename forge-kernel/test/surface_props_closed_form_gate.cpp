@@ -18,6 +18,9 @@
 //     circle r     kappa = 1/r, principal normal toward the centre
 //     ellipse a,b  kappa = a b / (a^2 sin^2 t + b^2 cos^2 t)^(3/2)
 //     NURBS arc    the rational quarter circle has kappa = 1/r at every t
+//     extrusion    S = C(u) + v D:  K = 0,  H = (sigma''.n)/(2|sigma'|^2) for the
+//                  profile projected along D (sigma = (I - dd^T) C), which is the
+//                  circular cylinder's 1/(2r) when C is a circle and D its normal
 //
 // ── SIGN IS PART OF THE CLAIM ───────────────────────────────────────────────
 // H, kMin and kMax are signed with respect to the surface's OWN oriented normal
@@ -53,6 +56,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -1269,6 +1273,309 @@ static void gateOffset() {
     }
 }
 
+// ══════════════════════ 13. LINEAR EXTRUSION (T-151) ════════════════════════
+// S(u,v) = C(u) + v*D  (PropSurface::Form::Extruded) is a GENERALISED CYLINDER:
+// ruled and developable, so K == 0 everywhere and one principal curvature is 0
+// (along the rulings, D). The other is the NORMAL CURVATURE OF THE ORTHOGONAL
+// CROSS-SECTION, the profile projected onto the plane perpendicular to D:
+//     d = D/|D|,   P = I - d d^T,   sigma(u) = P C(u)
+//     sigma' = P C',   sigma'' = P C''
+// sigma is a curve ON the surface (sigma(u) = S(u, lambda(u)) with
+// lambda(u) = -(C(u).d)/|D|), the plane it lies in contains the surface normal,
+// and so the non-zero principal curvature is sigma''.n / |sigma'|^2:
+//     H = (sigma''.n) / (2 |sigma'|^2)
+//     |2H| = |sigma' x sigma''| / |sigma'|^3   (the plane-curve curvature of the
+//                                               cross-section; it never uses n)
+// with n = +(S_u x S_v)/|..| = unit(C' x D) = unit(sigma' x d), because the
+// d-component of C' drops out of a cross product with D.
+//
+// That is a DIFFERENT expression path from the implementation, which forms
+// E,F,G / L,M,N from (C', D, C'', 0, 0) in the shared algebra and projects
+// nothing. For an OBLIQUE D the implementation has F = C'.D != 0 and its
+// fundamental forms must cancel that; this closed form never has an F at all.
+// Every C', C'' below is written out from the curve's own closed form (or a
+// cubic's monomial coefficients), never taken from curveProps.
+static forge::props::PropSurface mkExtruded(const nb::Curve& profile,
+                                            const Vec3& dir, bool rev) {
+    forge::props::PropSurface ps;
+    ps.form = forge::props::PropSurface::Form::Extruded;
+    ps.profile = profile;
+    ps.extrusionDir = dir;
+    ps.extrudedReversed = rev;
+    return ps;
+}
+
+// The cross-section closed form at one station, from C' and C'' (written out by
+// the caller) and the direction. `Hexp` is w.r.t. +(C' x D).
+struct CrossSection { Vec3 n; double H; double kappa2d; double F; };
+static CrossSection crossSection(const Vec3& C1, const Vec3& C2, const Vec3& D) {
+    const Vec3 d = unit(D);
+    const Vec3 s1 = C1 - d * C1.dot(d);
+    const Vec3 s2 = C2 - d * C2.dot(d);
+    CrossSection x;
+    x.n = unit(s1.cross(d));
+    const double s1sq = s1.dot(s1);
+    x.H = s2.dot(x.n) / (2.0 * s1sq);
+    x.kappa2d = s1.cross(s2).length() / (s1sq * std::sqrt(s1sq));
+    x.F = C1.dot(D);
+    return x;
+}
+
+// Assert one extrusion station against the cross-section closed form AND the
+// partials against C', D, C''. `scale` is the fixture's curvature scale.
+static void ckExtrStation(const std::string& what, const SurfProps& p,
+                          const Vec3& C, const Vec3& C1, const Vec3& C2,
+                          const Vec3& D, double v, double scale) {
+    const CrossSection x = crossSection(C1, C2, D);
+    ckTrue(what + " defined", p.normalDefined && p.curvatureDefined);
+    ckVecNear(what + " S == C(u) + v D", p.p, C + D * v, 1e-12 * (C.length() + 1.0));
+    ckVecNear(what + " S_u == C'(u)", p.d1u, C1, 1e-13 * (C1.length() + 1.0));
+    ckVecNear(what + " S_v == D (not normalised)", p.d1v, D, 0.0);
+    ckVecNear(what + " S_uu == C''(u)", p.d2uu, C2, 1e-13 * (C2.length() + 1.0));
+    // v enters linearly and u only through C: these two are SET, so bit-zero.
+    ckExact(what + " S_uv == 0 EXACTLY", p.d2uv.length(), 0.0);
+    ckExact(what + " S_vv == 0 EXACTLY", p.d2vv.length(), 0.0);
+    // Developable: M = N = 0 exactly, so the Gaussian numerator LN - M^2 is 0.
+    ckExact(what + " K == 0 EXACTLY (developable)", p.kGauss, 0.0);
+    ckVecNear(what + " normal == unit(sigma' x d)", p.normal, x.n, 1e-12);
+    ckNear(what + " H == cross-section form", p.kMean, x.H, scale);
+    ckNear(what + " |2H| == plane-curve curvature of the cross-section",
+           std::fabs(2.0 * p.kMean), x.kappa2d, scale);
+    ckNear(what + " {kMin,kMax} == {0, 2H}: kMin", p.kMin, std::min(0.0, 2.0 * x.H),
+           scale);
+    ckNear(what + " {kMin,kMax} == {0, 2H}: kMax", p.kMax, std::max(0.0, 2.0 * x.H),
+           scale);
+}
+
+static void gateExtrusion() {
+    std::printf("\n-- LINEAR EXTRUSION S = C(u) + v D: K == 0, and H from the\n"
+                "   orthogonal CROSS-SECTION (the profile projected along D), on a\n"
+                "   circle, an OBLIQUE ellipse, a parabola and a cubic B-spline --\n");
+    const Frame f = rotatedFrame();
+    const Vec3 k = f.axis, X = f.refDir, Y = k.cross(X);
+    const double pi = 3.14159265358979323846;
+
+    // ── E1. CIRCLE profile, RIGHT extrusion == the right circular cylinder ────
+    // The frozen probe's kind. D = the circle's normal, so the cross-section IS
+    // the circle: K = 0, |H| = 1/(2r). +(C' x D) = r e_r is OUTWARD, so the
+    // unreversed surface reports H = -1/(2r) (as the native cylinder does) and
+    // the reversed one the textbook +1/(2r). Sampled all the way round, including
+    // the four quarter points where one of the frame components is exactly 0.
+    {
+        const double r = 2.0;
+        const Vec3 O{0.25, -0.5, 1.0};
+        const nb::Curve prof = nb::Curve::makeCircle(O, X, k, r);
+        const forge::props::PropSurface out = mkExtruded(prof, k, false);
+        const forge::props::PropSurface in  = mkExtruded(prof, k, true);
+        for (double u : {0.0, 0.7, pi * 0.5, 2.4, pi, 4.0, pi * 1.5, 5.9}) {
+            for (double v : {-1.5, 0.0, 2.25}) {
+                const std::string at = " @(" + std::to_string(u) + "," +
+                                       std::to_string(v) + ")";
+                const Vec3 er = X * std::cos(u) + Y * std::sin(u);
+                const Vec3 et = X * -std::sin(u) + Y * std::cos(u);
+                const SurfProps po = surfaceProps(out, u, v);
+                ckExtrStation("extr(circle)" + at, po, O + er * r, et * r, er * -r, k,
+                              v, 1.0 / r);
+                ckVecNear("extr(circle) normal is the OUTWARD radial" + at, po.normal,
+                          er, 1e-14);
+                ckNear("extr(circle) H == -1/(2r)" + at, po.kMean, -1.0 / (2.0 * r),
+                       1.0 / r);
+                ckNear("extr(circle) kMin == -1/r" + at, po.kMin, -1.0 / r, 1.0 / r);
+                ckNear("extr(circle) kMax == 0" + at, po.kMax, 0.0, 1.0 / r);
+
+                const SurfProps pi_ = surfaceProps(in, u, v);
+                ckVecNear("extr(circle, reversed) normal is the INWARD radial" + at,
+                          pi_.normal, er * -1.0, 1e-14);
+                ckExact("extr(circle, reversed) K == 0", pi_.kGauss, 0.0);
+                ckNear("extr(circle, reversed) H == +1/(2r)  [TEXTBOOK]" + at,
+                       pi_.kMean, 1.0 / (2.0 * r), 1.0 / r);
+                ckNear("extr(circle, reversed) kMin == 0" + at, pi_.kMin, 0.0, 1.0 / r);
+                ckNear("extr(circle, reversed) kMax == +1/r" + at, pi_.kMax, 1.0 / r,
+                       1.0 / r);
+            }
+        }
+    }
+
+    // ── E2. ELLIPSE profile, OBLIQUE direction ─────────────────────────────
+    // The fixture that can see what a right cylinder cannot: F = C'.D != 0 (the
+    // fixture PRINTS it and asserts it is not small), and a curvature that varies
+    // along u. Sampled at both vertices and between them.
+    {
+        const double a = 3.0, b = 1.25;
+        const Vec3 O{0.3, -0.2, 0.1};
+        const Vec3 D = unit(k * 0.9 + X * 0.35 - Y * 0.2);
+        const nb::Curve prof = nb::Curve::makeEllipse(O, X, k, a, b);
+        const forge::props::PropSurface ps = mkExtruded(prof, D, false);
+        double maxF = 0.0;
+        for (double u : {0.0, pi * 0.5, 1.1, 2.9, 4.4, 6.0}) {
+            const double c = std::cos(u), s = std::sin(u);
+            const Vec3 C  = O + X * (a * c) + Y * (b * s);
+            const Vec3 C1 = X * (-a * s) + Y * (b * c);
+            const Vec3 C2 = X * (-a * c) + Y * (-b * s);
+            maxF = std::max(maxF, std::fabs(C1.dot(D)));
+            for (double v : {-1.0, 0.0, 2.5}) {
+                const std::string at = " @(" + std::to_string(u) + "," +
+                                       std::to_string(v) + ")";
+                ckExtrStation("extr(ellipse, OBLIQUE)" + at, surfaceProps(ps, u, v),
+                              C, C1, C2, D, v, a / (b * b));
+            }
+        }
+        char buf[96];
+        std::snprintf(buf, sizeof buf, "max|F| = %.6g", maxF);
+        ckTrue("extr(ellipse, OBLIQUE) F = S_u.S_v is NON-ZERO (not a right cylinder)",
+               maxF > 0.5, buf);
+
+        // ── E2b. A NON-UNIT direction: v is measured in units of |D|, the
+        //    geometry (normal, K, H) is unchanged, and S_v is D itself.
+        const Vec3 D25 = D * 2.5;
+        const forge::props::PropSurface ps25 = mkExtruded(prof, D25, false);
+        for (double u : {0.0, 1.1, 4.4}) {
+            const double c = std::cos(u), s = std::sin(u);
+            const Vec3 C  = O + X * (a * c) + Y * (b * s);
+            const Vec3 C1 = X * (-a * s) + Y * (b * c);
+            const Vec3 C2 = X * (-a * c) + Y * (-b * s);
+            const std::string at = " @(" + std::to_string(u) + ",0.8)";
+            const SurfProps p = surfaceProps(ps25, u, 0.8);
+            ckExtrStation("extr(ellipse, |D|=2.5)" + at, p, C, C1, C2, D25, 0.8,
+                          a / (b * b));
+            const SurfProps q = surfaceProps(ps, u, 2.0);   // the SAME point, unit D
+            ckNear("extr |D|=2.5 at v=0.8 and |D|=1 at v=2 give the SAME H" + at,
+                   p.kMean, q.kMean, a / (b * b));
+        }
+
+        // ── E2c. ORIENTATION: the reversed flag negates the normal and H, keeps
+        //    K, and negates AND SWAPS the principals.
+        const forge::props::PropSurface rv = mkExtruded(prof, D, true);
+        for (double u : {0.0, 2.9}) {
+            const std::string at = " @(" + std::to_string(u) + ",0.5)";
+            const SurfProps p = surfaceProps(ps, u, 0.5);
+            const SurfProps q = surfaceProps(rv, u, 0.5);
+            ckVecNear("extr(reversed) normal == -normal" + at, q.normal,
+                      p.normal * -1.0, 0.0);
+            ckExact("extr(reversed) K unchanged" + at, q.kGauss, p.kGauss);
+            ckExact("extr(reversed) H == -H" + at, q.kMean, -p.kMean);
+            ckExact("extr(reversed) kMin == -kMax" + at, q.kMin, -p.kMax);
+            ckExact("extr(reversed) kMax == -kMin" + at, q.kMax, -p.kMin);
+        }
+    }
+
+    // ── E3. PARABOLA profile, right extrusion: the parabolic cylinder ───────
+    // Written out, NOT via the projection: with D = the conic's normal k,
+    //   C' = (t/2f)R + B, C'' = (1/2f)R,  C' x k = R - (t/2f)B
+    //   n = (R - (t/2f)B)/sqrt(1 + t^2/4f^2),  C''.n / |C'|^2 = kappa(t)
+    // so H = +kappa(t)/2 with kappa = 1/(2f(1 + t^2/4f^2)^{3/2}) -- POSITIVE on
+    // the unreversed surface, whose normal points INTO the opening. At the APEX
+    // H = 1/(4f) and n = +R exactly.
+    {
+        const double foc = 1.6;
+        const Vec3 V{-0.4, 0.9, 0.2};
+        const nb::Curve prof = nb::Curve::makeParabola(V, X, k, foc, -4.0, 4.0);
+        const forge::props::PropSurface ps = mkExtruded(prof, k, false);
+        for (double t : {0.0, 0.5, -2.0, 3.5}) {
+            const std::string at = " @t=" + std::to_string(t);
+            const double q = 1.0 + t * t / (4.0 * foc * foc);
+            const double kap = 1.0 / (2.0 * foc * std::pow(q, 1.5));
+            const SurfProps p = surfaceProps(ps, t, 1.25);
+            ckTrue("extr(parabola) defined" + at, p.normalDefined && p.curvatureDefined);
+            ckExact("extr(parabola) K == 0 EXACTLY" + at, p.kGauss, 0.0);
+            ckNear("extr(parabola) H == +kappa(t)/2" + at, p.kMean, 0.5 * kap,
+                   1.0 / (2.0 * foc));
+            ckNear("extr(parabola) kMax == kappa(t)" + at, p.kMax, kap, 1.0 / (2.0 * foc));
+            ckNear("extr(parabola) kMin == 0" + at, p.kMin, 0.0, 1.0 / (2.0 * foc));
+            ckVecNear("extr(parabola) normal == unit(R - (t/2f)B)" + at, p.normal,
+                      unit(X - Y * (t / (2.0 * foc))), 1e-14);
+        }
+        ckNear("extr(parabola) APEX H == 1/(4f)", surfaceProps(ps, 0.0, -0.3).kMean,
+               1.0 / (4.0 * foc), 1.0 / (2.0 * foc));
+    }
+
+    // ── E4. CUBIC B-SPLINE profile (a SPACE curve), OBLIQUE direction ───────
+    // The free-form profile, so the curve side's rational derivative table is
+    // what feeds the surface. C' and C'' come from the cubic's MONOMIAL
+    // coefficients (Cubic, above), component by component. Both clamped ends are
+    // sampled: that is where a wrong second derivative is largest.
+    {
+        const Vec3 P[4] = {Vec3{0.0, 0.0, 0.0}, Vec3{1.0, 1.6, 0.3},
+                           Vec3{2.6, -0.4, 0.9}, Vec3{3.5, 1.1, 0.2}};
+        const Cubic CX = cubicOfBezier(P[0].x, P[1].x, P[2].x, P[3].x);
+        const Cubic CY = cubicOfBezier(P[0].y, P[1].y, P[2].y, P[3].y);
+        const Cubic CZ = cubicOfBezier(P[0].z, P[1].z, P[2].z, P[3].z);
+        nb::NurbsCurve nc;
+        nc.degree = 3;
+        nc.controlPoints = {P[0], P[1], P[2], P[3]};
+        nc.weights = {1.0, 1.0, 1.0, 1.0};
+        nc.knots = {0, 0, 0, 0, 1, 1, 1, 1};
+        ckTrue("extr(bspline) profile net is valid", nc.valid());
+        const Vec3 D = unit(Vec3{0.3, -0.25, 1.0});
+        const forge::props::PropSurface ps = mkExtruded(nb::Curve::makeBSpline(nc), D,
+                                                        false);
+        for (double u : {0.0, 0.2, 0.5, 0.85, 1.0}) {
+            const Vec3 C {CX.at(u), CY.at(u), CZ.at(u)};
+            const Vec3 C1{CX.d1(u), CY.d1(u), CZ.d1(u)};
+            const Vec3 C2{CX.d2(u), CY.d2(u), CZ.d2(u)};
+            const std::string at = " @(" + std::to_string(u) + ",-0.7)";
+            const CrossSection x = crossSection(C1, C2, D);
+            ckExtrStation("extr(bspline, OBLIQUE)" + at, surfaceProps(ps, u, -0.7), C,
+                          C1, C2, D, -0.7, std::fabs(2.0 * x.H) + 1.0);
+        }
+    }
+
+    // ── E5. DEGENERACY, IN BOTH DIRECTIONS ─────────────────────────────────
+    {
+        const Vec3 P0{0.5, 0.5, -1.0}, P1 = P0 + X * 3.0 + Y * 1.0;
+        const nb::Curve line = nb::Curve::makeLine(P0, P1);
+        // A ruling PARALLEL to the profile everywhere: S_u x S_v == 0, no surface.
+        const SurfProps bad = surfaceProps(mkExtruded(line, X * 3.0 + Y * 1.0, false),
+                                           0.4, 1.0);
+        ckTrue("extr: D parallel to a LINE profile -> normalDefined == FALSE",
+               !bad.normalDefined);
+        ckTrue("extr: D parallel to a LINE profile -> curvatureDefined == FALSE",
+               !bad.curvatureDefined);
+        ckVecNear("extr: ...and the point is still reported", bad.p,
+                  P0 + (X * 3.0 + Y * 1.0) * 1.4, 1e-13);
+        // The other direction: the same line swept off its own direction is a
+        // PLANE, and every curvature is exactly 0 (C'' == 0, S_uv == S_vv == 0).
+        const forge::props::PropSurface pl = mkExtruded(line, k * 2.0 - X, false);
+        const SurfProps a = surfaceProps(pl, 0.2, -0.6);
+        const SurfProps b = surfaceProps(pl, 0.9, 3.1);
+        ckTrue("extr(line) PLANE is defined", a.normalDefined && a.curvatureDefined);
+        ckExact("extr(line) PLANE K == 0", a.kGauss, 0.0);
+        ckExact("extr(line) PLANE H == 0", a.kMean, 0.0);
+        // (1e-14, not 0: the profile's dir is P1 - P0 recomputed, so it carries
+        //  one rounding of its own relative to X*3 + Y.)
+        ckVecNear("extr(line) PLANE normal == unit(dir x D)", a.normal,
+                  unit((X * 3.0 + Y * 1.0).cross(k * 2.0 - X)), 1e-14);
+        ckVecNear("extr(line) PLANE normal is CONSTANT", b.normal, a.normal, 0.0);
+
+        // POINTWISE: an ellipse swept along an IN-PLANE direction (refDir) has its
+        // ruling tangent to the profile exactly where C' || refDir, i.e. at the
+        // minor vertex u = pi/2. That point is DECLINED; a point away from it is a
+        // perfectly good (planar) point and must answer.
+        const nb::Curve el = nb::Curve::makeEllipse(Vec3{}, X, k, 3.0, 1.25);
+        const forge::props::PropSurface flat = mkExtruded(el, X, false);
+        const SurfProps tan = surfaceProps(flat, pi * 0.5, 0.3);
+        ckTrue("extr: ruling TANGENT to the profile (u = pi/2) is DECLINED",
+               !tan.normalDefined && !tan.curvatureDefined);
+        const SurfProps ok = surfaceProps(flat, 0.4, 0.3);
+        ckTrue("extr: the same sweep at u = 0.4 is ACCEPTED (the guard is POINTWISE)",
+               ok.normalDefined && ok.curvatureDefined);
+        ckNear("extr: ...and it is planar there, K == 0", ok.kGauss, 0.0, 1.0);
+        ckNear("extr: ...and it is planar there, H == 0", ok.kMean, 0.0, 1.0);
+
+        // A direction that is not a direction is REFUSED, not answered with NaN.
+        const nb::Curve circ = nb::Curve::makeCircle(Vec3{}, X, k, 2.0);
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double inf = std::numeric_limits<double>::infinity();
+        const Vec3 dirs[3] = {Vec3{0, 0, 0}, Vec3{nan, 0, 1}, Vec3{inf, 0, 1}};
+        const char* dn[3] = {"ZERO", "NaN", "INFINITE"};
+        for (int i = 0; i < 3; ++i) {
+            const SurfProps z = surfaceProps(mkExtruded(circ, dirs[i], false), 0.3, 0.5);
+            ckTrue(std::string("extr: a ") + dn[i] + " direction is REFUSED",
+                   !z.normalDefined && !z.curvatureDefined);
+        }
+    }
+}
+
 int main() {
     std::printf("=== surface_props_closed_form_gate — forge/SurfaceProps vs TEXTBOOK\n");
     std::printf("=== closed forms (never against OCCT). rel tol %.0e, uniform absolute\n", kRel);
@@ -1285,6 +1592,7 @@ int main() {
     gateConics();        // T-151: parabola + hyperbola
     gateRevolution();    // T-151: surface of revolution (circle / line / B-spline)
     gateOffset();        // T-151: offset surface + its singularity
+    gateExtrusion();     // T-151: linear extrusion (the frozen probe's 19th kind)
     std::printf("\n=== RESULT %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
