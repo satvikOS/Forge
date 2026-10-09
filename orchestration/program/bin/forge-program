@@ -217,8 +217,16 @@ def main():
             t = d["tasks"].get(args.id)
             if not t: raise SystemExit(f"no such task {args.id}")
             if args.cmd == "claim":
+                # A task already IN_PROGRESS under ANOTHER owner was silently re-claimed (T-236:
+                # wf3-occtio took wf3-stepread's T-272). Reassignment must be explicit: reset first.
+                if t.get("state") == "IN_PROGRESS" and t.get("owner") and t.get("owner") != args.owner:
+                    raise SystemExit(
+                        f"REFUSED: {args.id} is already IN_PROGRESS under owner {t.get('owner')}. "
+                        f"Two agents must never own one task; to reassign, `forge-program reset {args.id}` first.")
                 for o in d["tasks"].values():
-                    if o["state"] == "IN_PROGRESS" and o["id"] != args.id:
+                    # Overlap with a task held by the SAME owner is that owner's own stacked work
+                    # (e.g. T-255 on top of T-253, same file), not two agents on one file.
+                    if o["state"] == "IN_PROGRESS" and o["id"] != args.id and o.get("owner") != args.owner:
                         c = overlaps(t.get("write_set", []), o.get("write_set", []))
                         if c:
                             raise SystemExit(
