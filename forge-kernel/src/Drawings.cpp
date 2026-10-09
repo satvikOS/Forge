@@ -355,8 +355,10 @@ bool tryNativeProjectShape(ShapeHandle h, const gp_Ax2& ax2, ProjectedView& view
 
     ImportResult imported;
     const Solid* solidPtr = nullptr;
+    ::forge::NativeLease<Solid> solidPtrPin;  // T-183: keeps *solidPtr alive for this call
     if (reg.kindOf(h) == ShapeKind::NativeSolid) {
-        solidPtr = &reg.getNativeSolid(h);
+        solidPtrPin = reg.getNativeSolid(h);
+        solidPtr = solidPtrPin.get();
     } else if (reg.kindOf(h) == ShapeKind::Occt) {
         imported = importOcctSolid(reg.get(h));
         if (!imported.ok || imported.solid == nullptr) return false;  // defer to OCCT
@@ -427,8 +429,10 @@ ProjectedView projectShapePerspective(ShapeHandle h, PerspectiveCamera cam) {
     // instead of fabricating a view. Re-enable once importOcctSolid feeds the
     // perspective silhouette pass a de-duplicated shell (K4 follow-up).
     const Solid* solidPtr = nullptr;
+    ::forge::NativeLease<Solid> solidPtrPin;  // T-183: keeps *solidPtr alive for this call
     if (reg.kindOf(h) == ShapeKind::NativeSolid) {
-        solidPtr = &reg.getNativeSolid(h);
+        solidPtrPin = reg.getNativeSolid(h);
+        solidPtr = solidPtrPin.get();
     } else if (reg.kindOf(h) == ShapeKind::Occt) {
         throw std::runtime_error(
             "forge.drawings.projectShapePerspective: native perspective HLR on an "
@@ -723,8 +727,10 @@ bool tryNativeSectionCut(ShapeHandle h, const gp_Ax2& ax,
 
     ImportResult imported;
     const Solid* solidPtr = nullptr;
+    ::forge::NativeLease<Solid> solidPtrPin;  // T-183: keeps *solidPtr alive for this call
     if (reg.kindOf(h) == ShapeKind::NativeSolid) {
-        solidPtr = &reg.getNativeSolid(h);
+        solidPtrPin = reg.getNativeSolid(h);
+        solidPtr = solidPtrPin.get();
     } else if (reg.kindOf(h) == ShapeKind::Occt) {
         imported = importOcctSolid(reg.get(h));
         if (!imported.ok || imported.solid == nullptr) return false;  // defer to OCCT

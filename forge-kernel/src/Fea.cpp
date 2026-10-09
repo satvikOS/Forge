@@ -754,8 +754,10 @@ bool tryNativeMeshFromBRep(ShapeHandle h, double targetElemSize, Mesh& out) {
     // to OCCT. `imported` keeps the imported topology alive for this call.
     ImportResult imported;
     const Solid* solidPtr = nullptr;
+    ::forge::NativeLease<Solid> solidPtrPin;  // T-183: keeps *solidPtr alive for this call
     if (reg.kindOf(h) == ShapeKind::NativeSolid) {
-        solidPtr = &reg.getNativeSolid(h);
+        solidPtrPin = reg.getNativeSolid(h);
+        solidPtr = solidPtrPin.get();
     } else if (reg.kindOf(h) == ShapeKind::Occt) {
         imported = importOcctSolid(reg.get(h));
         if (!imported.ok || imported.solid == nullptr) return false;  // defer to OCCT

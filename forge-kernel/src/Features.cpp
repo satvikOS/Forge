@@ -186,7 +186,8 @@ namespace {
 
 // ---- common helpers ------------------------------------------------------
 
-const TopoDS_Shape& fetch(ShapeHandle h) {
+// By value (T-183): get() hands back shared ownership, not a borrow.
+TopoDS_Shape fetch(ShapeHandle h) {
     return ShapeRegistry::instance().get(h);
 }
 
@@ -1159,7 +1160,8 @@ ShapeHandle shell(ShapeHandle shape,
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid &&
         multiThickness.empty()) {
         namespace nb = ::forge::native::brep;
-        const nb::Solid& srcSolid = ShapeRegistry::instance().getNativeSolid(shape);
+        const auto srcSolidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+        const nb::Solid& srcSolid = *srcSolidLease;
         const double I[9] = {1,0,0, 0,1,0, 0,0,1};
         const double t0[3] = {0,0,0};
         auto owner = std::make_shared<nb::TopologyBuilder>();
@@ -1415,7 +1417,8 @@ ShapeHandle offsetSolid(ShapeHandle shape, double distance) {
     if (native::brep::forgeNativeFeaturesEnabled() &&
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
         namespace nb = ::forge::native::brep;
-        const nb::Solid& srcSolid = ShapeRegistry::instance().getNativeSolid(shape);
+        const auto srcSolidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+        const nb::Solid& srcSolid = *srcSolidLease;
         // Eligibility: every face must carry a PLANAR analytic surface. Any curved
         // (cylinder/cone/sphere/torus) or NURBS face => defer to OCCT.
         bool allPlanar = !srcSolid.shells.empty();
@@ -1576,7 +1579,8 @@ ShapeHandle filletEdges(ShapeHandle shape,
         // a shared-vertex set, or a non-watertight result) FALLS BACK to the proven
         // mesh bridge below — so this strictly adds capability, never regresses.
         {
-            const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const auto solidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+            const nb::Solid& solid = *solidLease;
             const std::vector<nb::Edge*> topo = nb::enumerateSolidStraightEdges(solid);
             auto resolve = [&](const nb::EdgeSel& s0) -> int {
                 for (std::size_t i = 0; i < topo.size(); ++i) {
@@ -1871,7 +1875,8 @@ ShapeHandle variableFilletEdge(ShapeHandle shape, std::uint32_t edgeId,
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
         double R0 = 0.0, R1 = 0.0;
         if (anchorsAreLinearLaw(anchors, R0, R1)) {
-            const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const auto solidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+            const nb::Solid& solid = *solidLease;
             double Lx = 0.0, Ly = 0.0, Lz = 0.0;
             if (nativeOriginBoxDims(solid, Lx, Ly, Lz)) {
                 // edgeId indexes THIS solid's own sharp-convex enumeration — the SAME
@@ -2003,7 +2008,8 @@ ShapeHandle chamferEdges(ShapeHandle shape,
         // edge, a non-cube solid, a non-canonical edge, or an analytic refusal —
         // FALLS THROUGH to the proven mesh bridge below, byte-for-byte unchanged.
         if (edgeIds.size() == 1 && !(distance2 > Precision::Confusion())) {
-            const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const auto solidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+            const nb::Solid& solid = *solidLease;
             std::vector<double> spos; std::vector<std::uint32_t> sidx;
             nb::tessellateSolid(solid, spos, sidx);
             const std::vector<nb::SharpConvexEdge> sharp =
@@ -2230,7 +2236,8 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
         // face ORDER differ, so a caller selecting "the side walls" passes each
         // kernel its own side-face ids — the A/B harness does exactly this.)
         namespace nb = ::forge::native::brep;
-        const nb::Solid& sol = ShapeRegistry::instance().getNativeSolid(shape);
+        const auto solLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+        const nb::Solid& sol = *solLease;
 
         // ── ANALYTIC EXACT PATH (preferred) ─────────────────────────────────
         // Drafting ALL FOUR side walls of the canonical cube [0,L]^3 about the base
@@ -2718,7 +2725,8 @@ ShapeHandle mirrorPattern(ShapeHandle shape,
         const double n0[3] = { nx / dl, ny / dl, nz / dl };
         const double nDotO = n0[0]*ox + n0[1]*oy + n0[2]*oz;
         // clone the source solid into a fresh builder, then reflect it in place.
-        const nb::Solid& srcSolid = ShapeRegistry::instance().getNativeSolid(shape);
+        const auto srcSolidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+        const nb::Solid& srcSolid = *srcSolidLease;
         const double I[9] = {1,0,0, 0,1,0, 0,0,1};
         const double t0[3] = {0,0,0};
         auto owner = std::make_shared<nb::TopologyBuilder>();

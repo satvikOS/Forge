@@ -50,14 +50,14 @@ native::shape::Shape nativeShapeOf(ShapeHandle h) {
     //   what is meant to become the kernel's interchange read. It is named as
     //   unguarded in the commit rather than dressed up as a check.
     if (reg.kindOf(h) != ShapeKind::NativeSolid) return native::shape::Shape();
-    // getNativeSolid() hands back a const reference because BORROWING is its
-    // contract, but the object itself is the non-const brep::Solid the registry
-    // stores and the builder owns -- so casting the constness back off is
-    // well-defined here, and it is the only way to hand the facade the
-    // brep::Solid* its factories take. The Shape is still a borrow: it dies with
-    // the handle, exactly as the header says.
-    const native::brep::Solid& s = reg.getNativeSolid(h);
-    return native::shape::Shape::ofSolid(const_cast<native::brep::Solid*>(&s));
+    // getNativeSolid() hands back a read lease (T-183); THIS function's contract
+    // is still a BORROW (see the header), so it takes the raw pointer out of the
+    // lease's shared ownership and lets the lease go: valid while the handle is.
+    // The object is the non-const brep::Solid the builder owns, so casting the
+    // constness back off is well-defined, and it is the only way to hand the
+    // facade the brep::Solid* its factories take.
+    const native::brep::Solid* s = reg.getNativeSolid(h).share().get();
+    return native::shape::Shape::ofSolid(const_cast<native::brep::Solid*>(s));
   } catch (...) {
     return native::shape::Shape();
   }
@@ -78,7 +78,9 @@ const native::brep::Solid* nativeSolidOf(ShapeHandle h) {
     // lookups raise and catch a C++ exception on what is meant to become the
     // kernel's interchange read would be paying for a branch with a throw.
     if (reg.kindOf(h) != ShapeKind::NativeSolid) return nullptr;
-    return &reg.getNativeSolid(h);
+    // A BORROW by contract (header): valid while the handle is. T-183 follow-up:
+    // a lease-returning sibling for callers that may race a release.
+    return reg.getNativeSolid(h).share().get();
   } catch (...) {
     return nullptr;
   }
@@ -93,7 +95,7 @@ const native::mesh::HalfEdgeMesh* nativeMeshOf(ShapeHandle h) {
   try {
     const ShapeRegistry& reg = ShapeRegistry::instance();
     if (reg.kindOf(h) != ShapeKind::NativeMesh) return nullptr;
-    return &reg.getNativeMesh(h);
+    return reg.getNativeMesh(h).share().get();  // a BORROW by contract, as above
   } catch (...) {
     return nullptr;
   }

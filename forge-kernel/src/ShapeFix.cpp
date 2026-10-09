@@ -151,9 +151,11 @@ bool tryNativeRepair(ShapeHandle shape, double precision, RepairResult& out) {
 
     // Resolve the native Solid to heal from EITHER a native handle OR an OCCT one.
     const Solid* src = nullptr;
+    ::forge::NativeLease<Solid> srcPin;  // T-183: keeps *src alive for this call
     std::shared_ptr<TopologyBuilder> imported;   // keeps an imported topology alive
     if (reg.kindOf(shape) == ShapeKind::NativeSolid) {
-        src = &reg.getNativeSolid(shape);
+        srcPin = reg.getNativeSolid(shape);
+        src = srcPin.get();
     } else if (reg.kindOf(shape) == ShapeKind::Occt) {
         // PHASE-D: import the OCCT analytic solid; ok==false (NURBS/Torus) -> defer.
         ImportResult ir = importOcctSolid(reg.get(shape));

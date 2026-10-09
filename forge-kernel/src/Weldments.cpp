@@ -246,7 +246,8 @@ bool tryNativeFuseBrick(ShapeHandle shape,
     // body is an OCCT TopoDS_Shape (structuralMember defers, so the chain stays
     // OCCT), so kindOf(shape) != NativeSolid -> defer to OCCT's BRepAlgoAPI_Fuse.
     if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
-    const Solid& body = reg.getNativeSolid(shape);
+    const auto bodyLease = reg.getNativeSolid(shape);  // T-183: held, not borrowed
+    const Solid& body = *bodyLease;
 
     const double dx = brickMax[0] - brickMin[0];
     const double dy = brickMax[1] - brickMin[1];

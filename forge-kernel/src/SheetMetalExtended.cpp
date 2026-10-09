@@ -147,7 +147,8 @@ bool tryNativeBrickBoolean(ShapeHandle shape, native::brep::BoolOp op,
     using namespace forge::native::brep;
     auto& r = ShapeRegistry::instance();
     if (r.kindOf(shape) != ShapeKind::NativeSolid) return false;  // OCCT body -> defer
-    const Solid& body = r.getNativeSolid(shape);
+    const auto bodyLease = r.getNativeSolid(shape);  // T-183: held, not borrowed
+    const Solid& body = *bodyLease;
     if (!(lx > kEps && ly > kEps && lz > kEps)) return false;     // degenerate -> defer
 
     SolidFactory fac;

@@ -422,7 +422,8 @@ void testShapeFixRepair() {
           "gate ON  -> healed handle is a NativeSolid (native path produced it)");
     // And that healed native solid must itself be VALID under the native battery.
     {
-        const forge::native::brep::Solid& hs = reg.getNativeSolid(nat.handle);
+        const auto hsLease = reg.getNativeSolid(nat.handle);  // T-183: held, not borrowed
+        const forge::native::brep::Solid& hs = *hsLease;
         forge::native::brep::CheckReport cr = forge::native::brep::checkBRep(&hs);
         check(cr.valid, "gate ON  -> healed native solid is valid (checkBRep)  predicates " +
               std::to_string(cr.passed()) + "/" + std::to_string(cr.total()));
@@ -667,7 +668,8 @@ void testHealSew() {
     check(reg.kindOf(natHeal.handle) == ShapeKind::NativeSolid,
           "[heal] gate ON  -> healed handle is a NativeSolid (native path produced it)");
     {
-        const forge::native::brep::Solid& hs = reg.getNativeSolid(natHeal.handle);
+        const auto hsLease = reg.getNativeSolid(natHeal.handle);  // T-183: held, not borrowed
+        const forge::native::brep::Solid& hs = *hsLease;
         forge::native::brep::CheckReport cr = forge::native::brep::checkBRep(&hs);
         check(cr.valid, "[heal] gate ON  -> healed native solid is valid (checkBRep)  predicates " +
               std::to_string(cr.passed()) + "/" + std::to_string(cr.total()));

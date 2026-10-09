@@ -148,8 +148,10 @@ bool resolveWorldSolid(InstanceId id,
     const double t[3] = { x.m[3], x.m[7], x.m[11] };
 
     const Solid* model = nullptr;
+    ::forge::NativeLease<Solid> modelPin;  // T-183: keeps *model alive for this call
     if (shapes.kindOf(h) == ShapeKind::NativeSolid) {
-        model = &shapes.getNativeSolid(h);
+        modelPin = shapes.getNativeSolid(h);
+        model = modelPin.get();
     } else if (shapes.kindOf(h) == ShapeKind::Occt) {
         // PHASE-D: import the OCCT analytic solid into a native Solid. ok==false
         // (NURBS/Torus/etc.) -> defer to OCCT, exactly as before.

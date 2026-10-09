@@ -158,7 +158,8 @@ namespace forge { namespace surfacing {
 
 namespace {
 
-const TopoDS_Shape& fetch(ShapeHandle h) {
+// By value (T-183): get() hands back shared ownership, not a borrow.
+TopoDS_Shape fetch(ShapeHandle h) {
     return ShapeRegistry::instance().get(h);
 }
 

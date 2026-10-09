@@ -242,9 +242,11 @@ bool gatherNativeFaces(ShapeHandle shape,
     auto& reg = ShapeRegistry::instance();
 
     const Solid* sptr = nullptr;
+    ::forge::NativeLease<Solid> sptrPin;  // T-183: keeps *sptr alive for this call
     ImportResult imported;                 // keeps the imported topology alive while cloning
     if (reg.kindOf(shape) == ShapeKind::NativeSolid) {
-        sptr = &reg.getNativeSolid(shape);
+        sptrPin = reg.getNativeSolid(shape);
+        sptr = sptrPin.get();
     } else if (reg.kindOf(shape) == ShapeKind::Occt) {
         imported = importOcctSolid(reg.get(shape));
         if (!imported.ok || imported.solid == nullptr) return false;   // defer to OCCT

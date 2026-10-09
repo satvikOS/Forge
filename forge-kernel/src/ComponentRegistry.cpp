@@ -228,7 +228,8 @@ AABB ComponentRegistry::computeAABB(ShapeHandle component, const Transform4x4& x
             // by its (welded) vertex positions. Exact for a mesh (its convex hull
             // and AABB are vertex-defined), matching how OCCT would box the bridged
             // tessellation.
-            const auto& m = reg.getNativeMesh(component);
+            const auto mLease = reg.getNativeMesh(component);  // T-183: held, not borrowed
+            const auto& m = *mLease;
             double mn[3] = { std::numeric_limits<double>::infinity(),
                              std::numeric_limits<double>::infinity(),
                              std::numeric_limits<double>::infinity() };
