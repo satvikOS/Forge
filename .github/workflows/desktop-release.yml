@@ -273,6 +273,9 @@ jobs:
       # and in particular nothing here can write to Actions, packages or checks.
       # The build itself reads nothing privileged.
       contents: write
+      # T-185: the last step downloads kernel-tests' gate-results-* artifact for
+      # this commit (`gh run download`). Read-only; it cannot change a run.
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -505,6 +508,7 @@ jobs:
           fi
 
       - name: Build, package, and report the floor + Gatekeeper verdict
+        id: build
         # ONE script, run identically here and on a developer's machine, so the
         # CI report and the local report cannot drift. It builds both CMake
         # projects, runs the headless frame gate, packages Forge.app, then
@@ -536,6 +540,7 @@ jobs:
           ccache --show-stats
 
       - name: Prove the artifact exists and is self-contained
+        id: selfcontained
         # Belt and braces over the script's own checks: a packaging step that
         # exits 0 having produced nothing is exactly the failure mode this
         # programme keeps hitting.
@@ -1406,3 +1411,50 @@ jobs:
             exit 1
           fi
           echo "publish path ran: ${PUBLISH_STATE}, acceptance ${ACCEPT_OUTCOME}."
+
+      - name: Record what this run ACCEPTED (forge.gate_result/v1)
+        # ★ THE JOB COLOUR IS NOT THE ANSWER. MEASURED 2026-10-08, read-only API:
+        #   the last 8 archdisc pushes (runs 35359967943 .. 35414490107) ALL
+        #   concluded SUCCESS with the kernel gate, publish and acceptance steps
+        #   SKIPPED -- mode=brake, FORGE_AUTORELEASE=off. Nothing was published,
+        #   nothing was accepted, and every tick was green.
+        #
+        # This step writes down what the run ESTABLISHED: each release component
+        # as PASSED / FAILED / NOT_RUN with a reason, kernel-tests' own ratchet
+        # records for this commit (s0 and NAFEMS hold known misses), and ONE
+        # aggregate, release.acceptance, which a ratchet can never make true
+        # (tools/gates/gate_result.sh derives acceptance; no caller can set it).
+        #
+        # It changes NOTHING about what publishes: it runs after the publish path
+        # and decides nothing. `if: always()` is deliberate HERE, unlike on the
+        # publish path: a failed or cancelled run is exactly the run whose
+        # NOT_RUN / FAILED must be written down. It goes red only if the records
+        # it wrote are invalid. Proven by tools/gates/gate_result_selftest.sh.
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_GATE_RESULTS: ${{ runner.temp }}/gate-results/release.jsonl
+          GR_EVENT: ${{ github.event_name }}
+          GR_REF: ${{ github.ref }}
+          GR_REF_TYPE: ${{ github.ref_type }}
+          GR_MODE: ${{ steps.ver.outputs.mode }}
+          GR_KGATE: ${{ steps.kgate.outputs.gate }}
+          GR_BUILD: ${{ steps.build.outcome }}
+          GR_SELFCONTAINED: ${{ steps.selfcontained.outcome }}
+          GR_PUBLISH: ${{ steps.publish.outcome }}
+          GR_ACCEPT: ${{ steps.acceptance.outcome }}
+        run: |
+          set -uo pipefail
+          KDIR="$RUNNER_TEMP/kernel-gate-results"
+          bash tools/gates/fetch_gate_results.sh kernel-tests.yml "$GITHUB_SHA" "$KDIR"
+          GR_KERNEL_DIR="$KDIR" bash tools/gates/release_gate_results.sh
+
+      - name: publish the release verdict records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: gate-results-release
+          path: ${{ runner.temp }}/gate-results/
+          if-no-files-found: warn
+          retention-days: 30

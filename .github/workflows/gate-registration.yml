@@ -295,7 +295,7 @@ jobs:
         shell: bash
         run: bash forge-kernel/test/gate_registration_ratchet.sh
 
-      - name: Prove the tree-wide shell-gate ratchet can fail (7 cases)
+      - name: Prove the tree-wide shell-gate ratchet can fail (11 cases, 5 negative controls)
         # FIRST, as with the two checks above. The ratchet beside it reports
         # GREEN, and a GREEN from a check that cannot fail is worth nothing --
         # this repository has already shipped one that passed 13/13 because it
@@ -410,6 +410,34 @@ jobs:
         # cannot attribute. All three are wired now; this is what keeps them so.
         shell: bash
         run: bash tools/gates/shell_gate_registration_ratchet.sh
+
+      # T-185. forge.gate_result/v1 is how a gate says PASSED / FAILED / BLOCKED /
+      # NOT_RUN with an acceptance flag a RATCHET can never set. Prove the schema
+      # can say NO -- forged acceptance on a ratchet, NOT_RUN without a reason, a
+      # missing required gate, the measured brake/skip release shapes -- and that
+      # each of its seven defences is load-bearing (each mutant must be caught).
+      # bash + jq + perl, no build; MEASURED locally ~16 s.
+      - name: Prove forge.gate_result/v1 can say NO (48 checks + 7 mutations)
+        shell: bash
+        run: bash tools/gates/gate_result_selftest.sh
+
+      # The two ratchets above KNOW which registered gates no CI job executes, but
+      # they say it in a log that ends "GREEN". This turns every pinned entry into
+      # a NOT_RUN record (MEASURED on b609b41d: 51 kernel-scope + 5 tree-wide = 56)
+      # and fails if the parsed list ever disagrees with the ratchets' own totals.
+      - name: Every registered gate no CI job runs, as a NOT_RUN record
+        shell: bash
+        env:
+          FORGE_GATE_RESULTS: ${{ runner.temp }}/gate-results/unwired.jsonl
+        run: bash tools/gates/unwired_gate_results.sh
+      - name: publish the NOT_RUN records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: gate-results-unwired
+          path: ${{ runner.temp }}/gate-results/
+          if-no-files-found: warn
+          retention-days: 30
 
       # The release job's published-release lookup masked a 404 into a 130-byte
       # error body and failed 11 of its last 14 runs. The build was never broken:
