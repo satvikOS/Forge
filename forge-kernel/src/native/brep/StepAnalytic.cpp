@@ -34,10 +34,14 @@
 #include "forge/native/brep/StepAnalytic.hpp"
 #include "forge/native/brep/StepRead.hpp"  // resolveLengthScaleMm
 #include "forge/native/brep/StepPart21.hpp"
+#include "forge/native/brep/Curve.hpp"
+#include "forge/native/brep/NurbsSurface.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -69,6 +73,7 @@ struct Emitter {
     std::string data;            // DATA body (instances appended bottom-up)
     std::uint64_t nextId = 1;
     std::uint64_t alloc() { return nextId++; }
+    std::size_t rationalSurfaces = 0;
 
     void appendId(std::uint64_t id) { data += '#'; data += std::to_string(id); }
 
@@ -109,6 +114,63 @@ struct Emitter {
         return id;
     }
 };
+
+// Knot vector -> (multiplicities, distinct knots), the Part-21 B-spline form.
+void compactKnots(const std::vector<double>& knots,
+                  std::vector<int>& mult, std::vector<double>& vals) {
+    for (std::size_t k = 0; k < knots.size();) {
+        std::size_t j = k;
+        while (j < knots.size() && knots[j] == knots[k]) ++j;
+        mult.push_back(static_cast<int>(j - k));
+        vals.push_back(knots[k]);
+        k = j;
+    }
+}
+std::string intList(const std::vector<int>& v) {
+    std::string o = "(";
+    for (std::size_t k = 0; k < v.size(); ++k) { if (k) o += ','; o += std::to_string(v[k]); }
+    return o + ')';
+}
+std::string realList(const std::vector<double>& v) {
+    std::string o = "(";
+    for (std::size_t k = 0; k < v.size(); ++k) { if (k) o += ','; o += stepFmt(v[k]); }
+    return o + ')';
+}
+
+// Emit a B-spline CURVE (simple when every weight is 1, else the rational complex
+// form) and return its id, or 0 if the curve cannot be written truthfully.
+std::uint64_t emitBSplineCurve(Emitter& E, const NurbsCurve& c) {
+    if (!c.valid()) return 0;
+    bool rational = false;
+    for (double w : c.weights) {
+        if (!(w > 0.0) || !std::isfinite(w)) return 0;
+        if (w != 1.0) rational = true;
+    }
+    std::string pts = "(";
+    for (std::size_t k = 0; k < c.controlPoints.size(); ++k) {
+        const std::uint64_t pid = E.emitPoint(c.controlPoints[k]);
+        if (k) pts += ',';
+        pts += '#'; pts += std::to_string(pid);
+    }
+    pts += ')';
+    std::vector<int> m; std::vector<double> kv;
+    compactKnots(c.knots, m, kv);
+    const std::string base = std::to_string(c.degree) + ',' + pts + ",.UNSPECIFIED.,.F.,.F.";
+    const std::string knotData = intList(m) + ',' + realList(kv) + ",.UNSPECIFIED.";
+    const std::uint64_t id = E.alloc();
+    E.appendId(id);
+    if (!rational) {
+        E.data += "=B_SPLINE_CURVE_WITH_KNOTS('',"; E.data += base; E.data += ',';
+        E.data += knotData; E.data += ");\n";
+    } else {
+        E.data += "=(BOUNDED_CURVE()B_SPLINE_CURVE("; E.data += base;
+        E.data += ")B_SPLINE_CURVE_WITH_KNOTS("; E.data += knotData;
+        E.data += ")CURVE()GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_CURVE(";
+        E.data += realList(c.weights);
+        E.data += ")REPRESENTATION_ITEM(''));\n";
+    }
+    return id;
+}
 
 // Emit the analytic surface entity for `s`, returning its id, or 0 if the
 // surface kind cannot be emitted analytically (the caller then facets the face).
@@ -183,53 +245,74 @@ std::uint64_t emitSurface(Emitter& E, const Surface& s) {
     }
     case SurfaceKind::Nurbs: {
         const NurbsSurface& n = s.nurbs;
+        // valid() also requires a weights grid of the control grid's shape.
         if (!n.valid() || n.control.empty() || n.control[0].empty()) return 0;
         const std::size_t nU = n.control.size();
         const std::size_t nV = n.control[0].size();
+        // ★ T-158: the weights ARE the geometry of a rational surface. They were
+        //   dropped here (every surface written polynomial, flags .F.), and the
+        //   exact rational quarter-circle blend read back 6.07 % too large. A
+        //   weight that is not finite and positive cannot be written truthfully:
+        //   refuse the face rather than write a different surface.
+        bool rational = false;
+        for (std::size_t iu = 0; iu < nU; ++iu)
+            for (std::size_t iv = 0; iv < nV; ++iv) {
+                const double w = n.weights[iu][iv];
+                if (!(w > 0.0) || !std::isfinite(w)) return 0;
+                if (w != 1.0) rational = true;   // T158-RATIONAL-SURFACE
+            }
         // Emit the control-point grid (CARTESIAN_POINT ids), row major in U.
         std::vector<std::vector<std::uint64_t>> cp(nU, std::vector<std::uint64_t>(nV));
         for (std::size_t iu = 0; iu < nU; ++iu)
             for (std::size_t iv = 0; iv < nV; ++iv)
                 cp[iu][iv] = E.emitPoint(n.control[iu][iv]);
-        // Knot multiplicities + distinct knots for U and V.
-        auto compact = [](const std::vector<double>& knots,
-                          std::vector<int>& mult, std::vector<double>& vals) {
-            for (std::size_t k = 0; k < knots.size();) {
-                std::size_t j = k;
-                while (j < knots.size() && knots[j] == knots[k]) ++j;
-                mult.push_back(static_cast<int>(j - k));
-                vals.push_back(knots[k]);
-                k = j;
-            }
-        };
         std::vector<int> mU, mV; std::vector<double> kU, kV;
-        compact(n.knotsU, mU, kU);
-        compact(n.knotsV, mV, kV);
+        compactKnots(n.knotsU, mU, kU);
+        compactKnots(n.knotsV, mV, kV);
+        std::string grid = "(";
+        for (std::size_t iu = 0; iu < nU; ++iu) {
+            if (iu) grid += ',';
+            grid += '(';
+            for (std::size_t iv = 0; iv < nV; ++iv) {
+                if (iv) grid += ',';
+                grid += '#'; grid += std::to_string(cp[iu][iv]);
+            }
+            grid += ')';
+        }
+        grid += ')';
+        const std::string knotData = intList(mU) + ',' + intList(mV) + ',' +
+                                     realList(kU) + ',' + realList(kV) + ",.UNSPECIFIED.";
+        const std::string base = std::to_string(n.degreeU) + ',' +
+                                 std::to_string(n.degreeV) + ',' + grid +
+                                 ",.UNSPECIFIED.,.F.,.F.,.F.";
         std::uint64_t id = E.alloc();
         E.appendId(id);
-        E.data += "=B_SPLINE_SURFACE_WITH_KNOTS('',";
-        E.data += std::to_string(n.degreeU); E.data += ',';
-        E.data += std::to_string(n.degreeV); E.data += ",(";
-        for (std::size_t iu = 0; iu < nU; ++iu) {
-            if (iu) E.data += ',';
-            E.data += '(';
-            for (std::size_t iv = 0; iv < nV; ++iv) {
-                if (iv) E.data += ',';
-                E.data += '#'; E.data += std::to_string(cp[iu][iv]);
+        if (!rational) {
+            E.data += "=B_SPLINE_SURFACE_WITH_KNOTS('',";
+            E.data += base; E.data += ','; E.data += knotData; E.data += ");\n";
+        } else {
+            // The ISO-10303-21 complex instance for a rational B-spline surface:
+            // partial records in alphabetical order, exactly as OCCT and the
+            // AP242 exporters write it (and as readForeignStep reads it).
+            std::string wgrid = "(";
+            for (std::size_t iu = 0; iu < nU; ++iu) {
+                if (iu) wgrid += ',';
+                wgrid += realList(n.weights[iu]);
             }
-            E.data += ')';
+            wgrid += ')';
+            E.data += "=(BOUNDED_SURFACE()B_SPLINE_SURFACE(";
+            E.data += base;
+            E.data += ")B_SPLINE_SURFACE_WITH_KNOTS(";
+            E.data += knotData;
+            E.data += ")GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_SURFACE(";
+            E.data += wgrid;
+            E.data += ")REPRESENTATION_ITEM('')SURFACE());\n";
+            ++E.rationalSurfaces;
         }
-        E.data += "),.UNSPECIFIED.,.F.,.F.,.F.,(";
-        for (std::size_t k = 0; k < mU.size(); ++k) { if (k) E.data += ','; E.data += std::to_string(mU[k]); }
-        E.data += "),(";
-        for (std::size_t k = 0; k < mV.size(); ++k) { if (k) E.data += ','; E.data += std::to_string(mV[k]); }
-        E.data += "),(";
-        for (std::size_t k = 0; k < kU.size(); ++k) { if (k) E.data += ','; E.data += stepFmt(kU[k]); }
-        E.data += "),(";
-        for (std::size_t k = 0; k < kV.size(); ++k) { if (k) E.data += ','; E.data += stepFmt(kV[k]); }
-        E.data += "),.UNSPECIFIED.);\n";
         return id;
     }
+    case SurfaceKind::EllipseExtrusion:
+        return 0;   // no analytic emit in this codec (the caller fails honestly)
     }
     return 0;
 }
@@ -277,6 +360,219 @@ bool circleForEdge(const Surface& s, const Vec3& a, const Vec3& b,
     Vec3 sgn = vcross(da, db);                 // points along +axis or -axis
     normal = (vdot(sgn, axis) >= 0.0) ? axis : vscale(axis, -1.0);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// ISO-LINE ARCS of ONE analytic surface (T-158). A primitive tiles a single
+// sphere / torus into sectors that SHARE one Surface*; the edge between two such
+// sectors is an iso-parameter line of that surface. Besides the latitude circles
+// circleForEdge() already recognises, those are:
+//   * a sphere MERIDIAN: a great-circle arc in the plane holding the axis, and
+//   * a torus MINOR circle: the tube cross-section at one azimuth.
+// Writing them as straight chords put the file's edge up to r(1-cos(dθ/2)) off the
+// surface. Only called for an edge whose two faces share the SAME Surface*, where
+// an endpoint pair that fits one of these families is that family's iso-line.
+// The normal is chosen so CCW(a->b) is the SHORT arc (see circleForEdge()).
+bool isoArcForEdge(const Surface& s, const Vec3& a, const Vec3& b,
+                   Vec3& centre, Vec3& normal, Vec3& ref, double& radius) {
+    const Vec3 axis = vnorm(s.axis);
+    const double scale = std::max(1.0, std::max(vlen(vsub(a, s.origin)), vlen(vsub(b, s.origin))));
+    const double tol = 1e-7 * scale;
+    if (vlen(vsub(a, b)) < tol) return false;
+    if (s.kind == SurfaceKind::Sphere) {
+        const Vec3 qa = vsub(a, s.origin), qb = vsub(b, s.origin);
+        if (std::fabs(vlen(qa) - s.r1) > tol || std::fabs(vlen(qb) - s.r1) > tol) return false;
+        const Vec3 nrm = vcross(qa, qb);
+        const double nl = vlen(nrm);
+        if (nl < 1e-12 * scale * scale) return false;            // antipodal / identical
+        if (std::fabs(vdot(nrm, axis)) > 1e-9 * nl) return false; // plane must hold the axis
+        centre = s.origin; normal = vscale(nrm, 1.0 / nl);
+        ref = vnorm(qa); radius = s.r1;
+        return true;
+    }
+    if (s.kind == SurfaceKind::Torus) {
+        auto radialOf = [&](const Vec3& p, Vec3& dir, double& h) {
+            const Vec3 q = vsub(p, s.origin);
+            h = vdot(q, axis);
+            const Vec3 rad = vsub(q, vscale(axis, h));
+            const double rl = vlen(rad);
+            if (rl < 1e-12) return false;
+            dir = vscale(rad, 1.0 / rl);
+            return true;
+        };
+        Vec3 da, db; double ha = 0, hb = 0;
+        if (!radialOf(a, da, ha) || !radialOf(b, db, hb)) return false;
+        if (vdot(da, db) < 1.0 - 1e-12) return false;            // not the same azimuth
+        const Vec3 c = vadd(s.origin, vscale(da, s.r1));         // tube-centre ring point
+        if (std::fabs(vlen(vsub(a, c)) - s.r2) > tol || std::fabs(vlen(vsub(b, c)) - s.r2) > tol)
+            return false;
+        const Vec3 tangent = vnorm(vcross(axis, da));            // the minor circle's normal
+        const Vec3 sgn = vcross(vsub(a, c), vsub(b, c));
+        centre = c;
+        normal = (vdot(sgn, tangent) >= 0.0) ? tangent : vscale(tangent, -1.0);
+        ref = vnorm(vsub(a, c)); radius = s.r2;
+        return true;
+    }
+    return false;
+}
+
+// Closest-point inversion of p onto a NURBS surface: a coarse grid seed, then
+// Gauss-Newton on |S(u,v) - p|^2 clamped to the knot domain. Returns the final
+// distance (infinity when the surface cannot be evaluated). `G` is the seed grid
+// (G+1)^2: a seed that misses the global minimum can only make the distance
+// LARGER, so a coarse grid may refuse / over-count, never certify a false hit.
+// The same holds for `maxIt` (fewer Gauss-Newton steps) and `acceptBelow` (stop
+// as soon as a point within that distance is FOUND -- that point certifies it).
+double invertNurbs(const NurbsSurface& n, const Vec3& p, double& uOut, double& vOut,
+                   int G = 16, int maxIt = 50, double acceptBelow = -1.0) {
+    if (!n.valid()) return std::numeric_limits<double>::infinity();
+    const double u0 = n.knotsU.front(), u1 = n.knotsU.back();
+    const double v0 = n.knotsV.front(), v1 = n.knotsV.back();
+    double best = std::numeric_limits<double>::infinity(), bu = u0, bv = v0;
+    for (int i = 0; i <= G; ++i)
+        for (int j = 0; j <= G; ++j) {
+            const double u = u0 + (u1 - u0) * i / G, v = v0 + (v1 - v0) * j / G;
+            const double d = vlen(vsub(n.evaluate(u, v), p));
+            if (d < best) { best = d; bu = u; bv = v; }
+        }
+    double u = bu, v = bv;
+    for (int it = 0; it < maxIt; ++it) {
+        const SurfaceSample ss = evaluateWithDerivatives(n, u, v);
+        if (!ss.ok && vlen(ss.du) == 0.0 && vlen(ss.dv) == 0.0) break;
+        const Vec3 r = vsub(ss.point, p);
+        if (vlen(r) <= acceptBelow) break;   // found: the final check returns it
+        const double a11 = vdot(ss.du, ss.du), a12 = vdot(ss.du, ss.dv), a22 = vdot(ss.dv, ss.dv);
+        const double g1 = vdot(r, ss.du), g2 = vdot(r, ss.dv);
+        const double det = a11 * a22 - a12 * a12;
+        if (!(std::fabs(det) > 1e-300)) break;
+        double du = -( a22 * g1 - a12 * g2) / det;
+        double dv = -(-a12 * g1 + a11 * g2) / det;
+        const double nu = std::min(u1, std::max(u0, u + du));
+        const double nv = std::min(v1, std::max(v0, v + dv));
+        const bool small = std::fabs(nu - u) < 1e-15 * std::max(1.0, std::fabs(u1 - u0)) &&
+                           std::fabs(nv - v) < 1e-15 * std::max(1.0, std::fabs(v1 - v0));
+        u = nu; v = nv;
+        if (small) break;
+    }
+    const double d = vlen(vsub(n.evaluate(u, v), p));
+    if (d <= best) { uOut = u; vOut = v; return d; }
+    uOut = bu; vOut = bv; return best;
+}
+
+// Distance-like residual of p from surface s (0 on the surface). Used ONLY to
+// decide whether a straight chord written for an edge with no exact curve is in
+// fact a line of both adjacent faces (then it is exact, not a chord). `tol` is
+// that decision's threshold: a NURBS search may stop once it is met.
+double surfaceResidual(const Surface& s, const Vec3& p, double tol) {
+    const Vec3 axis = vnorm(s.axis);
+    const Vec3 q = vsub(p, s.origin);
+    const double h = vdot(q, axis);
+    const double rad = vlen(vsub(q, vscale(axis, h)));
+    switch (s.kind) {
+    case SurfaceKind::Plane:    return std::fabs(h);
+    case SurfaceKind::Cylinder: return std::fabs(rad - s.r1);
+    case SurfaceKind::Cone: {
+        if (std::fabs(s.param) < 1e-300) return std::numeric_limits<double>::infinity();
+        return std::fabs(rad - (s.r1 + (s.r2 - s.r1) * h / s.param));
+    }
+    case SurfaceKind::Sphere:   return std::fabs(vlen(q) - s.r1);
+    case SurfaceKind::Torus:    return std::fabs(std::sqrt((rad - s.r1) * (rad - s.r1) + h * h) - s.r2);
+    case SurfaceKind::EllipseExtrusion: {
+        if (!(s.r1 > 0.0) || !(s.r2 > 0.0)) return std::numeric_limits<double>::infinity();
+        const Vec3 rd = vnorm(s.refDir), bd = s.binormal();
+        const double x = vdot(q, rd) / s.r1, y = vdot(q, bd) / s.r2;
+        return std::fabs(std::sqrt(x * x + y * y) - 1.0) * std::min(s.r1, s.r2);
+    }
+    case SurfaceKind::Nurbs: {
+        double u = 0, v = 0;
+        // Diagnostic only (edgesLine vs edgesChord): a 7x7 seed, at most 12
+        // Gauss-Newton steps, stop once within `tol`. A miss can only count a
+        // straight edge as an unverified chord, never certify a curved one.
+        return invertNurbs(s.nurbs, p, u, v, 6, 12, tol);
+    }
+    }
+    return std::numeric_limits<double>::infinity();
+}
+
+// Write an edge's OWN exact curve (Edge::curve) and return its id, setting
+// `sameSense` for EDGE_CURVE. Returns 0 when the curve does not span this edge's
+// two vertices (inconsistent data is never written as if it were exact) or its
+// kind cannot be written truthfully; the caller then falls back to inference.
+std::uint64_t emitEdgeOwnCurve(Emitter& E, const Edge& e, bool& sameSense) {
+    if (!e.curve) return 0;
+    const Curve& c = *e.curve;
+    const Vec3 ps = PV(e.start->point), pe = PV(e.end->point);
+    const Vec3 c0 = c.evaluate(c.t0), c1 = c.evaluate(c.t1);
+    double scale = std::max({1.0, vlen(ps), vlen(pe), std::fabs(c.r), std::fabs(c.a), std::fabs(c.b)});
+    const double tol = 1e-7 * scale;
+    const bool fwd = vlen(vsub(c0, ps)) <= tol && vlen(vsub(c1, pe)) <= tol;
+    const bool rev = vlen(vsub(c0, pe)) <= tol && vlen(vsub(c1, ps)) <= tol;
+    if (!fwd && !rev) return 0;
+    if (!(c.t1 != c.t0)) return 0;
+    // The edge runs start->end; its curve parameter INCREASES along it iff ...
+    const bool increasing = fwd ? (c.t1 > c.t0) : (c.t0 > c.t1);
+    switch (c.kind) {
+    case GeomCurveKind::Line: {
+        Vec3 d = vsub(pe, ps);
+        const double L = vlen(d);
+        if (L <= tol) return 0;
+        d = vscale(d, 1.0 / L);
+        const std::uint64_t pId = E.emitPoint(ps);
+        const std::uint64_t vecId = E.emitVector(d, L);
+        const std::uint64_t id = E.alloc();
+        E.appendId(id); E.data += "=LINE('',#"; E.data += std::to_string(pId);
+        E.data += ",#"; E.data += std::to_string(vecId); E.data += ");\n";
+        sameSense = true;
+        return id;
+    }
+    case GeomCurveKind::Circle:
+    case GeomCurveKind::Ellipse: {
+        if (std::fabs(c.t1 - c.t0) > 2.0 * 3.14159265358979323846 + 1e-12) return 0;
+        const bool circ = (c.kind == GeomCurveKind::Circle);
+        if (circ ? !(c.r > 0.0) : !(c.a > 0.0 && c.b > 0.0)) return 0;
+        const std::uint64_t ax = E.emitAxis2(c.origin, c.normal, c.refDir);
+        const std::uint64_t id = E.alloc();
+        E.appendId(id);
+        if (circ) {
+            E.data += "=CIRCLE('',#"; E.data += std::to_string(ax); E.data += ',';
+            E.data += stepFmt(c.r);
+        } else {
+            E.data += "=ELLIPSE('',#"; E.data += std::to_string(ax); E.data += ',';
+            E.data += stepFmt(c.a); E.data += ','; E.data += stepFmt(c.b);
+        }
+        E.data += ");\n";
+        sameSense = increasing;
+        return id;
+    }
+    case GeomCurveKind::Parabola: {
+        // STEP C(u) = c + f(u^2 x + 2u y); ours C(t) = c + t^2/(4f) x + t y, so
+        // t = 2 f u: the same point set, the same increasing direction for f > 0.
+        if (!(c.a > 0.0)) return 0;
+        const std::uint64_t ax = E.emitAxis2(c.origin, c.normal, c.refDir);
+        const std::uint64_t id = E.alloc();
+        E.appendId(id); E.data += "=PARABOLA('',#"; E.data += std::to_string(ax);
+        E.data += ','; E.data += stepFmt(c.a); E.data += ");\n";
+        sameSense = increasing;
+        return id;
+    }
+    case GeomCurveKind::Hyperbola: {
+        if (!(c.a > 0.0 && c.b > 0.0)) return 0;
+        const std::uint64_t ax = E.emitAxis2(c.origin, c.normal, c.refDir);
+        const std::uint64_t id = E.alloc();
+        E.appendId(id); E.data += "=HYPERBOLA('',#"; E.data += std::to_string(ax);
+        E.data += ','; E.data += stepFmt(c.a); E.data += ','; E.data += stepFmt(c.b);
+        E.data += ");\n";
+        sameSense = increasing;
+        return id;
+    }
+    case GeomCurveKind::BSpline: {
+        const std::uint64_t id = emitBSplineCurve(E, c.nurbs);
+        if (id == 0) return 0;
+        sameSense = increasing;
+        return id;
+    }
+    }
+    return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +642,7 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
     std::unordered_map<const Vertex*, std::uint64_t> pointId;   // -> CARTESIAN_POINT
     std::unordered_map<const Vertex*, std::uint64_t> vertexId;  // -> VERTEX_POINT
     std::unordered_map<const Edge*,   std::uint64_t> edgeCurveId;
+    std::size_t edgesFromCurve = 0, edgesInferredArc = 0, edgesLine = 0, edgesChord = 0;
 
     auto pointFor = [&](const Vertex* v) -> std::uint64_t {
         auto it = pointId.find(v);
@@ -366,10 +663,13 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
     };
 
     // EDGE_CURVE for a topological Edge (deduped). Stored start->end of the Edge.
-    // The geometry curve is a CIRCLE iff EITHER adjacent face's surface makes
-    // (start,end) a circular arc (so a cap-boundary arc shared with a curved wall
-    // is recorded as a CIRCLE regardless of which face is emitted first — this is
-    // what lets the reader recover the exact-disk cap). Otherwise a LINE.
+    // Geometry, in priority order (T-158; see the EDGE MAP in StepAnalytic.hpp):
+    // the edge's OWN Edge::curve; else a CIRCLE iff EITHER adjacent face's surface
+    // makes (start,end) a circular arc (so a cap-boundary arc shared with a curved
+    // wall is recorded as a CIRCLE regardless of which face is emitted first — this
+    // is what lets the reader recover the exact-disk cap), or an iso-line arc of
+    // one shared surface; otherwise a LINE, counted as edgesLine when verified on
+    // both adjacent surfaces and as edgesChord when not.
     auto edgeCurveFor = [&](const Coedge* ce) -> std::uint64_t {
         const Edge* e = ce->edge;
         auto it = edgeCurveId.find(e);
@@ -385,32 +685,64 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
                             ? ce->mate->loop->face->surface : nullptr;
 
         std::uint64_t curveId = 0;
-        Vec3 c, n, r; double rad = 0.0;
-        bool isCircle = (sA && circleForEdge(*sA, ps, pe, c, n, r, rad)) ||
-                        (sB && circleForEdge(*sB, ps, pe, c, n, r, rad));
-        if (isCircle) {
-            std::uint64_t ax = E.emitAxis2(c, n, r);
-            curveId = E.alloc();
-            E.appendId(curveId); E.data += "=CIRCLE('',#";
-            E.data += std::to_string(ax); E.data += ','; E.data += stepFmt(rad);
-            E.data += ");\n";
+        bool sameSense = true;
+        // 1) The edge's OWN exact curve (T-158: it was ignored, and an exact arc on
+        //    a planar cap / NURBS blend was written as a straight chord).
+        curveId = emitEdgeOwnCurve(E, *e, sameSense);   // T158-EDGE-OWN-CURVE
+        if (curveId) {
+            ++edgesFromCurve;
         } else {
-            // LINE('', start_point, VECTOR(dir, |end-start|)).
-            Vec3 d = vsub(pe, ps);
-            double L = vlen(d);
-            Vec3 dir = (L > 1e-12) ? vscale(d, 1.0 / L) : Vec3{1, 0, 0};
-            std::uint64_t pId = E.emitPoint(ps);
-            std::uint64_t vecId = E.emitVector(dir, (L > 1e-12) ? L : 1.0);
-            curveId = E.alloc();
-            E.appendId(curveId); E.data += "=LINE('',#";
-            E.data += std::to_string(pId); E.data += ",#";
-            E.data += std::to_string(vecId); E.data += ");\n";
+            Vec3 c, n, r; double rad = 0.0;
+            bool isCircle = (sA && circleForEdge(*sA, ps, pe, c, n, r, rad)) ||
+                            (sB && circleForEdge(*sB, ps, pe, c, n, r, rad));
+            // 2b) an iso-line arc of ONE shared surface (sphere meridian, torus
+            //     minor circle) — only when both faces carry the same Surface*.
+            if (!isCircle && sA && sA == sB) isCircle = isoArcForEdge(*sA, ps, pe, c, n, r, rad);
+            if (isCircle) {
+                std::uint64_t ax = E.emitAxis2(c, n, r);
+                curveId = E.alloc();
+                E.appendId(curveId); E.data += "=CIRCLE('',#";
+                E.data += std::to_string(ax); E.data += ','; E.data += stepFmt(rad);
+                E.data += ");\n";
+                ++edgesInferredArc;
+            } else {
+                // 3) LINE('', start_point, VECTOR(dir, |end-start|)). Exact iff the
+                //    edge IS straight: verify the chord on BOTH adjacent surfaces and
+                //    COUNT the ones that cannot be verified (edgesChord).
+                Vec3 d = vsub(pe, ps);
+                double L = vlen(d);
+                Vec3 dir = (L > 1e-12) ? vscale(d, 1.0 / L) : Vec3{1, 0, 0};
+                const double tolL = 1e-7 * std::max(1.0, std::max(vlen(ps), vlen(pe)));
+                bool straight = (sA != nullptr) || (sB != nullptr);
+                // Cheapest decisive test first, stop at the first failure: the
+                // midpoint before the quarter points, and an analytic surface
+                // before a NURBS one (whose residual is a closest-point search).
+                // A curved edge almost always fails at once, so an imported part
+                // whose every edge lacks Edge::curve pays ~one residual per edge.
+                const Surface* order[2] = {sA, sB};
+                if (sA && sB && sA->kind == SurfaceKind::Nurbs && sB->kind != SurfaceKind::Nurbs)
+                    std::swap(order[0], order[1]);
+                for (double f : {0.5, 0.25, 0.75}) {
+                    const Vec3 q = vadd(ps, vscale(d, f));
+                    for (const Surface* s : order)
+                        if (s && !(surfaceResidual(*s, q, tolL) <= tolL)) { straight = false; break; }
+                    if (!straight) break;
+                }
+                if (straight) ++edgesLine; else ++edgesChord;
+                std::uint64_t pId = E.emitPoint(ps);
+                std::uint64_t vecId = E.emitVector(dir, (L > 1e-12) ? L : 1.0);
+                curveId = E.alloc();
+                E.appendId(curveId); E.data += "=LINE('',#";
+                E.data += std::to_string(pId); E.data += ",#";
+                E.data += std::to_string(vecId); E.data += ");\n";
+            }
         }
 
         std::uint64_t id = E.alloc();
         E.appendId(id); E.data += "=EDGE_CURVE('',#";
         E.data += std::to_string(vS); E.data += ",#"; E.data += std::to_string(vE);
-        E.data += ",#"; E.data += std::to_string(curveId); E.data += ",.T.);\n";
+        E.data += ",#"; E.data += std::to_string(curveId);
+        E.data += sameSense ? ",.T.);\n" : ",.F.);\n";
         edgeCurveId.emplace(e, id);
         return id;
     };
@@ -520,8 +852,9 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
             // 3) Surface entity (analytic; 0 means we could not emit it).
             std::uint64_t surfId = emitSurface(E, surf);
             if (surfId == 0)
-                return writeFail("StepAnalytic.write: unsupported NURBS face "
-                                 "(incomplete surface data — no analytic emit)");
+                return writeFail("StepAnalytic.write: face surface cannot be written "
+                                 "exactly (a NURBS with incomplete data or a weight "
+                                 "that is not finite and > 0, or an EllipseExtrusion)");
 
             // 4) ADVANCED_FACE over the full bound list. same_sense = .T. iff the
             //    surface normal already points OUT of the solid. Our Surface.reversed
@@ -651,6 +984,11 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
     AnalyticWriteResult r;
     r.ok = true;
     r.text = std::move(out);
+    r.rationalSurfaces = E.rationalSurfaces;
+    r.edgesFromCurve = edgesFromCurve;
+    r.edgesInferredArc = edgesInferredArc;
+    r.edgesLine = edgesLine;
+    r.edgesChord = edgesChord;
     return r;
 }
 
@@ -729,6 +1067,267 @@ bool getAxis2(const std::unordered_map<std::uint64_t, Instance>& tab,
     return true;
 }
 
+// Part-21 numeric lists.
+bool realListOf(const std::string& tok, std::vector<double>& out) {
+    std::vector<std::string> f;
+    if (!parseList(tok, f)) return false;
+    out.clear();
+    for (const std::string& x : f) { double v = 0; if (!stepNum(x, v)) return false; out.push_back(v); }
+    return true;
+}
+bool expandKnotData(const std::string& multTok, const std::string& knotTok,
+                    std::vector<double>& knots) {
+    std::vector<double> m, k;
+    if (!realListOf(multTok, m) || !realListOf(knotTok, k) || m.size() != k.size() || k.empty())
+        return false;
+    knots.clear();
+    for (std::size_t i = 0; i < k.size(); ++i) {
+        const long long mi = std::llround(m[i]);
+        if (mi < 1 || mi > 64 || static_cast<double>(mi) != m[i]) return false;
+        if (i && !(k[i] > k[i - 1])) return false;
+        for (long long r = 0; r < mi; ++r) knots.push_back(k[i]);
+    }
+    return true;
+}
+
+// Reconstruct a B-spline SURFACE from either
+//   B_SPLINE_SURFACE_WITH_KNOTS('',dU,dV,grid,form,uC,vC,si,mU,mV,kU,kV,spec)   or
+//   (BOUNDED_SURFACE()B_SPLINE_SURFACE(dU,dV,grid,form,uC,vC,si)
+//    B_SPLINE_SURFACE_WITH_KNOTS(mU,mV,kU,kV,spec)...[RATIONAL_B_SPLINE_SURFACE(w)]...)
+// Weights default to 1; a rational record supplies every one. Strict: anything
+// that does not validate as a clamped NURBS surface is refused.
+bool readBSplineSurface(const std::unordered_map<std::uint64_t, Instance>& tab,
+                        const Instance& ins, NurbsSurface& n, std::string& why) {
+    std::vector<std::string> base, knots, weights;
+    if (ins.type == "B_SPLINE_SURFACE_WITH_KNOTS") {
+        auto f = splitTopLevel(ins.params);
+        if (f.size() != 13) { why = "B_SPLINE_SURFACE_WITH_KNOTS arity"; return false; }
+        base.assign(f.begin() + 1, f.begin() + 8);
+        knots.assign(f.begin() + 8, f.end());
+    } else {
+        const auto parts = p21::splitComplexRecord(ins.params);
+        bool isSurface = false;
+        for (const auto& pt : parts) {
+            if (pt.type == "B_SPLINE_SURFACE") { base = splitTopLevel(pt.params); isSurface = true; }
+            else if (pt.type == "B_SPLINE_SURFACE_WITH_KNOTS") knots = splitTopLevel(pt.params);
+            else if (pt.type == "RATIONAL_B_SPLINE_SURFACE") weights = splitTopLevel(pt.params);
+        }
+        if (!isSurface || base.size() != 7 || knots.size() != 5) {
+            why = "unsupported analytic surface entity (complex record is not a B-spline surface)";
+            return false;
+        }
+        if (!weights.empty() && weights.size() != 1) { why = "RATIONAL_B_SPLINE_SURFACE arity"; return false; }
+    }
+    double dU = 0, dV = 0;
+    if (!stepNum(base[0], dU) || !stepNum(base[1], dV) || dU < 1 || dV < 1 ||
+        dU != std::floor(dU) || dV != std::floor(dV)) { why = "B-spline surface degree"; return false; }
+    n = NurbsSurface{};
+    n.degreeU = static_cast<std::size_t>(dU);
+    n.degreeV = static_cast<std::size_t>(dV);
+    std::vector<std::string> rows;
+    if (!parseList(base[2], rows) || rows.empty()) { why = "B-spline surface control grid"; return false; }
+    for (const std::string& row : rows) {
+        std::vector<std::string> refs;
+        if (!parseList(row, refs) || refs.empty()) { why = "B-spline surface control row"; return false; }
+        std::vector<Vec3> pts;
+        for (const std::string& r : refs) {
+            std::uint64_t pid = 0; Vec3 P;
+            if (!parseRef(r, pid) || !getPoint(tab, pid, P, why)) { if (why.empty()) why = "B-spline control point"; return false; }
+            pts.push_back(P);
+        }
+        n.control.push_back(std::move(pts));
+        n.weights.emplace_back(n.control.back().size(), 1.0);
+    }
+    if (!weights.empty()) {
+        std::vector<std::string> wrows;
+        if (!parseList(weights[0], wrows) || wrows.size() != n.control.size()) {
+            why = "RATIONAL_B_SPLINE_SURFACE weight grid shape"; return false;
+        }
+        for (std::size_t i = 0; i < wrows.size(); ++i) {
+            std::vector<double> w;
+            if (!realListOf(wrows[i], w) || w.size() != n.control[i].size()) {
+                why = "RATIONAL_B_SPLINE_SURFACE weight row"; return false;
+            }
+            n.weights[i] = std::move(w);
+        }
+    }
+    if (!expandKnotData(knots[0], knots[2], n.knotsU) ||
+        !expandKnotData(knots[1], knots[3], n.knotsV)) { why = "B-spline surface knot data"; return false; }
+    const char* vr = nullptr;
+    if (!validateSurface(n, &vr)) {
+        why = std::string("invalid B-spline surface: ") + (vr ? vr : "?");
+        return false;
+    }
+    return true;
+}
+
+// Reconstruct a B-spline CURVE (simple or rational complex). Strict.
+bool readBSplineCurve(const std::unordered_map<std::uint64_t, Instance>& tab,
+                      const Instance& ins, NurbsCurve& c) {
+    std::vector<std::string> base, knots, weights;
+    if (ins.type == "B_SPLINE_CURVE_WITH_KNOTS") {
+        auto f = splitTopLevel(ins.params);
+        if (f.size() != 9) return false;
+        base.assign(f.begin() + 1, f.begin() + 6);
+        knots.assign(f.begin() + 6, f.end());
+    } else if (ins.type.empty()) {
+        bool isCurve = false;
+        for (const auto& pt : p21::splitComplexRecord(ins.params)) {
+            if (pt.type == "B_SPLINE_CURVE") { base = splitTopLevel(pt.params); isCurve = true; }
+            else if (pt.type == "B_SPLINE_CURVE_WITH_KNOTS") knots = splitTopLevel(pt.params);
+            else if (pt.type == "RATIONAL_B_SPLINE_CURVE") weights = splitTopLevel(pt.params);
+        }
+        if (!isCurve || base.size() != 5 || knots.size() != 3) return false;
+    } else {
+        return false;
+    }
+    double d = 0;
+    if (!stepNum(base[0], d) || d < 1 || d != std::floor(d)) return false;
+    c = NurbsCurve{};
+    c.degree = static_cast<std::size_t>(d);
+    std::vector<std::string> refs;
+    if (!parseList(base[1], refs) || refs.empty()) return false;
+    std::string w;
+    for (const std::string& r : refs) {
+        std::uint64_t pid = 0; Vec3 P;
+        if (!parseRef(r, pid) || !getPoint(tab, pid, P, w)) return false;
+        c.controlPoints.push_back(P);
+    }
+    c.weights.assign(c.controlPoints.size(), 1.0);
+    if (!weights.empty()) {
+        std::vector<double> ws;
+        if (weights.size() != 1 || !realListOf(weights[0], ws) || ws.size() != c.controlPoints.size())
+            return false;
+        for (double x : ws) if (!(x > 0.0)) return false;
+        c.weights = std::move(ws);
+    }
+    if (!expandKnotData(knots[0], knots[1], c.knots)) return false;
+    return c.valid();
+}
+
+// Parameter of p on a NURBS curve (sampled seed + Newton on (C-p).C').
+double invertNurbsCurve(const NurbsCurve& c, const Vec3& p, double& tOut) {
+    const double lo = c.knots.front(), hi = c.knots.back();
+    const int G = 64;
+    double best = std::numeric_limits<double>::infinity(), bt = lo;
+    for (int i = 0; i <= G; ++i) {
+        const double t = lo + (hi - lo) * i / G;
+        const double dd = vlen(vsub(c.evaluate(t), p));
+        if (dd < best) { best = dd; bt = t; }
+    }
+    double t = bt;
+    const double h = 1e-7 * std::max(1.0, hi - lo);
+    for (int it = 0; it < 50; ++it) {
+        const Vec3 P = c.evaluate(t);
+        const double ta = std::max(lo, t - h), tb = std::min(hi, t + h);
+        const Vec3 d1 = vscale(vsub(c.evaluate(tb), c.evaluate(ta)), 1.0 / (tb - ta));
+        const double g = vdot(vsub(P, p), d1), H = vdot(d1, d1);
+        if (!(H > 0.0)) break;
+        const double nt = std::min(hi, std::max(lo, t - g / H));
+        if (std::fabs(nt - t) < 1e-15 * std::max(1.0, hi - lo)) { t = nt; break; }
+        t = nt;
+    }
+    const double dd = vlen(vsub(c.evaluate(t), p));
+    if (dd <= best) { tOut = t; return dd; }
+    tOut = bt; return best;
+}
+
+// Decode an EDGE_CURVE's geometry into a native Curve parameterised from the
+// edge's START (es) at t0 to its END (ee) at t1 (the Topology.hpp convention).
+// Returns false — leaving Edge::curve empty — for geometry this reader does not
+// understand or that does not pass through both vertices.
+bool decodeEdgeCurve(const std::unordered_map<std::uint64_t, Instance>& tab,
+                     std::uint64_t ecId, const Vec3& es, const Vec3& ee, Curve& out) {
+    auto eit = tab.find(ecId);
+    if (eit == tab.end() || eit->second.type != "EDGE_CURVE") return false;
+    auto ep = splitTopLevel(eit->second.params);
+    if (ep.size() != 5) return false;
+    std::uint64_t vs = 0, ve = 0, cid = 0;
+    if (!parseRef(ep[1], vs) || !parseRef(ep[2], ve) || !parseRef(ep[3], cid)) return false;
+    bool sense;
+    if (ep[4] == ".T.") sense = true; else if (ep[4] == ".F.") sense = false; else return false;
+    auto vpPoint = [&](std::uint64_t vp, Vec3& P) {
+        auto it = tab.find(vp);
+        if (it == tab.end() || it->second.type != "VERTEX_POINT") return false;
+        auto p = splitTopLevel(it->second.params);
+        std::uint64_t cp = 0; std::string w;
+        return p.size() == 2 && parseRef(p[1], cp) && getPoint(tab, cp, P, w);
+    };
+    Vec3 PS, PE;
+    if (!vpPoint(vs, PS) || !vpPoint(ve, PE)) return false;
+    const double scale = std::max(1.0, std::max(vlen(es), vlen(ee)));
+    const double tol = 1e-7 * scale;
+    bool startIsPS;
+    if (vlen(vsub(es, PS)) <= tol && vlen(vsub(ee, PE)) <= tol) startIsPS = true;
+    else if (vlen(vsub(es, PE)) <= tol && vlen(vsub(ee, PS)) <= tol) startIsPS = false;
+    else return false;
+    auto cit = tab.find(cid);
+    if (cit == tab.end()) return false;
+    const std::string& ty = cit->second.type;
+    const double TWO_PI = 2.0 * 3.14159265358979323846;
+
+    // File-order parameters (tS at PS, tE at PE), then map onto the edge.
+    double tS = 0, tE = 0;
+    if (ty == "LINE") {
+        out = Curve::makeLine(es, ee);
+        return vlen(vsub(ee, es)) > tol;
+    } else if (ty == "CIRCLE" || ty == "ELLIPSE" || ty == "PARABOLA" || ty == "HYPERBOLA") {
+        auto cp = splitTopLevel(cit->second.params);
+        std::uint64_t ax = 0;
+        if (cp.size() < 3 || !parseRef(cp[1], ax)) return false;
+        Vec3 C, N, X; std::string w;
+        if (!getAxis2(tab, ax, C, N, X, w)) return false;
+        const Vec3 Y = vcross(N, X);
+        double a = 0, b = 0;
+        if (!stepNum(cp[2], a) || !(a > 0.0)) return false;
+        if (ty == "ELLIPSE" || ty == "HYPERBOLA") {
+            if (cp.size() != 4 || !stepNum(cp[3], b) || !(b > 0.0)) return false;
+        } else if (cp.size() != 3) {
+            return false;
+        }
+        auto lx = [&](const Vec3& P) { return vdot(vsub(P, C), X); };
+        auto ly = [&](const Vec3& P) { return vdot(vsub(P, C), Y); };
+        if (ty == "CIRCLE" || ty == "ELLIPSE") {
+            const double bb = (ty == "CIRCLE") ? a : b;
+            const double aS = std::atan2(ly(PS) / bb, lx(PS) / a);
+            const double aE = std::atan2(ly(PE) / bb, lx(PE) / a);
+            // .T.: increasing angle PS -> PE; .F.: decreasing. A closed edge
+            // (PS == PE) spans the full turn.
+            double span = sense ? aE - aS : aS - aE;
+            while (span <= 1e-15) span += TWO_PI;
+            while (span > TWO_PI) span -= TWO_PI;
+            tS = aS; tE = sense ? aS + span : aS - span;
+            out = (ty == "CIRCLE") ? Curve::makeCircle(C, X, N, a)
+                                   : Curve::makeEllipse(C, X, N, a, b);
+        } else if (ty == "PARABOLA") {
+            // ours: C(t) = c + t^2/(4f) x + t y  ->  t = local y
+            tS = ly(PS); tE = ly(PE);
+            if (sense != (tE > tS)) return false;
+            out = Curve::makeParabola(C, X, N, a, 0.0, 1.0);
+        } else {
+            tS = std::asinh(ly(PS) / b); tE = std::asinh(ly(PE) / b);
+            if (sense != (tE > tS)) return false;
+            out = Curve::makeHyperbola(C, X, N, a, b, 0.0, 1.0);
+        }
+    } else if (ty == "B_SPLINE_CURVE_WITH_KNOTS" || ty.empty()) {
+        NurbsCurve nc;
+        if (!readBSplineCurve(tab, cit->second, nc)) return false;
+        if (invertNurbsCurve(nc, PS, tS) > tol || invertNurbsCurve(nc, PE, tE) > tol) return false;
+        if (vlen(vsub(PS, PE)) <= tol) {           // closed: the whole domain, in sense
+            tS = sense ? nc.knots.front() : nc.knots.back();
+            tE = sense ? nc.knots.back() : nc.knots.front();
+        }
+        if (sense != (tE > tS)) return false;
+        out = Curve::makeBSpline(nc);
+    } else {
+        return false;   // SURFACE_CURVE, POLYLINE, ... : not understood here
+    }
+    out.t0 = startIsPS ? tS : tE;
+    out.t1 = startIsPS ? tE : tS;
+    return vlen(vsub(out.evaluate(out.t0), es)) <= tol &&
+           vlen(vsub(out.evaluate(out.t1), ee)) <= tol;
+}
+
 // Build a native Surface from an ADVANCED_FACE surface id. Returns false if the
 // surface entity is unsupported (the caller fails honestly).
 bool buildSurface(const std::unordered_map<std::uint64_t, Instance>& tab,
@@ -775,9 +1374,12 @@ bool buildSurface(const std::unordered_map<std::uint64_t, Instance>& tab,
         if (p.size() < 4 || !stepNum(p[2], s.r1) || !stepNum(p[3], s.r2)) {
             why = "TOROIDAL_SURFACE radii"; return false;
         }
+    } else if (type == "B_SPLINE_SURFACE_WITH_KNOTS" || type.empty()) {
+        // T-158: the writer emits B-spline faces, so the reader must read them —
+        // the simple form and the RATIONAL complex form, weights included.
+        s.kind = SurfaceKind::Nurbs;
+        if (!readBSplineSurface(tab, it->second, s.nurbs, why)) return false;
     } else {
-        // B_SPLINE_SURFACE_WITH_KNOTS and any other surface are not reconstructed
-        // into a native analytic Surface in this increment — honest failure.
         why = "unsupported analytic surface entity '" + type + "'";
         return false;
     }
@@ -826,6 +1428,10 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
                 const std::vector<EdgeCircle>& ringCircles) {
     f->vertexUV.clear();
     f->vertexUV.reserve(ring.size());
+
+    // NURBS (T-158): a B-spline face's trim window is attachNurbsTrim()'s (below),
+    // which also decides whether the face IS a (u,v) rectangle at all.
+    if (surf->kind == SurfaceKind::Nurbs) return false;
     const Vec3 axis = vnorm(surf->axis);
     const Vec3 rdir = vnorm(surf->refDir);
     const Vec3 bdir = surf->binormal();
@@ -867,8 +1473,9 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
             pv = std::atan2(z, ringR);
             break;
         }
-        case SurfaceKind::Nurbs:
-            pu = 0; pv = 0; break;
+        case SurfaceKind::Nurbs:             // handled (and returned) above
+        case SurfaceKind::EllipseExtrusion:  // buildSurface() never produces one
+            return false;
         }
         if (angular) {
             // A pole vertex (radial ~0) has an undefined theta; skip anchoring on it
@@ -1118,6 +1725,152 @@ std::size_t refacetClosedSphere(TopologyBuilder& tb, Shell* shell,
     return made;
 }
 
+// ---------------------------------------------------------------------------
+// B-SPLINE FACE TRIM (T-158). The mass integrator integrates a Nurbs face over
+// its (u,v) RECTANGLE [u0,u1]x[v0,v1]. That is the face only when the face IS a
+// rectangle of the knot domain: no hole, and its whole boundary on the IMAGE of
+// the rectangle's four sides. A foreign file's TRIMMED B-spline face (a triangle
+// cut from a patch, a patch with a hole, an edge that bulges off the vertex box)
+// would otherwise be read back as the whole rectangle -- a wrong solid returned
+// as ok -- so it is refused with a reason, and importStep's ladder falls through
+// to readForeignStep (which carries real trim regions) exactly as it did before
+// B-spline faces were read.
+//
+// The rectangle is the (u,v) box of the loop vertices inverted onto the surface,
+// EXCEPT on a CLOSED surface (first and last iso-lines coincide, e.g. a B-spline
+// cylinder): a vertex ON the seam inverts to u = ua or u = ub indistinguishably.
+// MEASURED (validator round 1): the 270->360 deg quarter of a split B-spline
+// cylinder came back as u[0,0.75] instead of u[0.75,1] -- ok=1, volume +50.6 %.
+// A seam vertex therefore does not bound the rectangle in that direction; the
+// candidates are [ua,hi], [lo,ub] and [ua,ub] (lo/hi = the other vertices'
+// extent), and the face is read only when EXACTLY ONE candidate has the whole
+// boundary on its sides. A face that CROSSES the seam (315 -> 45 deg) has no
+// rectangle in the knot domain at all: its vertex box is the face's complement,
+// which the side test refuses.
+//
+// SIDE TEST. Every loop vertex and 7 interior samples of every edge (along the
+// geometry the file gave it: Edge::curve as re-attached from the EDGE_CURVE, the
+// straight chord when there was none) are inverted onto the surface ONCE. Each
+// must lie on the surface and on the image of a side: p == S(u0,v*), S(u1,v*),
+// S(u*,v0) or S(u*,v1), with u*, v* the sample's own inverted parameters CLAMPED
+// INTO THE RECTANGLE. Without the clamp, a point of the iso-line v = v0 lying
+// OUTSIDE [u0,u1] passed as "on side v0" -- how the wrong quarter was accepted.
+// (On a seam sample the clamp may pick the far one of ua/ub for side v0, but such
+// a point is on side u0 or u1, which needs no clamp in u.)
+struct NurbsTrimSample { Vec3 p; double u, v; };
+
+bool nurbsCoincide(const Vec3& a, const Vec3& p) {
+    return vlen(vsub(a, p)) <= 1e-6 * std::max(1.0, vlen(p));
+}
+
+// True iff every sample lies on the image of a side of [u0,u1]x[v0,v1].
+bool nurbsSamplesOnBox(const NurbsSurface& n, const std::vector<NurbsTrimSample>& S,
+                       double u0, double u1, double v0, double v1) {
+    for (const NurbsTrimSample& s : S) {
+        const double cu = std::clamp(s.u, u0, u1), cv = std::clamp(s.v, v0, v1);   // T158-NURBS-BOX-CLAMP
+        if (!nurbsCoincide(n.evaluate(u0, cv), s.p) && !nurbsCoincide(n.evaluate(u1, cv), s.p) &&
+            !nurbsCoincide(n.evaluate(cu, v0), s.p) && !nurbsCoincide(n.evaluate(cu, v1), s.p))
+            return false;   // T158-NURBS-TRIM-GUARD
+    }
+    return true;
+}
+
+// Sets f's (u,v) rectangle and vertexUV and returns true iff the B-spline face is
+// exactly one rectangle of the knot domain (see above); otherwise `why` says why.
+bool attachNurbsTrim(Face* f, const NurbsSurface& n, const std::vector<Vertex*>& ring,
+                     std::string& why) {
+    const char* const trimmed = "B-spline face is trimmed (an edge leaves its iso-parameter rectangle)";
+    if (!f->innerLoops.empty()) { why = "B-spline face has an inner (hole) bound"; return false; }
+    const Loop* lp = f->outerLoop;
+    if (!lp || !lp->first || ring.empty()) { why = "B-spline face has no outer loop"; return false; }
+    if (!n.valid()) { why = "B-spline surface does not validate"; return false; }
+    const double ua = n.knotsU.front(), ub = n.knotsU.back();
+    const double va = n.knotsV.front(), vb = n.knotsV.back();
+
+    // A direction is CLOSED when the surface's first and last iso-lines coincide.
+    bool closedU = true, closedV = true;
+    for (int j = 0; j <= 8; ++j) {
+        const double t = j / 8.0;
+        const double v = va + t * (vb - va), u = ua + t * (ub - ua);
+        closedU = closedU && nurbsCoincide(n.evaluate(ua, v), n.evaluate(ub, v));
+        closedV = closedV && nurbsCoincide(n.evaluate(u, va), n.evaluate(u, vb));
+    }
+
+    // Loop vertices, inverted once; a vertex on a seam bounds nothing in that direction.
+    auto invert = [&](NurbsTrimSample& s) {
+        return invertNurbs(n, s.p, s.u, s.v) <= 1e-6 * std::max(1.0, vlen(s.p));
+    };
+    std::vector<NurbsTrimSample> S;
+    std::vector<std::array<bool, 2>> seam;
+    const double inf = std::numeric_limits<double>::infinity();
+    double uLo = inf, uHi = -inf, vLo = inf, vHi = -inf;
+    bool anySeamU = false, anySeamV = false;
+    for (const Vertex* vx : ring) {
+        NurbsTrimSample s{PV(vx->point), 0.0, 0.0};
+        if (!invert(s)) { why = "a B-spline face loop vertex is not on its surface"; return false; }
+        const bool su = closedU && nurbsCoincide(n.evaluate(ua, s.v), s.p), sv = closedV && nurbsCoincide(n.evaluate(s.u, va), s.p);   // T158-NURBS-SEAM
+        if (su) anySeamU = true; else { uLo = std::min(uLo, s.u); uHi = std::max(uHi, s.u); }
+        if (sv) anySeamV = true; else { vLo = std::min(vLo, s.v); vHi = std::max(vHi, s.v); }
+        seam.push_back({su, sv});
+        S.push_back(s);
+    }
+    // Interior samples of every loop edge.
+    const Coedge* ce = lp->first;
+    std::size_t guard = 0;
+    do {
+        const Edge* e = ce->edge;
+        if (!e || !e->start || !e->end) { why = "B-spline face loop has a bare coedge"; return false; }
+        for (int k = 1; k < 8; ++k) {
+            const double fr = k / 8.0;
+            NurbsTrimSample s{e->curve
+                ? e->curve->evaluate(e->curve->t0 + fr * (e->curve->t1 - e->curve->t0))
+                : vadd(PV(e->start->point), vscale(vsub(PV(e->end->point), PV(e->start->point)), fr)),
+                0.0, 0.0};
+            if (!invert(s)) { why = trimmed; return false; }   // the edge leaves the surface
+            S.push_back(s);
+        }
+        ce = ce->next;
+    } while (ce && ce != lp->first && ++guard < 1000000);
+
+    // Candidate extents per direction (deduplicated, positive length only).
+    auto extents = [](bool anySeam, double lo, double hi, double a, double b) {
+        std::vector<std::array<double, 2>> r;
+        if (lo <= hi) {
+            if (anySeam) { r.push_back({a, hi}); r.push_back({lo, b}); }
+            else r.push_back({lo, hi});
+        }
+        if (anySeam) r.push_back({a, b});
+        r.erase(std::remove_if(r.begin(), r.end(),
+                               [](const std::array<double, 2>& x) { return !(x[1] > x[0]); }), r.end());
+        std::sort(r.begin(), r.end());
+        r.erase(std::unique(r.begin(), r.end()), r.end());
+        return r;
+    };
+    std::array<double, 4> box{};
+    int fits = 0;
+    for (const auto& eu : extents(anySeamU, uLo, uHi, ua, ub))
+        for (const auto& ev : extents(anySeamV, vLo, vHi, va, vb))
+            if (nurbsSamplesOnBox(n, S, eu[0], eu[1], ev[0], ev[1])) {
+                box = {eu[0], eu[1], ev[0], ev[1]};
+                ++fits;
+            }
+    if (fits == 0) { why = trimmed; return false; }
+    if (fits > 1) {
+        why = "B-spline face on a closed surface fits more than one (u,v) rectangle";
+        return false;
+    }
+    f->u0 = box[0]; f->u1 = box[1]; f->v0 = box[2]; f->v1 = box[3];
+    f->vertexUV.clear();
+    f->vertexUV.reserve(ring.size());
+    for (std::size_t i = 0; i < ring.size(); ++i) {
+        double u = S[i].u, v = S[i].v;   // a seam vertex takes the side its rectangle owns
+        if (seam[i][0] && !(box[0] == ua && box[1] == ub)) u = (box[0] == ua) ? ua : ub;
+        if (seam[i][1] && !(box[2] == va && box[3] == vb)) v = (box[2] == va) ? va : vb;
+        f->vertexUV.push_back({u, v});
+    }
+    return true;
+}
+
 } // namespace
 
 AnalyticReadResult StepAnalytic::read(const std::string& text) {
@@ -1212,10 +1965,13 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
     // vertices + the per-edge circle, in the loop's traversal direction. Returns
     // false (with `err` set) on any malformed loop. Shared by the OUTER bound and
     // every INNER (hole) bound so a holed face reconstructs exactly as written.
+    // EDGE_CURVE id of the edge LEAVING ring[i], per loop (for Edge::curve).
+    std::vector<std::uint64_t> ringEdgeIds;
     auto buildRing = [&](std::uint64_t loopId,
                          std::vector<Vertex*>& ring,
                          std::vector<EdgeCircle>& ringCircles,
                          std::string& err) -> bool {
+        ringEdgeIds.clear();
         auto litR = tab.find(loopId);
         if (litR == tab.end()) { err = "bound loop ref dangling"; return false; }
         if (litR->second.type != "EDGE_LOOP") { err = "bound is not an EDGE_LOOP"; return false; }
@@ -1250,13 +2006,32 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
             if (!v) { err = "cannot resolve oriented-edge start vertex"; return false; }
             ring.push_back(v);
             ringCircles.push_back(circleOfEdgeCurve(tab, ecId));
+            ringEdgeIds.push_back(ecId);
         }
         for (std::size_t k = 0; k < ring.size(); ++k)
             if (ring[k] == ring[(k + 1) % ring.size()]) { err = "degenerate loop (repeated vertex)"; return false; }
         return true;
     };
 
-    std::size_t nAnalytic = 0, nPlanar = 0;
+    std::size_t nAnalytic = 0, nPlanar = 0, nNurbs = 0, nEdgeCurves = 0;
+
+    // Re-attach the exact edge geometry the file carries (T-158): walk the loop
+    // just built — its coedges are in ring order — and decode each EDGE_CURVE
+    // once per topological Edge. Geometry this reader does not understand leaves
+    // Edge::curve empty (as before); it never fails the read.
+    auto attachEdgeCurves = [&](Loop* lp, const std::vector<std::uint64_t>& ecIds) {
+        if (!lp || !lp->first) return;
+        Coedge* ce = lp->first;
+        for (std::size_t k = 0; k < ecIds.size() && ce; ++k, ce = ce->next) {
+            Edge* e = ce->edge;
+            if (!e || e->curve) continue;
+            Curve c;
+            if (decodeEdgeCurve(tab, ecIds[k], PV(e->start->point), PV(e->end->point), c)) {
+                e->curve = tb.makeCurve(c);
+                ++nEdgeCurves;
+            }
+        }
+    };
 
     for (const std::string& fref : faceRefs) {
         std::uint64_t faceId = 0;
@@ -1347,6 +2122,7 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
         Face* f = tb.makeFace();
         tb.addOuterLoopToFace(f, ring);
         tb.addFaceToShell(shell, f);
+        attachEdgeCurves(f->outerLoop, ringEdgeIds);
 
         // Attach the reconstructed analytic surface.
         Surface* surf = tb.makeSurface();
@@ -1356,6 +2132,7 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
         *surf = tmp;
         f->surface = surf;
         if (surf->kind == SurfaceKind::Plane) ++nPlanar; else ++nAnalytic;
+        if (surf->kind == SurfaceKind::Nurbs) ++nNurbs;
 
         // INNER (hole) loops -> addInnerLoopToFace (edges shared+mated with the bore
         // wall via the deduped VERTEX_POINTs). A PLANAR face that gains holes is
@@ -1368,7 +2145,7 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
             std::string rerr;
             if (!buildRing(innerId, hv, hc, rerr))
                 return readFail("StepAnalytic.read: inner (hole) loop: " + rerr);
-            if (hv.size() >= 3) tb.addInnerLoopToFace(f, hv);
+            if (hv.size() >= 3) attachEdgeCurves(tb.addInnerLoopToFace(f, hv), ringEdgeIds);
         }
         if (surf->kind == SurfaceKind::Plane && !f->innerLoops.empty())
             f->boolHoled = true;
@@ -1380,9 +2157,18 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
         // vertex's parametric (u,v) — CRUCIALLY unwrapping the angular theta so a
         // sector that straddles the atan2 -pi/+pi seam stays a small contiguous
         // span (NOT a spurious full-circle sweep that would over-count its mass).
-        if (!attachTrim(f, surf, ring, ringCircles))
+        // A B-spline face's window is its (u,v) rectangle, and only when the face
+        // IS one (attachNurbsTrim, T-158).
+        if (surf->kind == SurfaceKind::Nurbs) {
+            std::string tw;
+            if (!attachNurbsTrim(f, surf->nurbs, ring, tw))
+                return readFail("StepAnalytic.read: " + tw + " -- only a B-spline face "
+                                "that is its iso-parameter rectangle is read here; a "
+                                "general trimmed B-spline face is readForeignStep's");
+        } else if (!attachTrim(f, surf, ring, ringCircles)) {
             return readFail("StepAnalytic.read: could not parameterise face over "
                             "its analytic surface (trim window)");
+        }
     }
 
     AnalyticReadResult r;
@@ -1391,6 +2177,8 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
     r.solid = solid;
     r.facesAnalytic = nAnalytic;
     r.facesPlanar = nPlanar;
+    r.facesNurbs = nNurbs;
+    r.edgesWithCurve = nEdgeCurves;
     return r;
 }
 

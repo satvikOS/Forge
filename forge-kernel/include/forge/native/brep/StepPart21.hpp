@@ -26,9 +26,9 @@
 //
 // The grammar handled is the ASCII Part-21 instance form actually emitted by the
 // Forge writers AND by OCCT/typical AP242 exporters for the entities the codecs
-// consume: simple instances "#id=TYPE(...);". (Complex/combined ABS instances of
-// the "#id=(TYPEA(...)TYPEB(...));" form are NOT decoded here — a codec that
-// needs one detects it and falls back honestly.)
+// consume: simple instances "#id=TYPE(...);". A complex/combined instance of the
+// "#id=(TYPEA(...)TYPEB(...));" form is stored with an empty type; the codec that
+// needs one splits it with splitComplexRecord() and decides what it means.
 
 #ifndef FORGE_NATIVE_BREP_STEPPART21_HPP
 #define FORGE_NATIVE_BREP_STEPPART21_HPP
@@ -270,6 +270,56 @@ inline bool parseInstances(const std::string& t, std::size_t begin, std::size_t 
         }
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// COMPLEX instance access. parseInstances() stores "#id=(A(..)B(..)C(..));" with
+// type "" and params == "A(..)B(..)C(..)" (the text inside the outer group). This
+// splits that text into its typed partial records, in file order. It returns an
+// EMPTY vector for anything that is not a well-formed sequence of TYPE(...)
+// groups, so a caller can reject it honestly instead of mis-reading it. (Lexer
+// only: what a RATIONAL_B_SPLINE_SURFACE means is the codec's business.)
+// ---------------------------------------------------------------------------
+struct ComplexPart {
+    std::string type;    // e.g. "B_SPLINE_SURFACE_WITH_KNOTS"
+    std::string params;  // raw text between that record's ( )
+};
+
+inline std::vector<ComplexPart> splitComplexRecord(const std::string& s) {
+    std::vector<ComplexPart> out;
+    std::size_t i = 0;
+    const std::size_t n = s.size();
+    while (i < n) {
+        while (i < n && isSpace_(s[i])) ++i;
+        if (i >= n) break;
+        const std::size_t tb = i;
+        while (i < n && (s[i] == '_' || (s[i] >= 'A' && s[i] <= 'Z') ||
+                         (s[i] >= '0' && s[i] <= '9'))) ++i;
+        if (i == tb) return {};
+        std::string type = s.substr(tb, i - tb);
+        while (i < n && isSpace_(s[i])) ++i;
+        if (i >= n || s[i] != '(') return {};
+        int depth = 0;
+        bool inStr = false;
+        std::size_t j = i;
+        for (; j < n; ++j) {
+            const char c = s[j];
+            if (inStr) {
+                if (c == '\'') {
+                    if (j + 1 < n && s[j + 1] == '\'') ++j;
+                    else inStr = false;
+                }
+                continue;
+            }
+            if (c == '\'') inStr = true;
+            else if (c == '(') ++depth;
+            else if (c == ')') { if (--depth == 0) break; }
+        }
+        if (j >= n) return {};
+        out.push_back(ComplexPart{std::move(type), s.substr(i + 1, j - i - 1)});
+        i = j + 1;
+    }
+    return out;
 }
 
 } // namespace p21
