@@ -52,6 +52,45 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 say() { printf '[dryrun] %s\n' "$*"; }
 die() { printf '[dryrun] FATAL: %s\n' "$*" >&2; exit 1; }
 
+# appcast_check <appcast.json> <zip> <version> -- does the appcast describe THIS
+# zip? Prints the mismatches to stderr; status 0 iff there are none. Read with
+# plutil (JSON in, TYPED values out) and shasum, so the release path runs no
+# interpreter. `-expect` keeps the comparison typed: a size written as the string
+# "123" is not the integer 123, and a missing key is a mismatch, not a match.
+# Also reachable on its own as `release_dryrun.sh --check-appcast A Z V`, which is
+# how its negative cases are exercised without building a release.
+appcast_check() {
+  local a="$1" z="$2" v="$3" got size digest url errs=""
+  [ -f "$a" ] || { echo "appcast does not describe this build: no appcast at $a" >&2; return 1; }
+  [ -f "$z" ] || { echo "appcast does not describe this build: no zip at $z" >&2; return 1; }
+  plutil -convert json -o /dev/null "$a" >/dev/null 2>&1 \
+    || { echo "appcast does not describe this build: $a is not readable JSON" >&2; return 1; }
+  got="$(plutil -extract schema raw -expect string -o - "$a" 2>/dev/null)"
+  [ "$got" = "forge-appcast/1" ] || errs="$errs; schema is '${got:-<missing or not a string>}'"
+  got="$(plutil -extract version raw -expect string -o - "$a" 2>/dev/null)"
+  [ "$got" = "$v" ] || errs="$errs; version is '${got:-<missing or not a string>}', the build is '$v'"
+  size="$(stat -f %z "$z")"
+  got="$(plutil -extract size raw -expect integer -o - "$a" 2>/dev/null)"
+  [ -n "$size" ] && [ "$got" = "$size" ] || errs="$errs; size is '${got:-<missing or not an integer>}', the zip is ${size:-?}"
+  digest="$(shasum -a 256 "$z" | awk '{print $1}')"
+  got="$(plutil -extract sha256 raw -expect string -o - "$a" 2>/dev/null)"
+  [ -n "$digest" ] && [ "$got" = "$digest" ] || errs="$errs; sha256 is '${got:-<missing or not a string>}', the zip hashes to ${digest:-?}"
+  url="$(plutil -extract url raw -expect string -o - "$a" 2>/dev/null)"
+  case "$url" in https://*) ;; *) errs="$errs; payload url is not https: '$url'" ;; esac
+  # A floating payload URL makes the digest undescribable, and the app refuses
+  # one outright -- see forge-desktop/src/update/Manifest.hpp.
+  case "$url" in
+    */releases/latest/*) errs="$errs; payload url is not pinned to one release: '$url'" ;;
+    */releases/download/*) ;;
+    *) errs="$errs; payload url is not pinned to one release: '$url'" ;;
+  esac
+  if [ -n "$errs" ]; then
+    echo "appcast does not describe this build: ${errs#; }" >&2
+    return 1
+  fi
+  return 0
+}
+
 KERNEL_BUILD="${KERNEL_BUILD:-$ROOT/forge-kernel/build-app}"
 APP_BUILD="${APP_BUILD:-$ROOT/forge-desktop/build}"
 DIST="${DIST:-$ROOT/forge-desktop/dist}"
@@ -69,6 +108,11 @@ while [ $# -gt 0 ]; do
     --macos-min) shift; [ $# -gt 0 ] || die "--macos-min needs a value"; MACOS_MIN="$1" ;;
     --floor-max) shift; [ $# -gt 0 ] || die "--floor-max needs a value"; FLOOR_MAX="$1" ;;
     --jobs)      shift; [ $# -gt 0 ] || die "--jobs needs a value";      JOBS="$1" ;;
+    --check-appcast)
+      # Self-test entry point: judge an EXISTING appcast against a zip, and stop.
+      # Builds, packages and publishes nothing.
+      [ $# -ge 4 ] || die "--check-appcast needs <appcast.json> <zip> <version>"
+      appcast_check "$2" "$3" "${4#v}"; exit $? ;;
     -h|--help)   sed -n '2,48p' "$0"; exit 0 ;;
     *)           die "unknown argument: $1" ;;
   esac
@@ -84,27 +128,45 @@ PKG="$ROOT/forge-desktop/package_macos.sh"
 [ -f "$PKG" ] || die "$PKG not found — this ref does not carry the desktop release path"
 
 # ── 1. build ─────────────────────────────────────────────────────────────────
-# Two separate CMake projects. The kernel is built node-free (no Node addon) with
-# the desktop foundation on; the app links the resulting core library. Both are
-# compiled against $MACOS_MIN so that OUR binaries are never what sets the floor
-# — which is what makes the measurement below attributable to the bottles.
+# Two separate CMake projects, each configured and built FROM ITS SHIPPING PRESET
+# (`macos-arm64-ship` in forge-kernel/CMakePresets.json and
+# forge-desktop/CMakePresets.json). The presets pin what ships -- no Node addon,
+# the node-free kernel core, no Python step in the build, Release, arm64, the
+# deployment target -- so this script no longer spells the release build out of
+# -D flags that a second script could spell differently. The only values passed
+# here are the two this script is documented to take as parameters (the build
+# directories and --macos-min) plus one INTERLOCK: -DFORGE_BUILD_NODE_ADDON=OFF on
+# the kernel, equal to the preset's own pin, so that no edit to a presets file can
+# make a release build configure the Node addon (whose configure runs `node`).
+# forge-desktop/test/native_ship_gate.sh judges the preset pin itself. Both
+# projects are compiled against $MACOS_MIN so that OUR binaries are never what
+# sets the floor -- which is what makes the measurement below attributable to the
+# bottles.
+#
+# `cmake --build <dir> --preset <p>` builds the preset's TARGET LIST in <dir>;
+# measured on CMake 4.3.3. Presets v6 need CMake >= 3.25, checked first so an old
+# runner fails in one line rather than in a JSON parse error.
 if [ "$DO_BUILD" = "1" ]; then
-  say "configuring forge_kernel_core (node-free, deployment target $MACOS_MIN)"
-  cmake -S "$ROOT/forge-kernel" -B "$KERNEL_BUILD" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
+  _cmv="$(cmake --version 2>/dev/null | awk 'NR==1{print $3}')"
+  _cmmaj="${_cmv%%.*}"; _cmrest="${_cmv#*.}"; _cmmin="${_cmrest%%.*}"
+  if [ -z "$_cmv" ] || [ "${_cmmaj:-0}" -lt 3 ] || { [ "$_cmmaj" -eq 3 ] && [ "${_cmmin:-0}" -lt 25 ]; }; then
+    die "CMake ${_cmv:-<none>} cannot read the shipping presets (version 6 needs >= 3.25)"
+  fi
+  say "configuring forge_kernel_core from preset macos-arm64-ship (node-free, deployment target $MACOS_MIN)"
+  (cd "$ROOT/forge-kernel" && cmake --preset macos-arm64-ship -B "$KERNEL_BUILD" \
         -DFORGE_BUILD_NODE_ADDON=OFF \
-        -DFORGE_BUILD_DESKTOP_FOUNDATION=ON >/dev/null || die "kernel configure failed"
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN") >/dev/null || die "kernel configure failed"
   say "building forge_kernel_core -j$JOBS"
-  cmake --build "$KERNEL_BUILD" -j"$JOBS" --target forge_kernel_core || die "kernel build failed"
+  (cd "$ROOT/forge-kernel" && cmake --build "$KERNEL_BUILD" --preset macos-arm64-ship -j "$JOBS") \
+    || die "kernel build failed"
 
-  say "configuring forge_desktop"
-  cmake -S "$ROOT/forge-desktop" -B "$APP_BUILD" \
-        -DCMAKE_BUILD_TYPE=Release \
+  say "configuring forge_desktop from preset macos-arm64-ship"
+  (cd "$ROOT/forge-desktop" && cmake --preset macos-arm64-ship -B "$APP_BUILD" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
-        -DFORGE_KERNEL_BUILD_DIR="$KERNEL_BUILD" >/dev/null || die "desktop configure failed"
+        -DFORGE_KERNEL_BUILD_DIR="$KERNEL_BUILD") >/dev/null || die "desktop configure failed"
   say "building forge_desktop -j$JOBS"
-  cmake --build "$APP_BUILD" -j"$JOBS" || die "desktop build failed"
+  (cd "$ROOT/forge-desktop" && cmake --build "$APP_BUILD" --preset macos-arm64-ship -j "$JOBS") \
+    || die "desktop build failed"
 fi
 
 # ── 2. headless frame gate ───────────────────────────────────────────────────
@@ -215,33 +277,7 @@ APPCAST="$DIST/appcast.json"
 APPCAST_OK="not-applicable"
 if [ -f "$ROOT/forge-desktop/emit_appcast.sh" ]; then
   [ -f "$APPCAST" ] || die "this ref has emit_appcast.sh but produced no $APPCAST"
-  if python3 - "$APPCAST" "$ZIP" "$VERSION" <<'APPCAST_PY'
-import hashlib, json, os, sys
-m = json.load(open(sys.argv[1]))
-zip_path, version = sys.argv[2], sys.argv[3]
-errs = []
-if m.get("schema") != "forge-appcast/1":
-    errs.append("schema is %r" % m.get("schema"))
-if m.get("version") != version:
-    errs.append("version is %r, the build is %r" % (m.get("version"), version))
-size = os.path.getsize(zip_path)
-if m.get("size") != size:
-    errs.append("size is %r, the zip is %d" % (m.get("size"), size))
-digest = hashlib.sha256(open(zip_path, "rb").read()).hexdigest()
-if m.get("sha256") != digest:
-    errs.append("sha256 is %r, the zip hashes to %s" % (m.get("sha256"), digest))
-url = m.get("url", "")
-if not url.startswith("https://"):
-    errs.append("payload url is not https: %r" % url)
-if "/releases/latest/" in url or "/releases/download/" not in url:
-    # A floating payload URL makes the digest undescribable, and the app refuses
-    # one outright -- see forge-desktop/src/update/Manifest.hpp.
-    errs.append("payload url is not pinned to one release: %r" % url)
-if errs:
-    sys.stderr.write("appcast does not describe this build: " + "; ".join(errs) + "\n")
-    sys.exit(1)
-APPCAST_PY
-  then
+  if appcast_check "$APPCAST" "$ZIP" "$VERSION"; then
     APPCAST_OK="yes"
     say "appcast describes this zip (version, size, sha256, pinned https url)"
   else

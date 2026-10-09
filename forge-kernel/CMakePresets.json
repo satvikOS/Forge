@@ -80,6 +80,22 @@
       }
     },
     {
+      "name": "macos-arm64-ship",
+      "displayName": "macOS arm64 — native SHIPPING kernel core (no Node, offline)",
+      "description": "The kernel half of the shipping build of the native app (forge-desktop preset of the same name links its forge_kernel_core). Every option that decides what ships is PINNED here rather than inherited from a CMakeLists default: FORGE_BUILD_NODE_ADDON defaults ON, and every other preset in this file inherits that default, which is why their forge_all builds forge-kernel.node and why they run `node` at configure time. This preset runs no node, needs no node_modules, and builds no addon. Generator: Unix Makefiles, because it is present on every Mac with the command line tools and ninja is not installed on this workstation; the generator changes no compile flag. Gate: forge-desktop/test/native_ship_gate.sh.",
+      "inherits": "_make",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+        "FORGE_NETWORK": "OFF",
+        "FORGE_BUILD_NODE_ADDON": "OFF",
+        "FORGE_BUILD_DESKTOP_FOUNDATION": "ON",
+        "FORGE_BUILD_DESKTOP_RENDERER": "OFF",
+        "FORGE_BUILD_DESKTOP_UI": "OFF",
+        "FORGE_NATIVE_BREP": "ON"
+      }
+    },
+    {
       "name": "macos-arm64-online-seed",
       "displayName": "macOS arm64 — ONLINE_SEED (network permitted)",
       "description": "The only preset in which a configure-time fetch is legal. It exists to populate .forge-local/sources; a release is never built from it.",
@@ -109,6 +125,13 @@
       "configurePreset": "macos-arm64-release-make",
       "configuration": "Release",
       "targets": ["forge_all"]
+    },
+    {
+      "name": "macos-arm64-ship",
+      "configurePreset": "macos-arm64-ship",
+      "configuration": "Release",
+      "targets": ["forge_kernel_core"],
+      "description": "Only what the shipped app links: the node-free kernel core. Not forge_all -- that aggregate means 'whatever this configure enabled', and a shipping build should name what it ships."
     },
     {
       "name": "macos-arm64-release-clean",

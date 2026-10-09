@@ -184,18 +184,29 @@ command -v ditto             >/dev/null 2>&1 || die "ditto not found"
 BREW="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
 
 # ── 1. build ─────────────────────────────────────────────────────────────────
+# From the SHIPPING PRESETS (`macos-arm64-ship` in forge-kernel/ and
+# forge-desktop/CMakePresets.json), not from -D flags spelled here: the presets
+# pin no Node addon, the node-free kernel core, no Python step, Release, arm64
+# and the deployment target, and release_dryrun.sh builds from the same two, so
+# the two scripts cannot drift into two different "release builds". Only the
+# build directories are passed, plus one INTERLOCK equal to the preset's own pin:
+# -DFORGE_BUILD_NODE_ADDON=OFF, so that no edit to a presets file can make a
+# release build configure the Node addon (whose configure runs `node`).
+# forge-desktop/test/native_ship_gate.sh judges the preset pin itself.
+# `cmake --build <dir> --preset` builds the preset's target list in <dir>.
 if [ "$DO_BUILD" = "1" ]; then
-  say "building forge_kernel_core in $KERNEL_BUILD"
-  cmake -S forge-kernel -B "$KERNEL_BUILD" -DCMAKE_BUILD_TYPE=Release \
-        -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON >/dev/null \
+  say "building forge_kernel_core in $KERNEL_BUILD (preset macos-arm64-ship)"
+  (cd forge-kernel && cmake --preset macos-arm64-ship -B "$KERNEL_BUILD" \
+        -DFORGE_BUILD_NODE_ADDON=OFF) >/dev/null \
     || die "kernel configure failed"
-  cmake --build "$KERNEL_BUILD" -j "$JOBS" --target forge_kernel_core \
+  (cd forge-kernel && cmake --build "$KERNEL_BUILD" --preset macos-arm64-ship -j "$JOBS") \
     || die "kernel core build failed"
-  say "building forge_desktop in $APP_BUILD"
-  cmake -S forge-desktop -B "$APP_BUILD" -DCMAKE_BUILD_TYPE=Release \
-        -DFORGE_KERNEL_BUILD_DIR="$KERNEL_BUILD" >/dev/null \
+  say "building forge_desktop in $APP_BUILD (preset macos-arm64-ship)"
+  (cd forge-desktop && cmake --preset macos-arm64-ship -B "$APP_BUILD" \
+        -DFORGE_KERNEL_BUILD_DIR="$KERNEL_BUILD") >/dev/null \
     || die "app configure failed"
-  cmake --build "$APP_BUILD" -j "$JOBS" || die "app build failed"
+  (cd forge-desktop && cmake --build "$APP_BUILD" --preset macos-arm64-ship -j "$JOBS") \
+    || die "app build failed"
 fi
 
 EXE="$APP_BUILD/forge_desktop"
@@ -591,14 +602,21 @@ say "0 residual absolute references across $(wc -l < "$BUNDLED" | tr -d ' ') Mac
 # RELOCATION PROOF. Running it in place proves nothing: the build tree is still
 # there. Copy it somewhere unrelated and launch THAT. --headless returns 0 after
 # dyld has bound every library, so a clean exit IS the closure resolving from
-# inside the bundle.
+# inside the bundle -- and that is ALL it is: main() returns on --headless before
+# any kernel, worker or Vulkan initialisation (src/main.cpp). The proof that the
+# shipped kernel can MODEL is the worker geometry check below.
+#
+# Every launch here runs under `env -i`: no PATH, no HOME and above all no
+# DYLD_LIBRARY_PATH / DYLD_FALLBACK_LIBRARY_PATH. A developer shell that exports
+# one pointing at a build tree would otherwise let a bundle that is NOT
+# self-contained pass this test on exactly the machine that built it.
 RELOC="$WORK/relocated"
 mkdir -p "$RELOC"
 ditto "$APP" "$RELOC/Forge.app" || die "ditto to the relocation dir failed"
 say "relocation smoke test: launching the COPY at $RELOC/Forge.app"
 RELOC_OUT="$WORK/reloc.launch.txt"
 if run_bounded 120 "relocation smoke test" "$RELOC_OUT" \
-     "$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless; then
+     env -i "$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless; then
   say "  relocated bundle launched and exited 0: $(cat "$RELOC_OUT")"
 else
   rc=$?
@@ -618,7 +636,7 @@ fi
 # protocol the app expects.
 WORKER_OUT="$WORK/worker.version.txt"
 if run_bounded 60 "bundled worker --version" "$WORKER_OUT" \
-     "$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" --version; then
+     env -i "$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" --version; then
   WOUT="$(cat "$WORKER_OUT")"
   case "$WOUT" in
     FORGE-WORKER-RESULT*) say "  bundled kernel worker answered --version: ${WOUT}" ;;
@@ -630,6 +648,42 @@ else
   [ "$rc" -eq 124 ] \
     && die "the bundled kernel worker HUNG on --version (see the sample(1) stack above)" \
     || die "the bundled kernel worker FAILED to launch — the app would ship with NO crash isolation"
+fi
+
+# ★ AND THE WORKER MUST MODEL. `--version` is answered before any geometry is
+# touched, and `--headless` above initialises nothing, so until this check a
+# bundle whose kernel could not build a single solid -- an OCCT toolkit missing
+# from the closure that is only bound lazily, a kernel core that throws on its
+# first boolean -- packaged, launched and "passed". This feeds the RELOCATED
+# worker, under env -i, a 40x30x20 block (BOX is centred in XY on z=0) minus a
+# 6 mm-radius cylinder standing on the origin 40 tall: a clean through-hole. The
+# expected volume is the closed form 24000 - 720*pi, computed here, not read
+# back from a previous run; a hole-less answer (24000) is 4% away.
+# forge-desktop/test/native_ship_gate.sh asserts the full vector (bbox, faces,
+# triangles) on the same body; this is the packager's own minimum.
+GEOM_IN="$WORK/worker.fixture.ir"
+GEOM_OUT="$WORK/worker.geometry.txt"
+printf '%%1 = BOX(40, 30, 20)\n%%2 = CYL(6, 40)\n%%3 = CUT(%%1, %%2)\n' > "$GEOM_IN"
+if run_bounded 120 "bundled worker geometry" "$GEOM_OUT" \
+     /bin/sh -c 'exec env -i "$0" < "$1"' \
+     "$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" "$GEOM_IN"; then
+  _gv="$(LC_ALL=C awk '$1=="volume"{print $2; exit}' "$GEOM_OUT")"
+  _gvalid="$(LC_ALL=C awk '$1=="valid"{print $2; exit}' "$GEOM_OUT")"
+  _gtris="$(LC_ALL=C awk '$1=="triangles"{print $2; exit}' "$GEOM_OUT")"
+  _gwant="$(awk 'BEGIN{ printf "%.6f", 24000 - 720*atan2(0,-1) }')"
+  if [ "${_gvalid:-}" = "1" ] && [ "${_gtris:-0}" -gt 0 ] 2>/dev/null && \
+     awk -v g="${_gv:-x}" -v w="$_gwant" 'BEGIN{ d=g-w; if (d<0) d=-d; exit !(g!="x" && d <= 1e-6*w) }'; then
+    say "  bundled kernel worker MODELLED under env -i: valid, volume ${_gv} (closed form ${_gwant}), ${_gtris} triangles"
+  else
+    LC_ALL=C grep -aE '^(FORGE-WORKER-RESULT|parsed|compiled|tessellated|valid|failedOpId|volume|triangles|errorBytes) ' "$GEOM_OUT" >&2
+    die "the bundled kernel worker did not build the fixture solid (valid=${_gvalid:-?} volume=${_gv:-?} want ${_gwant} triangles=${_gtris:-?}) -- the packaged kernel cannot model"
+  fi
+else
+  rc=$?
+  LC_ALL=C head -c 2000 "$GEOM_OUT" >&2 2>/dev/null
+  [ "$rc" -eq 124 ] \
+    && die "the bundled kernel worker HUNG building the fixture solid (see the sample(1) stack above)" \
+    || die "the bundled kernel worker FAILED building the fixture solid (exit $rc)"
 fi
 
 # MEASURED, and NOT a packaging defect: VK_LOADER_DEBUG=all shows the loader
@@ -678,7 +732,11 @@ bash "$ROOT/forge-desktop/emit_appcast.sh" \
   --version "$VERSION" --repo "$REPO" --zip "$ZIP" \
   --min-macos "$FLOOR" --out "$APPCAST" \
   || die "could not write the appcast"
-CHANNEL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["channel"])' "$APPCAST")"
+# Read back with plutil (JSON in, typed value out): the release path runs no
+# interpreter, and forge-desktop/test/native_ship_gate.sh packages under a trap
+# that would catch one.
+CHANNEL="$(plutil -extract channel raw -expect string -o - "$APPCAST" 2>/dev/null)" \
+  || die "the appcast just written has no string 'channel': $APPCAST"
 
 # ── 10c. ★ CLOSE THE LOOP ON THE ARTIFACT ITSELF ─────────────────────────────
 # Everything above proves halves. This proves the whole thing, on the bytes that
@@ -743,7 +801,8 @@ cat <<SUMMARY
   version       $VERSION
   appcast       $APPCAST  (channel $CHANNEL)
   Mach-O files  $NMACH bundled (libMoltenVK included, loaded via the ICD)
-  relocatable   YES — a copy in an unrelated directory launched and exited 0
+  relocatable   YES — a copy in an unrelated directory launched under env -i and exited 0
+  kernel        YES — that copy's worker built the fixture solid under env -i
   signature     ad-hoc
 
   KNOWN BLOCKERS (measured, not fixable by this script):
