@@ -1,5 +1,10 @@
 # T-160 — the CI critical path: where the 100 job-minutes actually go
 
+> **Resumed 2026-10-09 on `archdisc` b609b41d — read section 10 first.** This branch
+> is PR #284 rebased, MINUS its `run_syntax_gate.sh` hunk (ledger-owned by T-230,
+> deferred), PLUS a cache premise fix. Sections 1–9 are PR #284's original report and
+> their "after" figures include the deferred hunk; section 10 re-measures on CI.
+
 ## Result, up front
 
 | | before (measured on CI) | after |
@@ -775,3 +780,93 @@ wrong turn taken here. Each was verified rather than assumed.
    conservative — but it does mean the local arms are **not** a like-for-like model
    of the runner, and I have said so everywhere the numbers appear rather than
    quietly scaling them.
+
+---
+
+## 10. Resume on `archdisc` b609b41d (2026-10-09) — what this branch now is, re-measured
+
+PR #284 was 10 commits behind `archdisc`. This branch is its three commits
+cherry-picked onto `origin/archdisc` **b609b41d** (no conflicts), plus two changes:
+
+1. **`forge-desktop/test/run_syntax_gate.sh` is restored to `archdisc` byte for byte.**
+   The ledger puts that file in the write set of T-230 (wf-app, IN_PROGRESS), whose
+   worktree already edits it. PR #284's hunk (12 `-fsyntax-only` parses in parallel)
+   is self-contained, so it is **deferred, not dropped**: it lives on
+   `origin/work/T-160-ci-critical-path` 12cbb941 for whoever lands it after T-230.
+   Its saving is therefore **not** in this branch (the TYPE-CHECKS step below).
+2. **The cache's premise check now knows every extension it excludes.** The epoch
+   leaves out `.cpp .cc .cxx .C .c .m .mm`, but the "no unit `#include`s another"
+   check only recognised `.cpp/.cc/.cxx/.C`. A unit including a `.c` (the bison/flex
+   idiom — `third_party/.../Expression.cpp` includes `Expression.tab.c`) had its
+   `.c` excluded from the epoch *and* missed by the check, so editing it reused a
+   stale object. New selftest case 9 answered `3` then `3` on PR #284's cache and
+   `3` then `4` after the fix (10/10 pass). No gate here compiles such a unit, so no
+   hit rate moves; the stale direction is closed rather than merely unexercised.
+
+### 10.1 A2 — wall clock, MEASURED ON CI, same runner labels, same commands
+
+BEFORE = kernel-tests run **35414490158** (push, b609b41d). AFTER = run
+**35411510581** (PR #284 head 0a4e7e8b). Per-step `completed_at - started_at`.
+
+| step (job) | before (s) | after (s) |
+|---|---:|---:|
+| forge::ui gates — `run_ui.sh` (ui) | 82 | 81 |
+| run_ui.sh self-protection contracts (ui) | 42 | 2 |
+| op-constraint bridge, 9 mutations (ui) | 60 | 32 |
+| two-path differential t1, 9 mutations (ui) | 52 | 29 |
+| what a USER reads, 13 mutations (ui) | 827 | 54 |
+| docked-tab pin, 5 mutations + control (ui) | 400 | 41 |
+| Model and Sketch tabs, 4 mutations (ui) | 289 | 40 |
+| forge-desktop TYPE-CHECKS, 4 mutations (ui) — ★ deferred, see above | 171 | 79 |
+| Desktop CLICK gate, 12 mutations (kernel) | 258 | 219 |
+| Desktop CRASH-ISOLATION gate, 8 mutations (kernel) | 1,031 | 203 |
+| **`forge::ui workstation gates` job** | **1,973** | **369** |
+| **`OCCT kernel smoke` job** | **3,453** | **2,596** |
+
+With the TYPE-CHECKS hunk deferred, this branch's ui job is **projected** (not
+measured) at 369 − 79 + 171 ≈ **461 s**. The kernel job's 857 s saving is two
+measured CI runs of a job with 60 steps; the two changed steps account for 867 s of
+it, the rest is runner variance in both directions.
+
+### 10.2 A1 — per-mutation cost and mutation count, MEASURED ON CI
+
+From the runner's own line timestamps (the interval ending at each verdict line;
+script and full table in `~/.forge-program/evidence/T-160/A1_per_mutation_cost_ci.txt`).
+
+| gate | mutations (+control) | per mutation before (s) | per mutation after (s) | units compiled per mutation, after |
+|---|---:|---:|---:|---|
+| what a USER reads | 13 | 58.5–59.3 | 1.5–2.3 | 0 or 1 of 47 |
+| docked-tab pin | 5 + 1 | 56.7–57.4 | 1.5–2.2 | 0 or 1 of 47 |
+| Model and Sketch tabs | 4 | 57.5–57.8 | 2.2–2.3 | 1 of 47 |
+| crash-isolation S1–S6 (source) | 6 | 125.4–164.5 | 7.1–23.8 | 1–2 of 101 |
+| crash-isolation G1–G2 (gate-side) | 2 | 1.2, 17.1 | 2.6, 17.4 | 0 (no rebuild, as before) |
+| click gate | 12 | 1.8–14.2 | 2.5–15.4 | 0 (`--mutate N` in one binary) |
+| op-constraint / differential t1 | 9 / 9 | runtime only (one build) | runtime only | 0 |
+
+Sum of per-mutation cost: prose 767.8 → 22.8 s, panel 342.8 → 10.1 s, model-tree
+230.9 → 8.9 s, crash-isolation 865.1 → 100.2 s, click 131.0 → 130.8 s (unchanged:
+its saving is the parallel base build, not the mutations).
+
+### 10.3 A3 — the kill matrix, before and after
+
+**On CI** (`killmatrix.sh`, normalised only for timestamps and the new
+`[compiled N, reused M]` suffix): 72 verdict lines in each run, every mutation RED
+and every control GREEN in both. 70 of 72 lines are byte-identical. The two that
+differ are click-gate mutations 6 and 7, whose failure *detail* counts registered
+commands — 107 on b609b41d, 104 on PR #284's older merge base. Same mutation, same
+check, same verdict; the product tree differs, not the gate. That is exactly why a
+same-base comparison is needed, and it is section 10.5.
+
+### 10.4 A4 — ccache hit rate
+
+The two jobs this change touches (`ui`, `kernel`) have **no ccache** on their compile
+path, before or after (no step, no launcher; 0 `Hits:` lines in either ui log). The
+"50.23 %" quoted in the task is the **desktop** job's *miss* rate on PR #284's run
+(hits 323/649 = 49.77 %; on b609b41d 323/653 = 49.46 %) — a job T-160 does not touch.
+
+Measured while checking it, and recorded as its own ledger task (T-292): **today
+that job is effectively uncached on every PR.** Two consecutive PR runs on the same
+primary key (`ccache-desktop-macOS-f7723…`) both report `Cache not found` and
+1/653 hits: a cache saved under one PR's merge ref is invisible to other PRs, and no
+`archdisc`-scoped entry has existed since `archdisc`'s last push (2026-09-19; unused
+entries are evicted after 7 days).
