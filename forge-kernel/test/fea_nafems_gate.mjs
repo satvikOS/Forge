@@ -24,6 +24,7 @@
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { near, NODE, buildEllipticSlab, ellipticPlateModel } from './fea_nafems_bc.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -33,7 +34,6 @@ const forge = require(KERNEL);
 if (!forge.fea || !forge.fea.solveStatic || !forge.fea.solveModal) {
   throw new Error('forge.fea.solveStatic / solveModal missing from native kernel — cannot run gate');
 }
-const near = (a, b) => Math.abs(a - b) < 1e-6;
 const pct = (x) => (x * 100).toFixed(3) + ' %';
 
 console.log('============================================================');
@@ -196,30 +196,7 @@ const nafems = [];   // collected NAFEMS band verdicts
 let hardFail = false;
 const note = (m) => { hardFail = true; console.log(`  [HARD-FAIL] ${m}`); };
 
-// ---- shared tet helpers ---------------------------------------------------
-const NODE = (m, i) => [m.nodes[3 * i], m.nodes[3 * i + 1], m.nodes[3 * i + 2]];
-// boundary face = a tet face shared by exactly ONE tet. Returns [v0,v1,v2,apex].
-function tetBoundaryFaces(m) {
-  const t = m.tets, nT = m.tetCount, cnt = new Map(), rep = new Map();
-  const key = (a, b, c) => { const s = [a, b, c].sort((x, y) => x - y); return s[0] + '_' + s[1] + '_' + s[2]; };
-  for (let e = 0; e < nT; e++) {
-    const a = t[4 * e], b = t[4 * e + 1], c = t[4 * e + 2], d = t[4 * e + 3];
-    for (const f of [[a, b, c, d], [a, b, d, c], [a, c, d, b], [b, c, d, a]]) {
-      const k = key(f[0], f[1], f[2]); cnt.set(k, (cnt.get(k) || 0) + 1); if (!rep.has(k)) rep.set(k, f);
-    }
-  }
-  const out = []; for (const [k, c] of cnt) if (c === 1) out.push(rep.get(k)); return out;
-}
-// area + UNIT outward normal (flipped to point away from the tet's apex vertex).
-function triAreaOutwardNormal(p0, p1, p2, apex) {
-  const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
-  const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
-  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  const L = Math.hypot(nx, ny, nz) || 1; const A = 0.5 * L; nx /= L; ny /= L; nz /= L;
-  const cx = (p0[0] + p1[0] + p2[0]) / 3, cy = (p0[1] + p1[1] + p2[1]) / 3, cz = (p0[2] + p1[2] + p2[2]) / 3;
-  if ((apex[0] - cx) * nx + (apex[1] - cy) * ny + (apex[2] - cz) * nz > 0) { nx = -nx; ny = -ny; nz = -nz; }
-  return [A, nx, ny, nz];
-}
+// ---- shared tet helpers: fea_nafems_bc.mjs (one model for the gate and the sweep) ----
 // HARD guard: a degenerate shell-fallback mesh must fail loudly, never silently pass.
 function assertSolidTetMesh(name, m) {
   if (m.shellTetsOnly !== false) note(`${name}: tet mesher returned shellTetsOnly=${m.shellTetsOnly} — degenerate shell-fallback mesh, refusing to report a stress.`);
@@ -260,62 +237,24 @@ function record(name, measuredPa, targetMPa, bandPct, trend, probe, order, meshN
   console.log(`[nafems-case] name=${name} measured=${measMPa.toFixed(4)} target=${targetMPa} errPct=${errPct.toFixed(2)} band=${bandPct} order=${Number.isFinite(order.p) ? order.p.toFixed(3) : 'nan'} verdict=${pass ? 'PASS' : 'MISS'}`);
 }
 
-// elliptic annular quarter slab (LE1/LE10): a thin z-slice of a large-rz ellipsoid
-// pair ≈ a true elliptic cylinder. Faithful elliptic boundary (outer 3.25/2.75,
-// inner 2.0/1.0); the tet mesher conforms to it (faceted).
-function buildEllipticSlab(t) {
-  const RZ = 30.0;
-  const o = forge.makeEllipsoid(3.25, 2.75, RZ), i = forge.makeEllipsoid(2.0, 1.0, RZ);
-  const ann = forge.cut(o, i), cl = forge.makeBox(3.5, 3.0, t), q = forge.common(ann, cl);
-  for (const h of [o, i, ann, cl]) forge.release(h);
-  return q;
-}
-const onOuterEllipse = (x, y) => Math.abs((x / 3.25) ** 2 + (y / 2.75) ** 2 - 1) < 0.06;
-
 // solve one elliptic-plate density. kind='LE1' (membrane, outer-edge 10 MPa
-// outward) or 'LE10' (thick plate, 1 MPa on top + outer edge ux=uy=0).
+// outward) or 'LE10' (thick plate, 1 MPa on top + outer face u_x=u_y=0, its mid-plane
+// line u_z=0). Constraints and loads come from fea_nafems_bc.mjs: surface sets, proven
+// on a structured mesh by fea_nafems_bc_sets_test.mjs.
 function solveEllipticPlate(kind, t, edge, probeTarget) {
-  const q = buildEllipticSlab(t);
+  const q = buildEllipticSlab(forge, t);
+  const geom = typeof forge.kindOf === 'function' ? forge.kindOf(q) : 'unrecorded';
   const m = forge.fea.tet.meshShape(q, edge);
   forge.release(q);
   assertSolidTetMesh(kind, m);
-  const nd = m.nodes, ids = m.ids;
-  const prescribed = [];
-  for (let k = 0; k < m.nodeCount; k++) {
-    const x = nd[3 * k], y = nd[3 * k + 1], z = nd[3 * k + 2];
-    const p = { nodeId: ids[k], fx: false, fy: false, fz: false, ux: 0, uy: 0, uz: 0 };
-    if (near(x, 0, 1e-4)) p.fx = true;          // x=0 symmetry plane: u_x = 0
-    if (near(y, 0, 1e-4)) p.fy = true;          // y=0 symmetry plane: u_y = 0
-    if (kind === 'LE1') {
-      if (near(z, 0, 1e-4)) p.fz = true;        // membrane: pin rigid-z on z=0 face
-    } else {                                     // LE10 outer elliptic edge constraints
-      if (onOuterEllipse(x, y)) { p.fx = true; p.fy = true; if (near(z, t / 2, edge * 0.6)) p.fz = true; }
-    }
-    if (p.fx || p.fy || p.fz) prescribed.push(p);
-  }
-  // load → equivalent nodal forces (tet path has no pressure API)
-  const bf = tetBoundaryFaces(m), accum = new Map();
-  if (kind === 'LE1') {
-    const pres = 10e6;                           // outward 10 MPa on the outer elliptic edge
-    for (const f of bf) {
-      const p0 = NODE(m, f[0]), p1 = NODE(m, f[1]), p2 = NODE(m, f[2]);
-      if (onOuterEllipse(p0[0], p0[1]) && onOuterEllipse(p1[0], p1[1]) && onOuterEllipse(p2[0], p2[1])) {
-        const [A, nx, ny, nz] = triAreaOutwardNormal(p0, p1, p2, NODE(m, f[3]));
-        for (const vi of [f[0], f[1], f[2]]) { const c = accum.get(vi) || [0, 0, 0]; c[0] += pres * A / 3 * nx; c[1] += pres * A / 3 * ny; c[2] += pres * A / 3 * nz; accum.set(vi, c); }
-      }
-    }
-  } else {
-    const pres = 1e6;                            // 1 MPa downward on the top face z=t
-    for (const f of bf) {
-      const p0 = NODE(m, f[0]), p1 = NODE(m, f[1]), p2 = NODE(m, f[2]);
-      if (near(p0[2], t, 1e-3) && near(p1[2], t, 1e-3) && near(p2[2], t, 1e-3)) {
-        const [A] = triAreaOutwardNormal(p0, p1, p2, NODE(m, f[3]));
-        for (const vi of [f[0], f[1], f[2]]) { const c = accum.get(vi) || [0, 0, 0]; c[2] += -pres * A / 3; accum.set(vi, c); }
-      }
-    }
-  }
-  const nodalForces = [];
-  for (const [vi, fv] of accum) nodalForces.push({ nodeId: ids[vi], fx: fv[0], fy: fv[1], fz: fv[2] });
+  const nd = m.nodes;
+  const { prescribed, nodalForces, diag } = ellipticPlateModel(kind, m, t);
+  console.log(`  [bc] ${kind} edge ${edge}: geometry=${geom} outer-surface ${diag.outerNodes} nodes/${diag.outerFaces} faces (worst sag ${diag.outerWorstDev.toFixed(4)} m)` +
+    (kind === 'LE10' ? `, mid-plane line ${diag.midNodes} nodes (worst |dz| ${diag.midWorstDz.toFixed(4)} m)` : '') + `, loaded area ${diag.loadedArea.toFixed(4)} m²` + (kind === 'LE1' ? `, resultant error ${(diag.resultantErr * 100).toExponential(2)} %` : ''));
+  if (diag.outerNodes === 0) note(`${kind} (edge ${edge}): no outer elliptic surface found — the outer-face BC/load would be empty.`);
+  if (diag.outerUnassigned > 0) note(`${kind} (edge ${edge}): ${diag.outerUnassigned} curved boundary facets are near neither ellipse — the surface sets would be incomplete.`);
+  if (kind === 'LE1' && diag.resultantErr > 1e-3) note(`LE1 (edge ${edge}): the outer-edge pressure resultant is off p·t·(2.75, 3.25) by ${(diag.resultantErr * 100).toFixed(3)} % — the loaded surface is incomplete.`);
+  if (kind === 'LE10' && diag.midNodes === 0) note(`LE10 (edge ${edge}): no node traces the mid-plane line of the outer face — u_z is unsupported.`);
   const r = forge.fea.tet.solveLinearStatic(m, MAT, { fixedNodes: [], nodalForces, prescribed, nodeTemps: [] });
   if (!r.converged) note(`${kind} (edge ${edge}): CG did not converge (res ${r.cgResidual?.toExponential?.(2)}) — measurement untrustworthy.`);
   let best = 1e9, bi = -1;
