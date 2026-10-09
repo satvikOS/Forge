@@ -187,7 +187,8 @@ bool tryNativeVarFillet(ShapeHandle solid,
     // can ingest — no OCCT-face -> native-Face importer exists). Mirrors Sewing/ShapeFix.
     if (reg.kindOf(solid) != ShapeKind::NativeSolid) return false;
 
-    const Solid& s = reg.getNativeSolid(solid);
+    const auto sLease = reg.getNativeSolid(solid);  // T-183: held, not borrowed
+    const Solid& s = *sLease;
     double Lx = 0.0, Ly = 0.0, Lz = 0.0;
     if (!isOriginBox(s, Lx, Ly, Lz)) return false;    // native scope is the origin box
 

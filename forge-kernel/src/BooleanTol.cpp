@@ -129,7 +129,7 @@ bool tryNativeFuzzyBoolean(ShapeHandle a, ShapeHandle b,
     // route is the only correct path here.
     auto gatherSoup = [&](ShapeHandle h, ShapeKind k,
                           std::vector<double>& pos, std::vector<std::uint32_t>& idx) -> bool {
-        if (k == ShapeKind::NativeMesh) { reg.getNativeMesh(h).toSoup(pos, idx); return !idx.empty(); }
+        if (k == ShapeKind::NativeMesh) { reg.getNativeMesh(h)->toSoup(pos, idx); return !idx.empty(); }
         if (k == ShapeKind::NativeSolid) { tessellateSolid(reg.getNativeSolid(h), pos, idx); return !idx.empty(); }
         // ShapeKind::Occt — K5: native-tessellate the imported OCCT B-rep (no TKMesh).
         // Absolute chord deflection = 0.1% of the shape bbox diagonal (scale-adaptive),

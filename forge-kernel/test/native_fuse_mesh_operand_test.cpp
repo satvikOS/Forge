@@ -106,7 +106,7 @@ void testCutFilletedMeshByCylinder() {
     double vFilleted = 0.0;
     {
         std::vector<double> p; std::vector<std::uint32_t> i;
-        reg.getNativeMesh(filleted).toSoup(p, i);
+        reg.getNativeMesh(filleted)->toSoup(p, i);
         // signed volume of the soup (divergence theorem on triangles)
         double v6 = 0.0;
         for (std::size_t t = 0; t + 2 < i.size(); t += 3) {
@@ -150,7 +150,8 @@ void testCutFilletedMeshByCylinder() {
     bool validClosed = false;
     double vResult = 0.0;
     if (result != kInvalidHandle && reg.kindOf(result) == ShapeKind::NativeSolid) {
-        const forge::native::brep::Solid& rs = reg.getNativeSolid(result);
+        const auto rsLease = reg.getNativeSolid(result);  // T-183: held, not borrowed
+        const forge::native::brep::Solid& rs = *rsLease;
         forge::native::brep::CheckReport cr = forge::native::brep::checkBRep(&rs);
         validClosed = cr.valid;
         check(cr.valid, "cut result is a valid closed 2-manifold (checkBRep)  predicates " +
@@ -187,7 +188,7 @@ void testFuseFilletedMeshWithBoss() {
     double vFilleted = 0.0;
     {
         std::vector<double> p; std::vector<std::uint32_t> i;
-        reg.getNativeMesh(filleted).toSoup(p, i);
+        reg.getNativeMesh(filleted)->toSoup(p, i);
         double v6 = 0.0;
         for (std::size_t t = 0; t + 2 < i.size(); t += 3) {
             const double* a = &p[3 * i[t]]; const double* b = &p[3 * i[t + 1]]; const double* c = &p[3 * i[t + 2]];
@@ -224,7 +225,8 @@ void testFuseFilletedMeshWithBoss() {
     bool validClosed = false;
     double vResult = 0.0;
     if (result != kInvalidHandle && reg.kindOf(result) == ShapeKind::NativeSolid) {
-        const forge::native::brep::Solid& rs = reg.getNativeSolid(result);
+        const auto rsLease = reg.getNativeSolid(result);  // T-183: held, not borrowed
+        const forge::native::brep::Solid& rs = *rsLease;
         forge::native::brep::CheckReport cr = forge::native::brep::checkBRep(&rs);
         validClosed = cr.valid;
         check(cr.valid, "fuse result is a valid closed 2-manifold (checkBRep)  predicates " +

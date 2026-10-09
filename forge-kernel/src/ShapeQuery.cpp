@@ -22,26 +22,29 @@
 #include <TopoDS_Shape.hxx>
 #include <gp_Dir.hxx>
 
+#include <optional>
+
 namespace forge {
 namespace {
 
 // Every entry point here is wrapped: OCCT signals failure by throwing, and a query
 // that throws across the Kernel API would make "ask the shape a question" a
 // crash risk for the caller. A query answers, or says it could not.
-const TopoDS_Shape* shapeOf(ShapeHandle h) {
-  if (h == kInvalidHandle) return nullptr;
+// By value (T-183): the shape is co-owned for the whole query, not borrowed.
+std::optional<TopoDS_Shape> shapeOf(ShapeHandle h) {
+  if (h == kInvalidHandle) return std::nullopt;
   try {
-    return &ShapeRegistry::instance().get(h);
+    return ShapeRegistry::instance().get(h);
   } catch (...) {
-    return nullptr;
+    return std::nullopt;
   }
 }
 
 }  // namespace
 
 bool shapeBounds(ShapeHandle body, ShapeBounds& out) {
-  const TopoDS_Shape* s = shapeOf(body);
-  if (s == nullptr) return false;
+  const std::optional<TopoDS_Shape> s = shapeOf(body);
+  if (!s) return false;
   try {
     Bnd_Box box;
     BRepBndLib::Add(*s, box);
@@ -54,8 +57,8 @@ bool shapeBounds(ShapeHandle body, ShapeBounds& out) {
 }
 
 std::size_t shapeFaceCount(ShapeHandle body) {
-  const TopoDS_Shape* s = shapeOf(body);
-  if (s == nullptr) return 0;
+  const std::optional<TopoDS_Shape> s = shapeOf(body);
+  if (!s) return 0;
   try {
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(*s, TopAbs_FACE, faces);
@@ -67,8 +70,8 @@ std::size_t shapeFaceCount(ShapeHandle body) {
 
 std::vector<ShapeHandle> shapeSolids(ShapeHandle body) {
   std::vector<ShapeHandle> out;
-  const TopoDS_Shape* s = shapeOf(body);
-  if (s == nullptr) return out;
+  const std::optional<TopoDS_Shape> s = shapeOf(body);
+  if (!s) return out;
   try {
     for (TopExp_Explorer e(*s, TopAbs_SOLID); e.More(); e.Next()) {
       try {
@@ -84,8 +87,8 @@ std::vector<ShapeHandle> shapeSolids(ShapeHandle body) {
 
 std::vector<ShapeHandle> shapeFaces(ShapeHandle body) {
   std::vector<ShapeHandle> out;
-  const TopoDS_Shape* s = shapeOf(body);
-  if (s == nullptr) return out;
+  const std::optional<TopoDS_Shape> s = shapeOf(body);
+  if (!s) return out;
   try {
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(*s, TopAbs_FACE, faces);
@@ -113,8 +116,8 @@ std::vector<DraftFaceIndexed> shapeDraftFaces(ShapeHandle body,
                                              const double pullDir[3],
                                              double draftThresholdDeg) {
   std::vector<DraftFaceIndexed> out;
-  const TopoDS_Shape* s = shapeOf(body);
-  if (s == nullptr || pullDir == nullptr) return out;
+  const std::optional<TopoDS_Shape> s = shapeOf(body);
+  if (!s || pullDir == nullptr) return out;
   try {
     TopTools_IndexedMapOfShape faceMap;
     TopExp::MapShapes(*s, TopAbs_FACE, faceMap);
@@ -137,8 +140,8 @@ std::vector<DraftFaceIndexed> shapeDraftFaces(ShapeHandle body,
 
 std::vector<EdgeJoin> shapeEdgeJoins(ShapeHandle body) {
   std::vector<EdgeJoin> out;
-  const TopoDS_Shape* s = shapeOf(body);
-  if (s == nullptr) return out;
+  const std::optional<TopoDS_Shape> s = shapeOf(body);
+  if (!s) return out;
   try {
     TopTools_IndexedMapOfShape faceMap;
     TopExp::MapShapes(*s, TopAbs_FACE, faceMap);

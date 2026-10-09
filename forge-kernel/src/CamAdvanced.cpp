@@ -607,7 +607,8 @@ bool tryNativeGenerateCmm(ShapeHandle h,
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
     if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
-    const Solid& solid = reg.getNativeSolid(h);
+    const auto solidLease = reg.getNativeSolid(h);  // T-183: held, not borrowed
+    const Solid& solid = *solidLease;
 
     // PRE-FLIGHT: every Plane/Cylinder feature must resolve to a native face that
     // carries a matching analytic Surface; otherwise defer the WHOLE call to OCCT (no

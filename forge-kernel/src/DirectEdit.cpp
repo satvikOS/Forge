@@ -213,7 +213,8 @@ ShapeHandle unifyFaces(ShapeHandle body) {
     {
         ShapeRegistry& reg = ShapeRegistry::instance();
         if (reg.kindOf(body) == ShapeKind::NativeSolid) {
-            const native::brep::Solid& s = reg.getNativeSolid(body);
+            const auto sLease = reg.getNativeSolid(body);  // T-183: held, not borrowed
+            const native::brep::Solid& s = *sLease;
             if (native::brep::nativeUnifyPlanarEligible(s)) {
                 std::shared_ptr<native::brep::TopologyBuilder> owner;
                 native::brep::Solid* merged =
@@ -360,7 +361,8 @@ std::vector<FaceInfo> faceInventory(ShapeHandle body) {
     } catch (...) {
 #ifdef FORGE_NATIVE_BREP
         if (ShapeRegistry::instance().kindOf(body) == ShapeKind::NativeSolid) {
-            const auto& solid = ShapeRegistry::instance().getNativeSolid(body);
+            const auto solidLease = ShapeRegistry::instance().getNativeSolid(body);  // T-183: held, not borrowed
+            const auto& solid = *solidLease;
             std::vector<FaceInfo> out;
             int idx = 1;
             for (const auto* sh : solid.shells) {

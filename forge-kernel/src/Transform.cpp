@@ -40,7 +40,8 @@ ShapeHandle applyNativeRT(ShapeHandle h, const double R[9], const double t[3]) {
         return reg.addNativeSolid(std::move(owner), s);
     }
     if (reg.kindOf(h) == ShapeKind::NativeMesh) {
-        const auto& m = reg.getNativeMesh(h);
+        const auto mLease = reg.getNativeMesh(h);  // T-183: held, not borrowed
+        const auto& m = *mLease;
         std::vector<double> pos; std::vector<std::uint32_t> idx;
         m.toSoup(pos, idx);
         for (std::size_t i = 0; i + 2 < pos.size(); i += 3) {

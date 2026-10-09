@@ -377,7 +377,7 @@ bool tryNativeBoolean(ShapeHandle a, ShapeHandle b,
     auto gatherSoup = [&](ShapeHandle h, ShapeKind k,
                           std::vector<double>& pos, std::vector<std::uint32_t>& idx) -> bool {
         if (k == ShapeKind::NativeMesh) {
-            reg.getNativeMesh(h).toSoup(pos, idx);
+            reg.getNativeMesh(h)->toSoup(pos, idx);
             return !idx.empty();
         }
         if (k == ShapeKind::NativeSolid) {

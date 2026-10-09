@@ -376,7 +376,8 @@ std::size_t faceCount(ShapeHandle shape) {
     } catch (...) {
 #ifdef FORGE_NATIVE_BREP
         if (ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
-            const auto& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const auto solidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+            const auto& solid = *solidLease;
             std::size_t count = 0;
             for (const auto* sh : solid.shells) {
                 if (sh) count += sh->faces.size();
@@ -400,7 +401,8 @@ std::size_t edgeCount(ShapeHandle shape) {
     } catch (...) {
 #ifdef FORGE_NATIVE_BREP
         if (ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
-            const auto& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const auto solidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+            const auto& solid = *solidLease;
             std::unordered_set<const native::brep::Edge*> uniqueEdges;
             for (const auto* sh : solid.shells) {
                 if (!sh) continue;
@@ -449,7 +451,8 @@ TopoCounts topoCounts(ShapeHandle shape) {
     } catch (...) {
 #ifdef FORGE_NATIVE_BREP
         if (ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
-            const auto& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const auto solidLease = ShapeRegistry::instance().getNativeSolid(shape);  // T-183: held, not borrowed
+            const auto& solid = *solidLease;
             TopoCounts c;
             c.solids = 1;
             c.shells = solid.shells.size();

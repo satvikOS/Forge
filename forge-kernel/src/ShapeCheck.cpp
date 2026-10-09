@@ -198,9 +198,11 @@ bool tryNativeAnalyse(ShapeHandle shape, AnalysisReport& out) {
 
     // Resolve the native Solid to validate from EITHER a native handle OR an OCCT one.
     const Solid* s = nullptr;
+    ::forge::NativeLease<Solid> sPin;  // T-183: keeps *s alive for this call
     std::shared_ptr<TopologyBuilder> keepAlive;   // keeps an imported topology alive
     if (reg.kindOf(shape) == ShapeKind::NativeSolid) {
-        s = &reg.getNativeSolid(shape);
+        sPin = reg.getNativeSolid(shape);
+        s = sPin.get();
     } else if (reg.kindOf(shape) == ShapeKind::Occt) {
         // PHASE-D: import the OCCT analytic solid into a native Solid and validate THAT.
         // ok==false (NURBS/Torus/non-analytic) -> defer to OCCT, exactly as before. The
