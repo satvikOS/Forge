@@ -45,6 +45,16 @@
 #   resultant is now exact at every level (was 20 % of it at 0.30, 2.4 % short at 0.12). What
 #   remains is the mesher's frozen surface (sag 0.0708 m at every edge <= 0.20; mid-plane
 #   trace drifts 0.06 -> 0.13 m) -- T-035, boundary recovery.
+#   RE-MEASURED 2026-10-09 after T-035 (FeaTet.cpp: boundary samples projected onto the CAD
+#   faces/edges, interior lattice kept off the boundary, exact-predicate Bowyer-Watson), by the
+#   NATIVE C++ port of this model, test/fea_tet_surface_conformance_gate.cpp -- the JS gate was
+#   NOT run (JS work is stopped by the user). The port reproduced the JS numbers above to four
+#   digits on the pre-T-035 library (LE10 35.32/33.64/31.71 %). At this gate's levels: LE1 @0.12
+#   76.543 MPa / -17.43 %, LE10 @0.15 -4.185 MPa / +22.21 %. Both still MISS their bands, so the
+#   miss SET and the variables below are unchanged. Refinement now converges instead of
+#   freezing: LE10 by targetEdge 0.20/0.15/0.115/0.075 = 31.6/22.2/16.9/9.3 % (was
+#   35.3/33.6/31.7/31.6 %); LE1 0.17/0.12/0.09 = -26.0/-17.4/-9.2 % (was -24.5/-20.9/-25.2 %).
+#   See reports/TET_SURFACE_ON_THE_GEOMETRY.md.
 # THE ORDERS ARE NOW POSITIVE: LE1 0.754, LE10 1.043 — roughly first order, which is what
 # Tet4 stress recovery should give. They were previously recorded here as "-0.06, -0.18,
 # -6.70 ... the error GROWS under h-refinement", and that reading BLOCKED a task for
