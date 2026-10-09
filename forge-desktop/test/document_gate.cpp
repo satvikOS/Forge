@@ -333,7 +333,15 @@ int main(int argc, char** argv) {
   shell.selection().replaceWith({body});
 
   forge::ui::CommandParams filletParams;
-  filletParams.setNumber("radius", 3.0);
+  // r = 2, NOT 3 (T-182). Filleting EVERY edge at r=3 on a bracket whose vertical
+  // edges already carry r=3 fillets is something the kernel declines -- and this gate
+  // passed on it for months only because FeatureTreeCompiler silently retried at
+  // 0.75r and built a 2.25 mm fillet (V=76947.900701, exactly the r=2.25 solid). With
+  // the retry gone that request is refused by name, which is correct; this gate is
+  // about the dispatch rebuilding the geometry, so it asks for a radius the kernel
+  // builds AT THE VALUE ASKED (measured: every r <= 2.5 does).
+  // forge-kernel/test/run_fillet_radius_honesty_gate.sh pins the refusal itself.
+  filletParams.setNumber("radius", 2.0);
   // MUTATION 1 is a SECOND INVOKER: it dispatches straight into the registry,
   // which is what a macro runner or a panel with its own button used to do. The
   // command runs and the document changes, but ForgeShell::run() -- and with it

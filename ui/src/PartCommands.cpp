@@ -232,11 +232,22 @@ PartDocument::Snapshot PartDocument::snapshot() const {
 }
 
 void PartDocument::restore(const Snapshot& state) {
+  // A NEW STATE only when something a plan could depend on moved: records were cut
+  // (undo), or an existing name was removed or now names a different value. Merely
+  // ADDING a name for a value that already exists -- ensureBodyBinding(), the
+  // viewport pick naming a statement so it can be selected -- changes no geometry and
+  // no value, and counting it made every frame invalidate the plan on offer (T-181,
+  // measured: forge_desktop_copilot_gate applied 0 of 2 steps).
+  bool changed = state.records < records_.size();
+  for (auto it = bindings_.begin(); !changed && it != bindings_.end(); ++it) {
+    const auto found = state.bindings.find(it->first);
+    changed = found == state.bindings.end() || found->second != it->second;
+  }
   if (state.records < records_.size()) {
     records_.resize(state.records);
   }
   bindings_ = state.bindings;
-  revision_ = nextDocumentRevision();   // undo/redo IS a new document state
+  if (changed) revision_ = nextDocumentRevision();
 }
 
 // ── the material ────────────────────────────────────────────────────────────

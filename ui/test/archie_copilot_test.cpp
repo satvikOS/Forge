@@ -768,11 +768,19 @@ int testPlanBinding() {
     CHECK(a.seed(IrValueKind::Profile, "s", "RECT", {IrArg::num(10.0), IrArg::num(5.0)}) != 0);
     CHECK(a.revision() != r0);                    // an append is a new state
     const std::uint64_t r1 = a.revision();
-    const PartDocument::Snapshot snap = a.snapshot();
+    const PartDocument::Snapshot one = a.snapshot();
     CHECK(a.revision() == r1);                    // a snapshot is not a mutation
-    a.restore(snap);
-    CHECK(a.revision() != r1);                    // undo/redo IS a new state
+    PartDocument::Snapshot named = one;           // NAMING an existing value...
+    named.bindings["pick_1"] = 1;
+    a.restore(named);
+    CHECK(a.revision() == r1);                    // ...is not a new state (ForgeFrame does it every frame)
+    CHECK(a.seed(IrValueKind::Profile, "t", "RECT", {IrArg::num(4.0), IrArg::num(2.0)}) != 0);
+    const std::uint64_t r1b = a.revision();
+    a.restore(one);                               // UNDO: records cut back
+    CHECK(a.revision() != r1b);                   // IS a new state
     const std::uint64_t r2 = a.revision();
+    a.setParameters(a.parameters());              // the same parameters again
+    CHECK(a.revision() == r2);                    // a no-op set is not a new state
     CHECK(!a.setMaterial(a.material()));          // a no-op is refused...
     CHECK(a.revision() == r2);                    // ...and does not invalidate a plan
   }
@@ -789,7 +797,8 @@ int testPlanBinding() {
     CHECK_EQ_INT(static_cast<int>(cp.deliver(r, fx.shell.registry())), static_cast<int>(PlanCheck::Ok));
     const std::size_t journalBefore = fx.shell.journal().size();
     const std::size_t featuresBefore = fx.doc.featureCount();
-    fx.doc.setParameters(fx.doc.parameters());    // the user edits the part meanwhile
+    // The user edits the part meanwhile: a new statement in the document.
+    CHECK(fx.doc.seed(IrValueKind::Profile, "user.sketch", "RECT", {IrArg::num(5.0), IrArg::num(5.0)}) != 0);
     const ApplyOutcome out = cp.apply(fx.shell, fx.doc);
     CHECK(out.staleDocument);
     CHECK_EQ_INT(out.applied, 0);

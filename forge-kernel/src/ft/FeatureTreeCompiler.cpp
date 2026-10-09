@@ -61,6 +61,7 @@
                                   // error and a process abort (see compile()).
 #include <algorithm>
 #include <array>
+#include <new>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -2145,13 +2146,15 @@ private:
         refuseExtraArgs(op, 3, "FILLET(%body, radius [, sel=ALL])");
         std::string sel = kwOpt(op, 2, "ALL");
         auto ids = selectEdges(body, sel, op.id, op.name);
-        // retry with a shrinking radius (native fillet declines on thin/large radii)
-        for (double rr : {r, r * 0.75, r * 0.5, r * 0.35, r * 0.2}) {
-            if (rr <= 0) break;
-            try { return forge::part::filletEdges(body, ids, rr); }
-            catch (...) { /* try smaller */ }
-        }
-        throw OpError(op.id, "FILLET: kernel declined at every radius (r=" + std::to_string(r) + ")");
+        // THE RADIUS ASKED FOR, OR A LOUD FAILURE (T-182). This loop used to retry
+        // at 0.75r, 0.5r, 0.35r and 0.2r inside a bare catch(...) and return the
+        // first that built -- so FILLET(%1, 5) could come back ok=true with a 1 mm
+        // fillet and nothing in the result saying so, against this file's own
+        // contract ("does not silently degrade"). A smaller radius is a different
+        // part; choosing it is the caller's decision, made with the error in hand.
+        if (!(r > 0.0)) throw OpError(op.id, "FILLET: radius must be > 0 (got " + std::to_string(r) + ")");
+        return kernelOrRefuse(op, "FILLET", "radius " + std::to_string(r),
+                              [&] { return forge::part::filletEdges(body, ids, r); });
     }
 
     Handle opChamfer(const Op& op, std::unordered_map<int, Val>& env) {
@@ -2161,12 +2164,10 @@ private:
         refuseExtraArgs(op, 3, "CHAMFER(%body, dist [, sel=ALL])");
         std::string sel = kwOpt(op, 2, "ALL");
         auto ids = selectEdges(body, sel, op.id, op.name);
-        for (double dd : {d, d * 0.75, d * 0.5, d * 0.35, d * 0.2}) {
-            if (dd <= 0) break;
-            try { return forge::part::chamferEdges(body, ids, dd, -1); }
-            catch (...) { /* try smaller */ }
-        }
-        throw OpError(op.id, "CHAMFER: kernel declined at every distance");
+        // The distance asked for, or a loud failure (T-182; see opFillet).
+        if (!(d > 0.0)) throw OpError(op.id, "CHAMFER: distance must be > 0 (got " + std::to_string(d) + ")");
+        return kernelOrRefuse(op, "CHAMFER", "distance " + std::to_string(d),
+                              [&] { return forge::part::chamferEdges(body, ids, d, -1); });
     }
 
     // BLEND — variable-radius fillet: radius sweeps rStart -> rEnd along each
@@ -2186,21 +2187,51 @@ private:
             else sel = kw;
         }
         auto ids = selectEdges(body, sel, op.id, op.name);
-        for (double scale : {1.0, 0.75, 0.5, 0.35, 0.2}) {
-            std::vector<forge::varfillet::EdgeSpec> specs;
-            specs.reserve(ids.size());
-            for (auto id : ids) {
-                forge::varfillet::EdgeSpec s;
-                s.edgeIndex   = id;
-                s.radiusStart = r0 * scale;
-                s.radiusEnd   = r1 * scale;
-                specs.push_back(s);
-            }
-            try { return forge::varfillet::fillet(body, specs, smooth); }
-            catch (...) { /* try smaller radii */ }
+        // The radii asked for, or a loud failure (T-182; see opFillet).
+        if (!(r0 > 0.0) || !(r1 > 0.0)) {
+            throw OpError(op.id, "BLEND: radii must be > 0 (got " + std::to_string(r0) + " -> " +
+                                     std::to_string(r1) + ")");
         }
-        throw OpError(op.id, "BLEND: kernel declined at every radius (r=" +
-                      std::to_string(r0) + "->" + std::to_string(r1) + ")");
+        std::vector<forge::varfillet::EdgeSpec> specs;
+        specs.reserve(ids.size());
+        for (auto id : ids) {
+            forge::varfillet::EdgeSpec s;
+            s.edgeIndex   = id;
+            s.radiusStart = r0;
+            s.radiusEnd   = r1;
+            specs.push_back(s);
+        }
+        return kernelOrRefuse(op, "BLEND",
+                              "radius " + std::to_string(r0) + " -> " + std::to_string(r1),
+                              [&] { return forge::varfillet::fillet(body, specs, smooth); });
+    }
+
+    // One kernel call, its refusal reported with the kernel's OWN reason. A
+    // std::bad_alloc is not a geometric refusal and is not turned into one: it
+    // propagates, as it did before the catch(...) swallowed it.
+    template <class Fn>
+    Handle kernelOrRefuse(const Op& op, const char* opName, const std::string& asked, Fn&& fn) {
+        try {
+            return fn();
+        } catch (const OpError&) {
+            throw;
+        } catch (const std::bad_alloc&) {
+            throw;
+        } catch (const std::exception& e) {
+            throw OpError(op.id, std::string(opName) + ": the kernel declined " + asked + ": " +
+                                     e.what() + " -- not retried at a smaller value");
+        } catch (const Standard_Failure& f) {
+            // AN OCCT RAISE IS NOT A std::exception (see compile()): name its type
+            // and message, the way this file reports every other OCCT refusal.
+            const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
+            const char* ms = f.GetMessageString();
+            throw OpError(op.id, std::string(opName) + ": the kernel declined " + asked + ": " +
+                                     (ty ? ty : "Standard_Failure") + (ms && *ms ? std::string(": ") + ms : "") +
+                                     " -- not retried at a smaller value");
+        } catch (...) {
+            throw OpError(op.id, std::string(opName) + ": the kernel declined " + asked +
+                                     " (non-standard exception) -- not retried at a smaller value");
+        }
     }
 
     Handle opShell(const Op& op, std::unordered_map<int, Val>& env) {

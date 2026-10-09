@@ -320,6 +320,7 @@ class PartDocument {
   // one record cannot be validated without all the others.
   const ParameterSet& parameters() const noexcept { return parameters_; }
   void setParameters(ParameterSet value) {
+    if (value == parameters_) return;   // a no-op is not a new document state
     parameters_ = std::move(value);
     revision_ = nextDocumentRevision();
   }
