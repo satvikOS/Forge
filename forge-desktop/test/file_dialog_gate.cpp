@@ -777,7 +777,9 @@ int main(int argc, char** argv) {
                 id + ": an OPEN seed is the remembered document, unchanged");
       }
     }
-    check(saveRows == 6, "six Save-mode commands were walked",
+    // SEVEN since T-230: file.export_drawing is a Save row (a required path with
+    // no honest default name), walked here on arrival like every other one.
+    check(saveRows == 7, "seven Save-mode commands were walked",
           std::to_string(saveRows));
     check(openRows == 3, "and three Open-mode ones", std::to_string(openRows));
 
