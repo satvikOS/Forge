@@ -1,0 +1,41 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "macos-arm64-ship",
+      "displayName": "macOS arm64 — native SHIPPING app (no Node, no Python, offline)",
+      "description": "The application half of the shipping build. Links the forge_kernel_core built by forge-kernel's macos-arm64-ship preset (same binaryDir convention, so the two presets find each other with no flags). Python3 lookup is DISABLED so the build runs no interpreter: the one Python step in this project, the op-constraint table drift check (forge_ui_op_table_check), is a source-consistency check that forge-desktop/test/native_ship_gate.sh runs as release tooling instead, and ui/test/run_op_constraint_gate.sh stays its gate of record. First-party targets keep -Wall -Wextra -Werror from CMakeLists.txt; the gate audits that through the exported compile commands.",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceParentDir}/.forge-local/builds/${presetName}-app",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_DISABLE_FIND_PACKAGE_Python3": "ON",
+        "FORGE_KERNEL_BUILD_DIR": "${sourceParentDir}/.forge-local/builds/${presetName}"
+      },
+      "environment": {
+        "FORGE_NETWORK": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos-arm64-ship",
+      "configurePreset": "macos-arm64-ship",
+      "configuration": "Release",
+      "description": "What the bundle carries (forge_desktop, forge_kernel_worker, forge_update, libforge_expr) plus the headless gates the shipped code must pass before it is packaged. native_ship_gate.sh reads the forge_desktop_*_gate names from THIS list and runs exactly those, so the list lives in one place.",
+      "targets": [
+        "forge_desktop",
+        "forge_kernel_worker",
+        "forge_update",
+        "forge_expr",
+        "forge_desktop_frame_gate",
+        "forge_desktop_document_gate",
+        "forge_desktop_ir_pipeline_gate"
+      ]
+    }
+  ]
+}

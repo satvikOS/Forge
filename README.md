@@ -2,8 +2,12 @@
 
 Native parametric mechanical CAD built on a high-performance C++ kernel.
 The geometric core links directly to OCCT 7.9 and FreeCAD's authoring
-layers; **no WASM** — the kernel runs as a native `forge-kernel.node`
-addon loaded by the Electron desktop app.
+layers; **no WASM, no Node, no Electron** in the product. The application is
+the native `forge_desktop` (`forge-desktop/` + `ui/`: SDL2, Vulkan on MoltenVK,
+Dear ImGui), which links the C++ kernel core `libforge_kernel_core` from
+`forge-kernel/` and isolates kernel work in a bundled `forge_kernel_worker`
+process. The Electron app and the `forge-kernel.node` addon are not part of the
+native shipping build (see **Build** below).
 
 ## What Forge is
 
@@ -73,13 +77,44 @@ shipped under the `SP-N` prefix when the product was named ArchDisc Mech.
 
 ## Build
 
-Native toolchain:
+Native toolchain (macOS arm64, Homebrew; the app's list is in
+`forge-desktop/README.md`):
 
 ```sh
-brew install cmake opencascade
+brew install cmake opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang
 ```
 
-App:
+The native app, from the **shipping presets** (`macos-arm64-ship` in
+`forge-kernel/CMakePresets.json` and `forge-desktop/CMakePresets.json`). They
+pin what ships — no Node addon (`FORGE_BUILD_NODE_ADDON=OFF`; the CMake default
+is ON), no Python step in the build, Release, arm64, macOS 14.0 — and need no
+`node`, `npm` or `node_modules`:
+
+```sh
+(cd forge-kernel  && cmake --preset macos-arm64-ship && cmake --build --preset macos-arm64-ship -j6)
+(cd forge-desktop && cmake --preset macos-arm64-ship && cmake --build --preset macos-arm64-ship -j6)
+```
+
+Builds land in `.forge-local/builds/macos-arm64-ship{,-app}`. Package and report
+without publishing anything (ad-hoc signed, no notarization):
+
+```sh
+KERNEL_BUILD="$PWD/.forge-local/builds/macos-arm64-ship" \
+APP_BUILD="$PWD/.forge-local/builds/macos-arm64-ship-app" \
+  forge-desktop/release_dryrun.sh --no-build      # -> forge-desktop/dist/
+```
+
+`forge-desktop/test/native_ship_gate.sh` is the gate for all of the above: it
+builds both presets with node/npm/python/electron trap shims first on `PATH`,
+audits `-Werror` on first-party code, runs the headless gates, packages under
+the same trap, scans the bundle for any Node/Electron/Python artifact, and makes
+the relocated bundle's worker build a solid under `env -i`
+(`--prove-mutations` shows each check can fail).
+
+Legacy Electron app — not the shipping product. Every `forge-kernel` preset
+other than `macos-arm64-ship` leaves `FORGE_BUILD_NODE_ADDON` at its default
+(ON), so those presets still build `forge-kernel.node` and run `node` at
+configure time:
 
 ```sh
 npm install

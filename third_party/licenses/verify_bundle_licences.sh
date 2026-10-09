@@ -72,16 +72,29 @@ holder stb-MIT-or-Unlicense.txt "Copyright (c) 2017 Sean Barrett"
 FW="$APP/Contents/Frameworks"
 MANIFEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../freecad-derived" 2>/dev/null && pwd)/manifest.json"
 if [ -f "$MANIFEST" ]; then
-  while IFS='|' read -r comp lib; do
-    [ -n "$comp" ] || continue
+  # Read with plutil (JSON in, typed values out), not an interpreter: the release
+  # path runs none. A manifest this cannot read is a RED, not an empty loop -- an
+  # unreadable list of owed libraries must not read as "nothing is owed".
+  NCOMP="$(plutil -extract components raw -expect array -o - "$MANIFEST" 2>/dev/null)"
+  case "$NCOMP" in
+    ''|*[!0-9]*)
+      echo "  MISSING a readable 'components' array in third_party/freecad-derived/manifest.json -- cannot tell which libraries are owed"
+      MISSING=$((MISSING + 1)); NCOMP=0 ;;
+  esac
+  i=0
+  while [ "$i" -lt "$NCOMP" ]; do
+    comp="$(plutil -extract "components.$i.name" raw -expect string -o - "$MANIFEST" 2>/dev/null)"
+    lib="$(plutil -extract "components.$i.library" raw -expect string -o - "$MANIFEST" 2>/dev/null)"
+    i=$((i + 1))
+    if [ -z "$comp" ] || [ -z "$lib" ]; then
+      echo "  MISSING manifest.json components[$((i - 1))] has no string name/library -- cannot tell what it owes"
+      MISSING=$((MISSING + 1)); continue
+    fi
     [ -f "$FW/$lib" ] || continue
     for f in COPYING.LGPL MODIFICATIONS.md NOTICE; do
       need "freecad-derived/$comp/$f" "$lib (LGPL-2.1, dynamic, Contents/Frameworks)"
     done
-  done < <(python3 -c '
-import json, sys
-for c in json.load(open(sys.argv[1]))["components"]:
-    print("%s|%s" % (c["name"], c["library"]))' "$MANIFEST")
+  done
   need "freecad-derived/THIRD_PARTY_NOTICES.md" "the FreeCAD-derived libraries, one section each"
 else
   echo "  MISSING third_party/freecad-derived/manifest.json beside this script -- cannot tell which libraries are owed"

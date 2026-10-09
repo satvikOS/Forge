@@ -120,9 +120,13 @@ APPCAST_JSON
 [ -s "$OUT" ] || die "wrote an empty appcast to $OUT"
 
 # Valid JSON is necessary but nowhere near sufficient — the app's own parser is
-# stricter than json.load. test/appcast_selftest.sh runs that parser over this
-# file; this check only catches a shell-quoting accident early.
-python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT" \
+# stricter than this. test/appcast_selftest.sh runs that parser over this file;
+# this check only catches a shell-quoting accident early (an empty value, a stray
+# quote, a raw control character). plutil, not an interpreter: the release path
+# runs none. Measured on macOS 26.6 plutil: rejects `"size": ,`, `"v": "1"2"`, a
+# raw newline inside a string, trailing garbage and an empty file; ACCEPTS a
+# trailing comma, which json.load did not -- the heredoc above writes none.
+plutil -convert json -o /dev/null "$OUT" >/dev/null 2>&1 \
   || die "the appcast just written is not valid JSON: $OUT"
 
 # ── SIGN IT ──────────────────────────────────────────────────────────────────
