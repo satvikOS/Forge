@@ -30,11 +30,17 @@
 // MEASURED 2026-09-03, macOS 15 (Darwin 25.6.0), Apple clang 21.0.0, in a
 // terminal with no window of its own: 27 checks, 0 failures, all six commands
 // (4 for each Open panel, 5 for each Save panel -- the name field is the fifth).
+// RE-MEASURED 2026-10-09 (T-230), macOS 26.6.2 (Darwin 25.6.0), Apple clang
+// 21.0.0: 48 checks, 0 failures -- the ids are now WALKED from
+// fileDialogCommandIds(), all ten of them (3 Open x 4 + 7 Save x 5, plus the
+// check that every one was walked).
 // If a future measurement shows a GitHub runner can do the same, promote it.
 #import <AppKit/AppKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#include <cstddef>
 #include <cstdio>
 #include <string>
+#include <vector>
 #include "FileDialog.hpp"
 
 static int fails = 0;
@@ -46,13 +52,26 @@ static void ck(bool ok, const char* what) {
 int main() {
   @autoreleasepool {
     [NSApplication sharedApplication];
-    const char* ids[] = {"file.open", "file.save", "file.import_step",
-                         "file.export_step", "file.import_brep", "file.export_brep"};
-    for (const char* id : ids) {
+    // EVERY path-taking command the policy table names, DERIVED and never a
+    // list. This probe used to hard-code six ids, so the four that arrived after
+    // it (save_as, export_stl, export_gcode, and every later one) were never put
+    // in front of a real panel -- and nothing said so.
+    const std::vector<std::string>& ids = forge::desktop::fileDialogCommandIds();
+    // The context ForgeFrame::seedContext() builds: the document the probe
+    // pretends is open is its own seed, and it reads no other file. Required
+    // since 2b5e61d3; this probe stopped COMPILING the day it became required,
+    // and because it is not in CI (see above) nothing went red.
+    const std::string seed = "/tmp/forge_probe/bracket.fpart";
+    forge::desktop::SeedContext context;
+    context.ownDocument = seed;
+    std::size_t walked = 0;
+    for (const std::string& idString : ids) {
+      const char* id = idString.c_str();
       forge::desktop::FileDialogRequest r;
-      if (!forge::desktop::fileDialogRequestFor(id, "/tmp/forge_probe/bracket.fpart", r)) {
+      if (!forge::desktop::fileDialogRequestFor(idString, seed, context, r)) {
         std::printf("  %s: NO POLICY\n", id); ++fails; continue;
       }
+      ++walked;
       std::printf("[%s] mode=%s title=\"%s\" seed=\"%s\" ext=\"%s\"\n", id,
                   r.mode == forge::desktop::FileDialogMode::Open ? "Open" : "Save",
                   r.title.c_str(), r.suggestedPath.c_str(), r.defaultExtension.c_str());
@@ -99,6 +118,9 @@ int main() {
       ck([panel.title UTF8String] != nullptr && r.title == std::string([panel.title UTF8String]),
          "AppKit kept the title");
     }
+    std::printf("\n[panel-probe] %zu of %zu file commands put in front of a real panel\n", walked,
+                ids.size());
+    ck(!ids.empty() && walked == ids.size(), "every file command in the policy table was probed");
   }
   std::printf("\n%s (%d failures)\n", fails ? "PROBE RED" : "PROBE GREEN", fails);
   return fails ? 1 : 0;
