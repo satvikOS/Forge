@@ -5,6 +5,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <initializer_list>
 #include <limits>
@@ -13,6 +16,9 @@
 #include <utility>
 #include <vector>
 
+#include <unistd.h>
+
+#include "KernelScene.hpp"
 #include "forge/Booleans.hpp"
 #include "forge/OcctImport.hpp"
 #include "forge/ShapeRegistry.hpp"
@@ -479,6 +485,407 @@ DrawingProjectionResult projectDrawingViews(const DrawingProjectionRequest& requ
   result.viewsMs = msSince(tViews);
   result.ok = true;
   return result;
+}
+
+}  // namespace forge::desktop
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE DRAWING REQUEST ACROSS THE WORKER BOUNDARY (T-360)
+// ════════════════════════════════════════════════════════════════════════════
+namespace forge::desktop {
+
+namespace {
+
+// A double as a C99 hex float: exact, so the bits that come back are the bits
+// that went in. "%a" never prints a locale's decimal comma.
+void putNumber(std::string& o, double v) {
+  char buf[64];
+  std::snprintf(buf, sizeof(buf), "%a", v);
+  o += buf;
+}
+
+void putBytes(std::string& o, const char* key, const std::string& bytes) {
+  o += key;
+  o += ' ';
+  o += std::to_string(bytes.size());
+  o += '\n';
+  o += bytes;
+  o += '\n';
+}
+
+// A cursor over the answer. Every read either succeeds completely or sets
+// `why` and fails; nothing is guessed.
+class Reader {
+ public:
+  explicit Reader(const std::string& text) : t_(text) {}
+  bool line(std::string& out) {
+    if (at_ >= t_.size()) return false;
+    const std::size_t nl = t_.find('\n', at_);
+    if (nl == std::string::npos) return false;
+    out.assign(t_, at_, nl - at_);
+    at_ = nl + 1;
+    return true;
+  }
+  bool bytes(std::size_t n, std::string& out) {
+    if (n > t_.size() - at_) return false;
+    out.assign(t_, at_, n);
+    at_ += n;
+    // ...and the newline the writer puts after them.
+    if (at_ >= t_.size() || t_[at_] != '\n') return false;
+    ++at_;
+    return true;
+  }
+  bool atEnd() const noexcept { return at_ == t_.size(); }
+
+ private:
+  const std::string& t_;
+  std::size_t at_ = 0;
+};
+
+// Splits one line on single spaces.
+std::vector<std::string> fields(const std::string& line) {
+  std::vector<std::string> out;
+  std::size_t at = 0;
+  while (at <= line.size()) {
+    const std::size_t sp = line.find(' ', at);
+    const std::size_t end = sp == std::string::npos ? line.size() : sp;
+    out.push_back(line.substr(at, end - at));
+    if (sp == std::string::npos) break;
+    at = sp + 1;
+  }
+  return out;
+}
+
+// The whole token must be a finite number.
+bool toDouble(const std::string& s, double& out) {
+  if (s.empty()) return false;
+  char* end = nullptr;
+  const double v = std::strtod(s.c_str(), &end);
+  if (end == nullptr || *end != '\0' || !std::isfinite(v)) return false;
+  out = v;
+  return true;
+}
+
+bool toCount(const std::string& s, std::size_t limit, std::size_t& out) {
+  if (s.empty() || s.size() > 12) return false;
+  std::size_t v = 0;
+  for (char c : s) {
+    if (c < '0' || c > '9') return false;
+    v = v * 10 + static_cast<std::size_t>(c - '0');
+  }
+  if (v > limit) return false;
+  out = v;
+  return true;
+}
+
+// What a payload may claim before it is read: generous for any real drawing
+// (the starting part's three views are ~2,800 segments), small enough that a
+// garbled count cannot ask this process for gigabytes.
+constexpr std::size_t kMaxPolylines = 4u * 1024u * 1024u;
+constexpr std::size_t kMaxPoints = 16u * 1024u * 1024u;
+constexpr std::size_t kMaxSentence = 64u * 1024u;
+
+bool expectKeyed(Reader& r, const char* key, std::vector<std::string>& f, std::size_t n,
+                 std::string& why) {
+  std::string l;
+  if (!r.line(l)) {
+    why = std::string("the drawing answer ends before its '") + key + "' line";
+    return false;
+  }
+  f = fields(l);
+  if (f.empty() || f[0] != key || f.size() != n + 1) {
+    why = std::string("the drawing answer's '") + key + "' line is malformed: " + l.substr(0, 80);
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+std::string drawingWorkerPayload(const DrawingProjectionRequest& request) {
+  std::string p = kWorkerDrawingPragma;
+  for (std::size_t i = 0; i < request.views.size(); ++i) {
+    if (i != 0) p += ' ';
+    p += std::to_string(static_cast<int>(request.views[i]));
+  }
+  p += '\n';
+  if (!request.inputFile.empty()) p += std::string(kWorkerInputPragma) + request.inputFile + "\n";
+  p += request.irProgram;
+  return p;
+}
+
+bool takeDrawingPragma(std::string& program, std::vector<forge::ui::NamedView>& views,
+                       bool& present, std::string& why) {
+  present = false;
+  const std::string pragma = kWorkerDrawingPragma;
+  if (program.rfind(pragma, 0) != 0) return true;
+  present = true;
+  std::size_t end = program.find('\n', pragma.size());
+  if (end == std::string::npos) end = program.size();
+  const std::string args = program.substr(pragma.size(), end - pragma.size());
+  program = end < program.size() ? program.substr(end + 1) : std::string();
+  views.clear();
+  for (const std::string& f : fields(args)) {
+    if (f.empty()) continue;
+    std::size_t v = 0;
+    if (!toCount(f, forge::ui::kNamedViewCount - 1, v)) {
+      why = "the drawing request names a view this build does not have: " + f;
+      return false;
+    }
+    views.push_back(static_cast<forge::ui::NamedView>(v));
+  }
+  if (views.empty()) {
+    why = "the drawing request names no view";
+    return false;
+  }
+  return true;
+}
+
+std::string encodeDrawingProjection(const DrawingProjectionResult& r) {
+  std::string o;
+  o.reserve(64 * 1024);
+  o += kDrawingResultMagic;
+  o += '\n';
+  o += r.ok ? "ok 1\n" : "ok 0\n";
+  putBytes(o, "blockerBytes", r.blocker);
+  putBytes(o, "detailBytes", r.detail);
+  o += "bbox";
+  for (int i = 0; i < 3; ++i) {
+    o += ' ';
+    putNumber(o, r.bboxMin[i]);
+  }
+  for (int i = 0; i < 3; ++i) {
+    o += ' ';
+    putNumber(o, r.bboxMax[i]);
+  }
+  o += '\n';
+  o += "counts " + std::to_string(r.edgesClassified) + " " + std::to_string(r.curveTess) + " " +
+       std::to_string(r.samplesPerEdge) + " " + std::to_string(r.nativeFaces) + "\n";
+  o += "timing ";
+  putNumber(o, r.compileMs);
+  o += ' ';
+  putNumber(o, r.importMs);
+  o += ' ';
+  putNumber(o, r.viewsMs);
+  o += '\n';
+  o += "views " + std::to_string(r.views.size()) + "\n";
+  for (const forge::ui::DrawingViewLines& v : r.views) {
+    o += "view " + std::to_string(static_cast<int>(v.view));
+    for (const double d : {v.minRight, v.maxRight, v.minUp, v.maxUp}) {
+      o += ' ';
+      putNumber(o, d);
+    }
+    o += " " + std::to_string(v.visible.size()) + " " + std::to_string(v.hidden.size()) + "\n";
+    for (const std::vector<forge::ui::DrawingPolyline>* set : {&v.visible, &v.hidden}) {
+      for (const forge::ui::DrawingPolyline& pl : *set) {
+        o += "pl " + std::to_string(pl.points.size());
+        for (const std::array<double, 2>& q : pl.points) {
+          o += ' ';
+          putNumber(o, q[0]);
+          o += ' ';
+          putNumber(o, q[1]);
+        }
+        o += '\n';
+      }
+    }
+  }
+  o += "end\n";
+  return o;
+}
+
+bool decodeDrawingProjection(const std::string& payload, DrawingProjectionResult& out,
+                             std::string& why) {
+  why.clear();
+  Reader r(payload);
+  std::string l;
+  if (!r.line(l) || l != kDrawingResultMagic) {
+    why = "the answer does not begin with the drawing result magic '" +
+          std::string(kDrawingResultMagic) + "'";
+    return false;
+  }
+  DrawingProjectionResult res;
+  std::vector<std::string> f;
+  if (!expectKeyed(r, "ok", f, 1, why)) return false;
+  if (f[1] != "0" && f[1] != "1") {
+    why = "the drawing answer's 'ok' is neither 0 nor 1";
+    return false;
+  }
+  res.ok = f[1] == "1";
+  for (const auto& [key, dst] : {std::pair<const char*, std::string*>{"blockerBytes", &res.blocker},
+                                 std::pair<const char*, std::string*>{"detailBytes", &res.detail}}) {
+    std::size_t n = 0;
+    if (!expectKeyed(r, key, f, 1, why)) return false;
+    if (!toCount(f[1], kMaxSentence, n) || !r.bytes(n, *dst)) {
+      why = std::string("the drawing answer's ") + key + " block does not hold what it declares";
+      return false;
+    }
+  }
+  if (!expectKeyed(r, "bbox", f, 6, why)) return false;
+  for (int i = 0; i < 3; ++i) {
+    if (!toDouble(f[1 + i], res.bboxMin[i]) || !toDouble(f[4 + i], res.bboxMax[i])) {
+      why = "the drawing answer's bounding box is not six numbers";
+      return false;
+    }
+  }
+  if (!expectKeyed(r, "counts", f, 4, why)) return false;
+  if (!toCount(f[1], ~std::size_t{0} >> 1, res.edgesClassified) ||
+      !toCount(f[2], 1u << 20, res.curveTess) || !toCount(f[3], 1u << 20, res.samplesPerEdge) ||
+      !toCount(f[4], ~std::size_t{0} >> 1, res.nativeFaces)) {
+    why = "the drawing answer's counts are not counts";
+    return false;
+  }
+  if (!expectKeyed(r, "timing", f, 3, why)) return false;
+  if (!toDouble(f[1], res.compileMs) || !toDouble(f[2], res.importMs) ||
+      !toDouble(f[3], res.viewsMs)) {
+    why = "the drawing answer's timings are not numbers";
+    return false;
+  }
+  std::size_t nViews = 0;
+  if (!expectKeyed(r, "views", f, 1, why)) return false;
+  if (!toCount(f[1], forge::ui::kNamedViewCount, nViews)) {
+    why = "the drawing answer declares an impossible number of views: " + f[1];
+    return false;
+  }
+  std::size_t totalPoints = 0;
+  for (std::size_t vi = 0; vi < nViews; ++vi) {
+    if (!expectKeyed(r, "view", f, 7, why)) return false;
+    forge::ui::DrawingViewLines v;
+    std::size_t kind = 0;
+    std::size_t nVisible = 0;
+    std::size_t nHidden = 0;
+    if (!toCount(f[1], forge::ui::kNamedViewCount - 1, kind) || !toDouble(f[2], v.minRight) ||
+        !toDouble(f[3], v.maxRight) || !toDouble(f[4], v.minUp) || !toDouble(f[5], v.maxUp) ||
+        !toCount(f[6], kMaxPolylines, nVisible) || !toCount(f[7], kMaxPolylines, nHidden)) {
+      why = "view " + std::to_string(vi + 1) + " of the drawing answer is malformed";
+      return false;
+    }
+    v.view = static_cast<forge::ui::NamedView>(kind);
+    for (std::size_t k = 0; k < nVisible + nHidden; ++k) {
+      if (!r.line(l)) {
+        why = "the drawing answer ends inside view " + std::to_string(vi + 1) + ", after " +
+              std::to_string(k) + " of its " + std::to_string(nVisible + nHidden) + " lines";
+        return false;
+      }
+      f = fields(l);
+      std::size_t n = 0;
+      if (f.size() < 2 || f[0] != "pl" || !toCount(f[1], kMaxPoints, n) ||
+          f.size() != 2 + 2 * n) {
+        why = "line " + std::to_string(k + 1) + " of view " + std::to_string(vi + 1) +
+              " does not hold the points it declares";
+        return false;
+      }
+      totalPoints += n;
+      if (totalPoints > kMaxPoints) {
+        why = "the drawing answer holds more points than any drawing could";
+        return false;
+      }
+      forge::ui::DrawingPolyline pl;
+      pl.points.resize(n);
+      for (std::size_t p = 0; p < n; ++p) {
+        if (!toDouble(f[2 + 2 * p], pl.points[p][0]) || !toDouble(f[3 + 2 * p], pl.points[p][1])) {
+          why = "a point of view " + std::to_string(vi + 1) + " is not a finite number";
+          return false;
+        }
+      }
+      (k < nVisible ? v.visible : v.hidden).push_back(std::move(pl));
+    }
+    res.views.push_back(std::move(v));
+  }
+  if (!r.line(l) || l != "end" || !r.atEnd()) {
+    why = "the drawing answer does not end where its counts say it does";
+    return false;
+  }
+  out = std::move(res);
+  return true;
+}
+
+// ── DrawingProjector ────────────────────────────────────────────────────────
+void DrawingProjector::configure(std::vector<std::string> argv,
+                                 const forge::ui::GuardLimits& limits) {
+  session_.configureWorker(std::move(argv));
+  session_.setLimits(limits);
+}
+
+DrawingProjectionResult DrawingProjector::inProcess(const DrawingProjectionRequest& request) {
+  ++inProcessRuns_;
+  DrawingProjectionResult r = projectDrawingViews(request);
+  r.isolated = false;
+  return r;
+}
+
+DrawingProjectionResult DrawingProjector::project(const DrawingProjectionRequest& request) {
+  if (!session_.workerConfigured()) return inProcess(request);
+  // The guard buildIsolated carries, for the same reason: this wait is
+  // synchronous and has no host pump, so with no deadline nothing could end it.
+  // An isolation that cannot be waited on is not used; the drawing still draws.
+  if (session_.limits().deadlineMs == 0 || session_.running()) {
+    ++fallbacks_;
+    return inProcess(request);
+  }
+  if (!start(request, forge::ui::steadyNowMs())) {
+    // Nothing started -- no worker binary beside the app, a refused spawn. The
+    // application without its worker is still an application.
+    ++fallbacks_;
+    return inProcess(request);
+  }
+  DrawingProjectionResult out;
+  while (!poll(forge::ui::steadyNowMs(), out)) ::usleep(1000);
+  return out;
+}
+
+bool DrawingProjector::start(const DrawingProjectionRequest& request, std::uint64_t nowMs) {
+  if (!session_.workerConfigured() || session_.running()) return false;
+  if (!session_.submit("drawing", drawingWorkerPayload(request), nowMs)) return false;
+  ++isolatedRuns_;
+  return true;
+}
+
+bool DrawingProjector::poll(std::uint64_t nowMs, DrawingProjectionResult& out) {
+  if (!session_.running()) return false;
+  if (!session_.pump(nowMs)) return false;
+  out = finish();
+  return true;
+}
+
+DrawingProjectionResult DrawingProjector::finish() {
+  DrawingProjectionResult r;
+  r.isolated = true;
+  const forge::ui::KernelJobState state = session_.state();
+  if (state != forge::ui::KernelJobState::Succeeded) {
+    // ★ THE POINT: the projection died and this process did not. The sentence
+    // is for the person; the cause -- the signal, the statement the worker last
+    // announced -- is for the activity log.
+    r.ok = false;
+    r.detail = session_.diagnostic();
+    switch (state) {
+      case forge::ui::KernelJobState::TimedOut:
+        r.blocker = "Working out which edges of this part are hidden took longer than Forge "
+                    "allows, so it was stopped and there is no drawing. Your part and your work "
+                    "are unchanged.";
+        break;
+      case forge::ui::KernelJobState::Cancelled:
+        r.blocker = "The drawing was stopped before it was finished, so there is no drawing. "
+                    "Your part and your work are unchanged.";
+        break;
+      default:
+        r.blocker = "Forge stopped while working out which edges of this part are hidden, so "
+                    "there is no drawing. Your part and your work are unchanged.";
+        break;
+    }
+    return r;
+  }
+  std::string why;
+  if (!decodeDrawingProjection(session_.result(), r, why)) {
+    r = DrawingProjectionResult{};
+    r.isolated = true;
+    r.ok = false;
+    r.detail = why;
+    r.blocker = "Forge could not read back the drawing it worked out, so there is no drawing. "
+                "Your part and your work are unchanged.";
+    return r;
+  }
+  r.isolated = true;
+  return r;
 }
 
 }  // namespace forge::desktop

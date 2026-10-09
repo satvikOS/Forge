@@ -18,7 +18,7 @@
 #                        pointer-heavy code in the process that must not fall over.
 #
 # ── ★ THE MUTATIONS ─────────────────────────────────────────────────────────
-# A GATE NEVER PROVEN TO FAIL IS DECORATION. Six of the eight mutations below
+# A GATE NEVER PROVEN TO FAIL IS DECORATION. Nine of the eleven mutations below
 # are injected into the PRODUCTION SOURCES -- a copy of them -- not into the test,
 # because a mutation that only edits the test proves the test can print FAIL, not
 # that it is watching the shipped code.
@@ -107,6 +107,7 @@ build_pair() {
     "$SRC"/ui/src/*.cpp \
     "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp" \
     "$SRC/forge-desktop/src/PartFile.cpp" \
+    "$SRC/forge-desktop/src/DrawingHost.cpp" \
     "$SRC/forge-desktop/src/kernel_worker_main.cpp" \
     "${LINK[@]}" -o "$OUT/forge_kernel_worker" 2>"$OUT/worker.err" || return 1
   # The gate: sanitized.
@@ -116,6 +117,7 @@ build_pair() {
     "$SRC"/ui/src/*.cpp \
     "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp" \
     "$SRC/forge-desktop/src/PartFile.cpp" \
+    "$SRC/forge-desktop/src/DrawingHost.cpp" \
     "$SRC/forge-desktop/src/Camera.cpp" \
     "$SRC/forge-desktop/test/isolation_gate.cpp" \
     "${LINK[@]}" -o "$OUT/isolation_gate" 2>"$OUT/gate.err" || return 1
@@ -196,6 +198,9 @@ MUTS=(
 "S4|the vertex-length check is weakened from != to <, so an over-long stream renders|forge-desktop/src/KernelScene.cpp|s/if (have != want) {/if (have < want) {/"
 "S5|a crashed build reports SUCCESS|forge-desktop/src/KernelScene.cpp|s|^    error_ = session_\.diagnostic();\$|    error_ = session_.diagnostic();\\n    return true;|"
 "S6|the unbounded-uninterruptible-wait guard is removed, so the app HANGS on rebuild|forge-desktop/src/KernelScene.cpp|s|^  if (limits_\.deadlineMs == 0 \&\& !hostPump_) {|  if (false) {|"
+"S7|the drawing answer's numbers are read at FLOAT precision, so a drawing saved from the worker is not the drawing it projected|forge-desktop/src/DrawingHost.cpp|s/const double v = std::strtod(s\.c_str(), &end);/const double v = std::strtof(s.c_str(), \&end);/"
+"S8|a drawing that crashed in the worker reports SUCCESS|forge-desktop/src/DrawingHost.cpp|s|^    r\.detail = session_\.diagnostic();\$|    r.detail = session_.diagnostic();\\n    r.ok = true;\\n    return r;|"
+"S9|the worker ignores the drawing request and answers with a viewport build|forge-desktop/src/kernel_worker_main.cpp|s/^  if (wantDrawing) {/  if (false) {/"
 )
 
 BAD=0
@@ -286,5 +291,5 @@ if [ "$BAD" -ne 0 ]; then
   exit 1
 fi
 echo
-echo "[isolation] GREEN -- the gate passes and all 8 mutations were caught."
+echo "[isolation] GREEN -- the gate passes and all 11 mutations were caught."
 exit 0

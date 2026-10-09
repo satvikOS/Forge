@@ -3,8 +3,10 @@
 // THE PROCESS THE APPLICATION IS ALLOWED TO LOSE.
 //
 // It reads one feature-IR program on stdin, compiles and tessellates it, and
-// writes the viewport's vertex stream back on stdout. If OCCT dereferences a
-// null Geom2d_Curve halfway through — the defect measured in
+// writes the viewport's vertex stream back on stdout. (Two other request kinds
+// ride the same pipe behind a first-line pragma: the quality check,
+// ModelQuality.hpp, and the drawing's views, DrawingHost.hpp, T-360.) If OCCT
+// dereferences a null Geom2d_Curve halfway through — the defect measured in
 // forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md, reached on three paths, on
 // Archie's output AND on the gold reference parts — THIS process dies and the
 // application does not. The user's document, their unsaved edits, their layout
@@ -45,6 +47,7 @@
 
 #include <unistd.h>
 
+#include "DrawingHost.hpp"
 #include "KernelScene.hpp"
 #include "ModelQuality.hpp"
 #include "forge/ft/FeatureTree.hpp"
@@ -182,6 +185,26 @@ int main(int argc, char** argv) {
 
   std::string program = readAllStdin();
 
+  // ── the DRAWING pragma (T-360) ───────────────────────────────────────────
+  // `#!forge-worker-drawing <view> <view> ...` asks for the drawing's views
+  // instead of a vertex stream: the same compile, then the native import and one
+  // hidden-line pass per view (DrawingHost.hpp projectDrawingViews), answered as
+  // an encoded DrawingProjectionResult. Read FIRST because the parent writes it
+  // first, ahead of the input pragma, so the input path is still read off the
+  // line that then leads. It keeps the drawing's OCCT compile and import -- the
+  // paths forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md records faulting on --
+  // inside the process the application is allowed to lose.
+  bool wantDrawing = false;
+  std::vector<forge::ui::NamedView> drawingViews;
+  {
+    std::string why;
+    if (!forge::desktop::takeDrawingPragma(program, drawingViews, wantDrawing, why)) {
+      // A request this build cannot honour is a refusal, not a guess at the views.
+      std::fprintf(stderr, "[worker] %s\n", why.c_str());
+      return 6;
+    }
+  }
+
   // ── the input-file pragma ────────────────────────────────────────────────
   // The parent prepends `#!forge-worker-input <path>` when the document's
   // `INPUT()` binds a file (KernelScene::buildIsolated). Read it off the FIRST
@@ -259,6 +282,25 @@ int main(int argc, char** argv) {
     }
     std::fprintf(stderr, "[worker] unknown selftest mode '%s'\n", mode.c_str());
     return 5;
+  }
+
+  if (wantDrawing) {
+    // The op trail is announced through the compile exactly as for a build, so
+    // a fault while the part is compiled for its drawing names the statement.
+    forge::ft::setCompileProgressHook(&announce, nullptr);
+    forge::desktop::DrawingProjectionRequest request;
+    request.irProgram = program;
+    request.inputFile = workerInputFile;
+    request.views = drawingViews;
+    const forge::desktop::DrawingProjectionResult projected =
+        forge::desktop::projectDrawingViews(request);
+    forge::ft::setCompileProgressHook(nullptr, nullptr);
+    // A part that cannot be drawn is a RESULT with its sentence, not a crash:
+    // exit 0, and the answer says so.
+    const std::string text = forge::desktop::encodeDrawingProjection(projected);
+    std::fwrite(text.data(), 1, text.size(), stdout);
+    std::fflush(stdout);
+    return 0;
   }
 
   // ── the real work ─────────────────────────────────────────────────────────

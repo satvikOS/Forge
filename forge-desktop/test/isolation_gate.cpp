@@ -47,9 +47,14 @@
 
 #include <csignal>
 #include <sys/stat.h>
+#include <unistd.h>
 
+#include "DrawingHost.hpp"
 #include "KernelScene.hpp"
 #include "PartFile.hpp"
+#include "forge/ui/Drawing.hpp"
+#include "forge/ui/DrawingExport.hpp"
+#include "forge/ui/FileExchange.hpp"
 #include "forge/ui/GuardedProcess.hpp"
 #include "forge/ui/KernelSession.hpp"
 
@@ -633,6 +638,329 @@ int main(int argc, char** argv) {
     check(!forge::desktop::KernelSceneTestAccess::decode("", r, v, backend, err),
           "an empty payload is refused");
   }
+
+  // ══ 10. ★ THE DRAWING REQUEST (T-360) ═════════════════════════════════════
+  // File > Save the Drawing and the Sheet tab compile the part, import it into
+  // the native B-rep and run three hidden-line passes -- seconds of the OCCT
+  // paths this file exists for. They now go to the worker as a request kind of
+  // their own. Everything below is against the REAL worker binary.
+  //
+  // A plate with a bore (the starting part without its fillets): hidden lines in
+  // two views, a circle in the third, and quick enough to project under ASAN.
+  std::string plate;
+  {
+    const std::string all = defaultProgram();
+    std::size_t at = 0;
+    while (at < all.size()) {
+      std::size_t nl = all.find('\n', at);
+      if (nl == std::string::npos) nl = all.size();
+      const std::string line = all.substr(at, nl - at);
+      if (line.find("FILLET") == std::string::npos && !line.empty()) plate += line + "\n";
+      at = nl + 1;
+    }
+  }
+  // THE RAW PROTOCOL FIRST, so this section can say what a worker WITHOUT the
+  // request kind does with it -- that is how its failing-first run was measured:
+  // the pragma is a `#` comment to the IR grammar, so such a worker quietly
+  // builds the part and answers with a VIEWPORT, which is the defect.
+  {
+    forge::ui::KernelSession raw;
+    raw.configureWorker({worker});
+    raw.setLimits(limits);
+    const std::string payload = std::string("#!forge-worker-drawing 0 4 3\n") + plate;
+    check(raw.submit("drawing", payload, forge::ui::steadyNowMs()), "a drawing request starts",
+          raw.diagnostic());
+    raw.runToCompletion();
+    checkEq(static_cast<int>(raw.state()), static_cast<int>(forge::ui::KernelJobState::Succeeded),
+            "the drawing request completes");
+    check(raw.result().rfind("FORGE-DRAWING-RESULT 1\n", 0) == 0,
+          "★ the worker answers a drawing request with a DRAWING, not a viewport build",
+          raw.result().substr(0, 40));
+  }
+#if defined(FORGE_DESKTOP_HAS_DRAWING_PROJECTOR)
+  {
+    using forge::desktop::DrawingProjectionRequest;
+    using forge::desktop::DrawingProjectionResult;
+    using forge::desktop::DrawingProjector;
+    DrawingProjectionRequest req;
+    req.irProgram = plate;
+    req.views = {forge::ui::NamedView::Front, forge::ui::NamedView::Top,
+                 forge::ui::NamedView::Right};
+
+    // Bit for bit, not "close": a drawing saved from the worker's projection
+    // must be the SAME FILE as one saved from this process's.
+    const auto sameBits = [](double a, double b) { return std::memcmp(&a, &b, sizeof a) == 0; };
+    const auto sameProjection = [&](const DrawingProjectionResult& a,
+                                    const DrawingProjectionResult& b, std::string& why) {
+      if (a.ok != b.ok || a.views.size() != b.views.size()) {
+        why = "ok/views differ";
+        return false;
+      }
+      for (int i = 0; i < 3; ++i) {
+        if (!sameBits(a.bboxMin[i], b.bboxMin[i]) || !sameBits(a.bboxMax[i], b.bboxMax[i])) {
+          why = "bounding box differs";
+          return false;
+        }
+      }
+      if (a.edgesClassified != b.edgesClassified || a.curveTess != b.curveTess ||
+          a.samplesPerEdge != b.samplesPerEdge || a.nativeFaces != b.nativeFaces) {
+        why = "counts differ";
+        return false;
+      }
+      std::size_t points = 0;
+      for (std::size_t v = 0; v < a.views.size(); ++v) {
+        const forge::ui::DrawingViewLines& x = a.views[v];
+        const forge::ui::DrawingViewLines& y = b.views[v];
+        if (x.view != y.view || !sameBits(x.minRight, y.minRight) ||
+            !sameBits(x.maxRight, y.maxRight) || !sameBits(x.minUp, y.minUp) ||
+            !sameBits(x.maxUp, y.maxUp) || x.visible.size() != y.visible.size() ||
+            x.hidden.size() != y.hidden.size()) {
+          why = "view " + std::to_string(v) + " differs in kind, extent or line count";
+          return false;
+        }
+        for (int cls = 0; cls < 2; ++cls) {
+          const auto& p = cls == 0 ? x.visible : x.hidden;
+          const auto& q = cls == 0 ? y.visible : y.hidden;
+          for (std::size_t k = 0; k < p.size(); ++k) {
+            if (p[k].points.size() != q[k].points.size()) {
+              why = "a polyline's point count differs";
+              return false;
+            }
+            for (std::size_t m = 0; m < p[k].points.size(); ++m) {
+              ++points;
+              if (!sameBits(p[k].points[m][0], q[k].points[m][0]) ||
+                  !sameBits(p[k].points[m][1], q[k].points[m][1])) {
+                why = "a point differs in view " + std::to_string(v);
+                return false;
+              }
+            }
+          }
+        }
+      }
+      why = std::to_string(points) + " points";
+      return true;
+    };
+    // The bytes a Save writes from one projection, on a fixed sheet.
+    const auto fileBytes = [](const DrawingProjectionResult& r, bool dxf) {
+      forge::ui::DrawingSheetContent sheet;
+      if (const forge::ui::SheetSize* s = forge::ui::findSheetSize("A3")) sheet.sheet = *s;
+      sheet.scale = forge::ui::Scale{2, 1};
+      sheet.projection = forge::ui::ProjectionAngle::First;
+      sheet.views = r.views;
+      const forge::ui::DrawingLayoutResult layout = forge::ui::layoutDrawing(sheet);
+      return dxf ? forge::ui::writeDrawingDxf(sheet, layout) : forge::ui::writeDrawingSvg(sheet, layout);
+    };
+
+    const DrawingProjectionResult local = forge::desktop::projectDrawingViews(req);
+    check(local.ok && local.views.size() == 3, "the reference drawing projects IN PROCESS",
+          local.blocker + " " + local.detail);
+    std::size_t hiddenLines = 0;
+    for (const forge::ui::DrawingViewLines& v : local.views) hiddenLines += v.hidden.size();
+    check(hiddenLines > 0, "and it has hidden lines (the bore)", std::to_string(hiddenLines));
+
+    DrawingProjector projector;
+    projector.configure({worker}, limits);
+    check(projector.isolated(), "the projector has the worker");
+    const DrawingProjectionResult isolatedSync = projector.project(req);
+    check(isolatedSync.ok && isolatedSync.isolated, "★ the same drawing projects IN THE WORKER",
+          isolatedSync.blocker + " " + isolatedSync.detail);
+    checkEq(projector.isolatedRuns(), std::size_t{1}, "one drawing ran out of process");
+    checkEq(projector.fallbacks(), std::size_t{0}, "and none fell back");
+    {
+      std::string why;
+      check(sameProjection(isolatedSync, local, why),
+            "★ the worker's projection equals the in-process one, BIT FOR BIT", why);
+      std::printf("[isolation] drawing: %s crossed the pipe bit-identical\n", why.c_str());
+      check(fileBytes(isolatedSync, false) == fileBytes(local, false),
+            "★ and the SVG written from it is byte-identical");
+      check(fileBytes(isolatedSync, true) == fileBytes(local, true),
+            "★ and so is the DXF");
+    }
+
+    // ASYNCHRONOUS: start never blocks, poll answers exactly once.
+    {
+      DrawingProjector async;
+      async.configure({worker}, limits);
+      const std::uint64_t t0 = forge::ui::steadyNowMs();
+      check(async.start(req, t0), "an asynchronous drawing starts");
+      check(async.running(), "and is running");
+      check(!async.start(req, t0), "a second one is refused while it runs (one job at a time)");
+      DrawingProjectionResult out;
+      std::size_t polls = 0;
+      bool done = false;
+      while (!done && forge::ui::steadyNowMs() - t0 < 60000) {
+        ++polls;
+        done = async.poll(forge::ui::steadyNowMs(), out);
+        if (!done) ::usleep(1000);
+      }
+      check(done, "the asynchronous drawing finished", std::to_string(polls) + " polls");
+      DrawingProjectionResult again;
+      check(!async.poll(forge::ui::steadyNowMs(), again), "and poll() reported it exactly once");
+      std::string why;
+      check(out.ok && sameProjection(out, local, why),
+            "the asynchronous answer is the same drawing, bit for bit", why);
+    }
+
+    // ★ A REAL SIGSEGV DURING A DRAWING. The worker dereferences null on purpose
+    // (the self-test pragma, behind the drawing pragma); this process carries on.
+    {
+      DrawingProjectionRequest crash = req;
+      crash.irProgram = selftest("crash");
+      const DrawingProjectionResult r = projector.project(crash);
+      check(true, "★ THE PARENT SURVIVED A SIGSEGV DURING A DRAWING");
+      check(!r.ok, "a crashed drawing is REFUSED, not reported as a drawing");
+      checkEq(static_cast<int>(projector.session().state()),
+              static_cast<int>(forge::ui::KernelJobState::Crashed), "it is classified Crashed");
+      checkEq(projector.session().lastGuardReport().signalNumber, SIGSEGV,
+              "on SIGSEGV specifically");
+      check(forge::ui::isUserReadable(r.blocker) && !r.blocker.empty(),
+            "★ the refusal is in plain words", r.blocker);
+      check(r.blocker.find("SIGSEGV") == std::string::npos &&
+                r.blocker.find("SHELL") == std::string::npos,
+            "with no signal name or op code in it", r.blocker);
+      check(r.detail.find("SHELL") != std::string::npos,
+            "while the detail for the log NAMES the statement it died in", r.detail);
+      check(observe(scene).sameDrawn(good), "the scene's last good body is untouched");
+      // ...and the next drawing works: nothing is quarantined.
+      const DrawingProjectionResult next = projector.project(req);
+      std::string why;
+      check(next.ok && sameProjection(next, local, why),
+            "★ the next drawing after the crash runs and is right", why);
+    }
+
+    // A HANG IS BOUNDED by the rebuild's own kind of deadline.
+    {
+      DrawingProjector shortDeadline;
+      forge::ui::GuardLimits shortLimits = limits;
+      shortLimits.deadlineMs = 900;
+      shortDeadline.configure({worker}, shortLimits);
+      DrawingProjectionRequest hang = req;
+      hang.irProgram = selftest("hang");
+      const std::uint64_t t0 = forge::ui::steadyNowMs();
+      const DrawingProjectionResult r = shortDeadline.project(hang);
+      const std::uint64_t took = forge::ui::steadyNowMs() - t0;
+      check(!r.ok, "a hanging drawing does not report success");
+      checkEq(static_cast<int>(shortDeadline.session().state()),
+              static_cast<int>(forge::ui::KernelJobState::TimedOut), "it is classified TimedOut");
+      check(took < 10000, "and the deadline ended it", std::to_string(took) + " ms");
+      check(forge::ui::isUserReadable(r.blocker) &&
+                r.blocker.find("longer than Forge allows") != std::string::npos,
+            "the sentence says it took too long", r.blocker);
+    }
+
+    // A CANCEL ends an asynchronous drawing, on the op the worker announced.
+    {
+      DrawingProjector cancellable;
+      forge::ui::GuardLimits longLimits = limits;
+      longLimits.deadlineMs = 15000;
+      cancellable.configure({worker}, longLimits);
+      DrawingProjectionRequest hang = req;
+      hang.irProgram = selftest("hang");
+      const std::uint64_t t0 = forge::ui::steadyNowMs();
+      check(cancellable.start(hang, t0), "a hanging drawing starts asynchronously");
+      DrawingProjectionResult out;
+      bool done = false;
+      bool cancelled = false;
+      while (!done && forge::ui::steadyNowMs() - t0 < 30000) {
+        if (!cancelled && cancellable.session().lastOp().op == "LOFT") {
+          cancellable.cancel(forge::ui::steadyNowMs());
+          cancelled = true;
+        }
+        done = cancellable.poll(forge::ui::steadyNowMs(), out);
+        if (!done) ::usleep(1000);
+      }
+      check(cancelled && done, "it was cancelled once the worker said what it was doing");
+      checkEq(static_cast<int>(cancellable.session().state()),
+              static_cast<int>(forge::ui::KernelJobState::Cancelled), "★ the cancel ended it");
+      check(!out.ok && out.blocker.find("stopped before it was finished") != std::string::npos,
+            "and the sentence says it was stopped", out.blocker);
+    }
+
+    // A WORKER THAT EXITS 0 AND WRITES NONSENSE is a diagnosis, not a drawing.
+    {
+      DrawingProjector noisy;
+      noisy.configure({"/bin/echo", "not-a-forge-worker"}, limits);
+      const DrawingProjectionResult r = noisy.project(req);
+      check(!r.ok, "a worker speaking the wrong protocol does not produce a drawing");
+      check(r.detail.find("magic") != std::string::npos, "the detail names what was wrong",
+            r.detail);
+      check(forge::ui::isUserReadable(r.blocker), "the sentence is plain", r.blocker);
+      checkEq(noisy.fallbacks(), std::size_t{0}, "a protocol breach does not fall back");
+    }
+
+    // A MISSING WORKER FALLS BACK; a wait nothing could end is not entered.
+    {
+      DrawingProjector missing;
+      missing.configure({worker + ".does-not-exist"}, limits);
+      DrawingProjectionRequest nothing = req;
+      nothing.irProgram.clear();
+      const DrawingProjectionResult r = missing.project(nothing);
+      checkEq(missing.fallbacks(), std::size_t{1}, "★ a missing worker falls back in process");
+      checkEq(missing.inProcessRuns(), std::size_t{1}, "and the drawing ran here");
+      check(!r.isolated && !r.ok && !r.blocker.empty(),
+            "answering with this process's own sentence", r.blocker);
+
+      DrawingProjector unbounded;
+      forge::ui::GuardLimits noDeadline = limits;
+      noDeadline.deadlineMs = 0;
+      unbounded.configure({worker}, noDeadline);
+      unbounded.project(nothing);
+      checkEq(unbounded.fallbacks(), std::size_t{1},
+              "a synchronous drawing with no deadline runs here rather than waiting for ever");
+      checkEq(unbounded.isolatedRuns(), std::size_t{0}, "and starts no worker");
+    }
+
+    // THE DRAWING WIRE IS CHECKED, NOT TRUSTED.
+    {
+      const std::string wire = forge::desktop::encodeDrawingProjection(local);
+      DrawingProjectionResult r;
+      std::string why;
+      check(forge::desktop::decodeDrawingProjection(wire, r, why) && sameProjection(r, local, why),
+            "an encoded drawing decodes to itself, bit for bit", why);
+      const auto refused = [&](const std::string& bad, const char* what) {
+        DrawingProjectionResult x;
+        x.blocker = "untouched";
+        std::string w;
+        const bool ok = forge::desktop::decodeDrawingProjection(bad, x, w);
+        check(!ok && !w.empty() && x.blocker == "untouched", what, w);
+      };
+      refused(wire.substr(0, wire.size() - 12), "a truncated drawing answer is refused");
+      refused(wire + "x", "an over-long drawing answer is refused");
+      {
+        std::string b = wire;
+        const std::size_t at = b.find("\nviews 3\n");
+        if (at != std::string::npos) b.replace(at, 9, "\nviews 4\n");
+        refused(b, "a view count that does not match the views sent is refused");
+      }
+      {
+        std::string b = wire;
+        const std::size_t at = b.find("\nview 0 ");
+        if (at != std::string::npos) b.replace(at, 8, "\nview 9 ");
+        refused(b, "a view this build does not have is refused");
+      }
+      {
+        std::string b = wire;
+        const std::size_t at = b.find("\npl ");
+        const std::size_t sp = at == std::string::npos ? at : b.find(' ', at + 4);
+        if (sp != std::string::npos) b.replace(sp + 1, b.find(' ', sp + 1) - sp - 1, "inf");
+        refused(b, "a coordinate that is not a finite number is refused");
+      }
+      {
+        std::string b = wire;
+        const std::size_t at = b.find("\npl 2 ");
+        if (at != std::string::npos) b.replace(at, 6, "\npl 3 ");
+        refused(b, "a polyline that declares more points than it sends is refused");
+      }
+      {
+        std::string b = wire;
+        const std::size_t at = b.find("blockerBytes 0\n");
+        if (at != std::string::npos) b.replace(at, 15, "blockerBytes 9\n");
+        refused(b, "a sentence block whose declared length is wrong is refused");
+      }
+      refused("", "an empty drawing answer is refused");
+    }
+  }
+#endif
 
   std::printf("\n[isolation] %d checks, %d failures\n", g_checks, g_failures);
   if (g_failures != 0) {
