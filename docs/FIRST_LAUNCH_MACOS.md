@@ -100,7 +100,7 @@ Which of those applies depends on the build — see the table below.
 
 | Build | Auto-updates itself? | Approval repeats on each new version? |
 |---|---|---|
-| Electron build (`ArchDiscForge-*.dmg` / `.zip`) | Yes — `electron-updater`, wired against this repo's GitHub Releases | No |
+| Electron build (`ArchDiscForge-*.dmg` / `.zip`) — **retired 2026-10-09 (T-231); no longer built from this repo** | Yes — `electron-updater`, wired against this repo's GitHub Releases | No |
 | Native desktop build (`Forge-macos-arm64-*.zip`) | **Not yet** — no in-app updater exists in `forge-desktop` today | Yes, until an updater ships |
 
 We will drop the whole approval step entirely, for every build, the day a
