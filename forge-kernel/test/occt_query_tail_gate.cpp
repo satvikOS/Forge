@@ -1,8 +1,8 @@
 // test/occt_query_tail_gate.cpp — T-148: the OCCT QUERY tail, gate.
 //
 // WHAT MOVED (measured on b609b41d, libforge_kernel_core.dylib, per object):
-// five OCCT symbols that each had exactly ONE owner in the kernel, and whose only
-// job was to answer a question a closed form answers:
+// seven OCCT symbols that each had exactly ONE owner in the kernel. The first five
+// only answered a question a closed form answers:
 //
 //   NativeFilletChamfer.cpp  BRepAdaptor_Curve::BRepAdaptor_Curve()
 //                            BRepAdaptor_Curve::Initialize(TopoDS_Edge const&)
@@ -14,6 +14,13 @@
 //   BodyInventory.cpp        BRepExtrema_DistShapeShape::Perform(...)
 //        -> deleted: the two-shape constructor already performs; the explicit
 //           call was a second, identical extrema search.
+// and the last two were OCCT round trips the code did not need:
+//   NativeDraftLocal.cpp     Geom2d_Curve::Value(double) const
+//        -> the cylinder branch anchor is the pcurve's START point, which the BRep
+//           already stores: BRep_Tool::UVPoints (taken by OcctNativeMesh.cpp).
+//   NativeAabbBridge.cpp     Bnd_Box::Update(double x6)
+//        -> the bridge hands back the native brep::Aabb3 instead of writing an
+//           OCCT Bnd_Box; NativeDraftAngle.cpp reads the Aabb3.
 //
 // The symbol side (each .o stops demanding them, the dylib loses exactly these,
 // nothing arrives, and the --assert-symbols ratchet is not inert) is checked by
@@ -40,6 +47,21 @@
 //       constructor-plus-Perform distance: every pair gap BIT-identical, every
 //       box bit-identical to Add+SetGap(0)+Get, plus the measured cost of the
 //       removed second search.
+//   [D] the AABB bridge (shipped dylib) against its own b609b41d code, reproduced
+//       below as the oracle (the route that wrote a Bnd_Box through Update), with
+//       FORGE_NATIVE_AABB off AND on: route taken, void flag and all six numbers
+//       BIT-identical on every fixture, plus a null shape, an empty compound, a
+//       bare face and a bare wire; the out-box is reset on every call.
+//   [E] on every (edge, face) pair whose face is a CYLINDER (the only domain the
+//       draft engine reads the anchor in): BRep_Tool::UVPoints' start point vs
+//       Geom2d_Curve::Value(first), bit for bit, both edge orientations. Pairs on
+//       other surfaces are REPORTED, not asserted: there the two are NOT equal in
+//       general (MEASURED on the 600-part corpus: 144,948 of 562,312 such pairs
+//       differ, by at most 6.85e-7; cause not established here), which is why the
+//       swap is confined to the cylinder branch. Cylinders: 128,292 pairs, 0.
+//   [F] NativeDraftAngle::draftFaces against CLOSED-FORM volumes, the minimal port
+//       of test/native_draft_ab.mjs (READ for its semantics, never run), with the
+//       AABB bridge off and on.
 //
 // MODES
 //   (default)          run [A] [B] [C]; exit 0 iff 0 failed.
@@ -62,6 +84,10 @@
 #include "../src/native/brep/NativeDraftLocal.cpp"
 
 #include "forge/BodyInventoryOcct.hpp"
+#include "forge/OcctImport.hpp"                       // [D] oracle: importOcctSolid
+#include "forge/native/brep/Aabb.hpp"                 // [D] oracle: computeAabb
+#include "forge/native/brep/NativeAabbBridge.hpp"
+#include "forge/native/brep/NativeDraftAngle.hpp"     // [F] + emit: forge::occtdraft::draftFaces
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
@@ -86,6 +112,7 @@
 #include <Geom_Plane.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <STEPControl_Reader.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -325,6 +352,194 @@ std::vector<TopoDS_Edge> rimCandidates(const TopoDS_Shape& s, std::size_t cap) {
             if (out.size() < cap && seen.Add(e) > static_cast<int>(out.size())) out.push_back(e);
     }
     return out;
+}
+
+// ─────────────────────────── draft fixtures (shared by [E] [F] and --emit)
+constexpr double kDeg = kTwoPi / 360.0;
+
+double volumeOf(const TopoDS_Shape& s) {
+    GProp_GProps gp;
+    BRepGProp::VolumeProperties(s, gp);
+    return gp.Mass();
+}
+
+// Outward normal of a planar face (orientation honoured), or false.
+bool planeNormal(const TopoDS_Face& f, gp_Dir& n) {
+    BRepAdaptor_Surface as(f);
+    if (as.GetType() != GeomAbs_Plane) return false;
+    n = as.Plane().Axis().Direction();
+    if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+    return true;
+}
+
+// 0-based TopExp_Explorer FACE ids — draftFaces' own face-id convention.
+template <class Pred>
+std::vector<std::uint32_t> faceIdsWhere(const TopoDS_Shape& s, Pred pred) {
+    std::vector<std::uint32_t> ids;
+    std::uint32_t i = 0;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next(), ++i)
+        if (pred(TopoDS::Face(ex.Current()))) ids.push_back(i);
+    return ids;
+}
+
+std::vector<std::uint32_t> firstOf(std::vector<std::uint32_t> v) {
+    if (v.size() > 1) v.resize(1);
+    return v;
+}
+
+// The planar face whose outward normal is closest to d.
+TopoDS_Face faceTowards(const TopoDS_Shape& s, const gp_Dir& d) {
+    TopoDS_Face best;
+    double bestDot = -2.0;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        gp_Dir n;
+        if (!planeNormal(f, n)) continue;
+        if (n.Dot(d) > bestDot) { bestDot = n.Dot(d); best = f; }
+    }
+    return best;
+}
+
+// NativeDraftAngle (forge::occtdraft::draftFaces, the only production caller of the
+// AABB bridge). The cases and their closed forms are the minimal port of
+// test/native_draft_ab.mjs, which was READ for its semantics and not run.
+struct AngleCase {
+    std::string                name;
+    TopoDS_Shape               shape;
+    std::vector<std::uint32_t> faces;
+    gp_Pnt                     origin;   // neutral plane through here, normal = pull = +Z
+    double                     deg = 0.0;
+    double                     ref = 0.0;  // closed-form volume (0 for a refusal)
+    bool                       refuse = false;
+};
+
+std::vector<AngleCase> angleCases() {
+    const double t3 = std::tan(3.0 * kDeg), t5 = std::tan(5.0 * kDeg);
+    auto sqFrustum   = [](double h, double a, double b) { return h / 3.0 * (a * a + b * b + a * b); };
+    auto coneFrustum = [](double h, double r0, double r1) {
+        return M_PI * h / 3.0 * (r0 * r0 + r1 * r1 + r0 * r1);
+    };
+    auto plusX    = [](const TopoDS_Face& f) { gp_Dir n; return planeNormal(f, n) && n.X() > 0.9; };
+    auto sideWall = [](const TopoDS_Face& f) { gp_Dir n; return planeNormal(f, n) && std::fabs(n.Z()) < 0.5; };
+    auto topCap   = [](const TopoDS_Face& f) { gp_Dir n; return planeNormal(f, n) && n.Z() > 0.9; };
+    auto cylFace  = [](const TopoDS_Face& f) { return BRepAdaptor_Surface(f).GetType() == GeomAbs_Cylinder; };
+    auto sphFace  = [](const TopoDS_Face& f) { return BRepAdaptor_Surface(f).GetType() == GeomAbs_Sphere; };
+    const gp_Pnt O(0, 0, 0);
+
+    std::vector<AngleCase> c;
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10, 10, 10).Shape();
+    const std::vector<std::uint32_t> walls = faceIdsWhere(box, sideWall);
+    c.push_back({"box one wall +3", box, firstOf(faceIdsWhere(box, plusX)), O, 3.0, 1000.0 - 500.0 * t3});
+    c.push_back({"box one wall -3", box, firstOf(faceIdsWhere(box, plusX)), O, -3.0, 1000.0 + 500.0 * t3});
+    c.push_back({"box four walls +5", box, walls, O, 5.0, sqFrustum(10, 10, 10 - 20 * t5)});
+    c.push_back({"box four walls +5 neutral mid", box, walls, gp_Pnt(0, 0, 5), 5.0,
+                 1000.0 + (1000.0 / 3.0) * t5 * t5});
+    c.push_back({"box four walls +5 neutral top", box, walls, gp_Pnt(0, 0, 10), 5.0,
+                 sqFrustum(10, 10 + 20 * t5, 10)});
+    const TopoDS_Shape cy = BRepPrimAPI_MakeCylinder(10, 30).Shape();
+    c.push_back({"cylinder wall +3", cy, firstOf(faceIdsWhere(cy, cylFace)), O, 3.0,
+                 coneFrustum(30, 10, 10 - 30 * t3)});
+    c.push_back({"cylinder wall -3", cy, firstOf(faceIdsWhere(cy, cylFace)), O, -3.0,
+                 coneFrustum(30, 10, 10 + 30 * t3)});
+    const TopoDS_Shape holed = BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(40, 40, 20).Shape(),
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(15, 15, 0), gp::DZ()), 6, 20).Shape()).Shape();
+    c.push_back({"bored block: the bore +3", holed, firstOf(faceIdsWhere(holed, cylFace)), O, 3.0,
+                 32000.0 - coneFrustum(20, 6, 6 + 20 * t3)});
+    c.push_back({"bored block: one outer wall +3", holed, firstOf(faceIdsWhere(holed, sideWall)), O, 3.0,
+                 32000.0 - M_PI * 36.0 * 20.0 - 40.0 * 200.0 * t3});
+    {   // the L-bracket: the inner flank does NOT support the solid
+        ShapeUpgrade_UnifySameDomain u(BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(20, 20, 10).Shape(),
+            BRepPrimAPI_MakeBox(gp_Pnt(10, 10, 0), 10, 10, 10).Shape()).Shape());
+        u.Build();
+        const TopoDS_Shape L = u.Shape();
+        const double base = volumeOf(L);
+        for (double cx : {10.0, 20.0}) {
+            auto flank = [cx](const TopoDS_Face& f) {
+                gp_Dir n;
+                if (!planeNormal(f, n) || n.X() <= 0.9) return false;
+                GProp_GProps gp;
+                BRepGProp::SurfaceProperties(f, gp);
+                return std::fabs(gp.CentreOfMass().X() - cx) < 1e-3;
+            };
+            c.push_back({cx == 10.0 ? "L-bracket inner flank x=10 +3" : "L-bracket outer flank x=20 +3",
+                         L, firstOf(faceIdsWhere(L, flank)), O, 3.0, base - 500.0 * t3});
+        }
+    }
+    c.push_back({"box top cap (refuse)", box, firstOf(faceIdsWhere(box, topCap)), O, 3.0, 0.0, true});
+    const TopoDS_Shape sp = BRepPrimAPI_MakeSphere(10).Shape();
+    c.push_back({"sphere wall (refuse)", sp, firstOf(faceIdsWhere(sp, sphFace)), O, 3.0, 0.0, true});
+    return c;
+}
+
+TopoDS_Shape runAngleCase(const AngleCase& a, std::string& why) {
+    why.clear();
+    try {
+        return forge::occtdraft::draftFaces(a.shape, a.origin, gp::DZ(), a.faces, a.deg * kDeg, &why);
+    } catch (...) {
+        why = "threw";
+        return TopoDS_Shape();
+    }
+}
+
+// NativeDraftLocal on the CYLINDER-NEIGHBOUR walls, where the branch anchor
+// (NativeDraftLocal.cpp, "THE 2*pi BRANCH") is read: the cases (e) (f) (g) of
+// test/ab_native_draft_local.cpp, rebuilt here.
+struct LocalCase {
+    std::string          name;
+    TopoDS_Shape         shape;
+    TopTools_ListOfShape faces;
+    double               deg = 0.0;
+};
+
+std::vector<LocalCase> localCases() {
+    std::vector<LocalCase> c;
+    auto add = [&c](const std::string& name, const TopoDS_Shape& s, double deg) {
+        LocalCase l{name, s, {}, deg};
+        l.faces.Append(faceTowards(s, gp::DX()));
+        c.push_back(l);
+    };
+    // (e) a bore that breaks OUT through the +X wall: an open arc on the cylinder
+    add("(e) wall meets a bore", BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(20, 20, 10).Shape(),
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(20, 10, -1), gp::DZ()), 4.0, 12.0).Shape()).Shape(), 5.0);
+    // (f) a bore WHOLLY inside the wall: the closed rim
+    add("(f) closed rim", BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(20, 20, 10).Shape(),
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(-1, 10, 5), gp::DX()), 3.0, 22.0).Shape()).Shape(), 5.0);
+    // (g) the closed rim at the corpus's scale
+    add("(g) closed rim 200x200x150 r17", BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(200, 200, 150).Shape(),
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(-1, 100, 75), gp::DX()), 17.0, 202.0).Shape()).Shape(), 3.0);
+    return c;
+}
+
+TopoDS_Shape runLocalCase(const LocalCase& l) {
+    try {
+        return forge::occtdraftlocal::draftFacesLocal(l.shape, l.faces, gp::DZ(), l.deg * kDeg,
+                                                      gp_Pln(gp_Pnt(0, 0, 0), gp::DZ()));
+    } catch (...) {
+        return TopoDS_Shape();
+    }
+}
+
+// The observable record of a result shape: what a caller can measure.
+void emitShape(std::FILE* o, const char* tag, const std::string& name, const TopoDS_Shape& r,
+               const std::string& why) {
+    if (r.IsNull()) { std::fprintf(o, "%s\t%s\t0\t%s\n", tag, name.c_str(), why.c_str()); return; }
+    GProp_GProps vp, sp;
+    BRepGProp::VolumeProperties(r, vp);
+    BRepGProp::SurfaceProperties(r, sp);
+    Bnd_Box bb;
+    BRepBndLib::Add(r, bb);
+    double b[6] = {0, 0, 0, 0, 0, 0};
+    if (!bb.IsVoid()) bb.Get(b[0], b[1], b[2], b[3], b[4], b[5]);
+    int nf = 0, ne = 0, nv = 0;
+    for (TopExp_Explorer x(r, TopAbs_FACE); x.More(); x.Next()) ++nf;
+    for (TopExp_Explorer x(r, TopAbs_EDGE); x.More(); x.Next()) ++ne;
+    for (TopExp_Explorer x(r, TopAbs_VERTEX); x.More(); x.Next()) ++nv;
+    std::fprintf(o, "%s\t%s\t1\t%a\t%a\t%a %a %a %a %a %a\t%d %d %d\n", tag, name.c_str(), vp.Mass(),
+                 sp.Mass(), b[0], b[1], b[2], b[3], b[4], b[5], nf, ne, nv);
+    for (TopExp_Explorer x(r, TopAbs_VERTEX); x.More(); x.Next()) {
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(x.Current()));
+        std::fprintf(o, "%sv\t%s\t%a %a %a\n", tag, name.c_str(), p.X(), p.Y(), p.Z());
+    }
 }
 
 #ifndef OCCTQ_EMIT_ONLY
@@ -663,11 +878,245 @@ void sectionC() {
                 before, after);
 }
 
+// ─────────────────────────────────── [D] the AABB bridge vs its b609b41d code
+// THE ORACLE: shapeAabbNative as it stood at b609b41d, reproduced verbatim except
+// for its name — the route that wrote the caller's Bnd_Box, pushing the analytic
+// box in through Bnd_Box::Update. It reads the same process-wide gate.
+bool oracleBridge(const TopoDS_Shape& shape, Bnd_Box& box) {
+    using namespace forge::native::brep;
+    if (forgeNativeAabbEnabled() && !shape.IsNull()) {
+        bool haveNative = false;
+        double b[6] = {0, 0, 0, 0, 0, 0};
+        try {
+            forge::ImportResult ir = forge::importOcctSolid(shape);
+            if (ir.ok && ir.solid != nullptr) {
+                const Aabb3 a = computeAabb(*ir.solid);
+                if (!a.void_) {
+                    b[0] = a.minX; b[1] = a.minY; b[2] = a.minZ;
+                    b[3] = a.maxX; b[4] = a.maxY; b[5] = a.maxZ;
+                    haveNative = true;
+                    for (int i = 0; i < 6; ++i)
+                        if (!std::isfinite(b[i])) haveNative = false;
+                    for (int i = 0; i < 3; ++i)
+                        if (b[i] > b[i + 3]) haveNative = false;
+                }
+            }
+        } catch (...) {
+            haveNative = false;
+        }
+        if (haveNative) {
+            box.Update(b[0], b[1], b[2], b[3], b[4], b[5]);
+            return true;
+        }
+    }
+    BRepBndLib::Add(shape, box);
+    return false;
+}
+
+struct BridgeStats { long calls = 0, native = 0, fellThrough = 0, voids = 0, diff = 0; };
+
+// Every way a caller reads the bridge, against the oracle as the call site read it
+// (fresh Bnd_Box, IsVoid, Get).
+void compareBridge(const TopoDS_Shape& s, const std::string& where, BridgeStats& st) {
+    using namespace forge::native::brep;
+    Bnd_Box ob;
+    const bool oNat = oracleBridge(s, ob);
+    double o6[6] = {0, 0, 0, 0, 0, 0};
+    const bool oVoid = ob.IsVoid();
+    if (!oVoid) ob.Get(o6[0], o6[1], o6[2], o6[3], o6[4], o6[5]);
+
+    const unsigned long long c0 = shapeAabbCallCount(), n0 = shapeAabbNativeCount();
+    Aabb3 a;
+    a.void_ = false; a.minX = a.maxX = 12345.0;   // stale contents the call must overwrite
+    const bool nNat = shapeAabbNative(s, a);
+    const Aabb3 v = shapeAabb(s);
+    const unsigned long long c1 = shapeAabbCallCount(), n1 = shapeAabbNativeCount();
+    ++st.calls;
+    (nNat ? st.native : st.fellThrough) += 1;
+    if (oVoid) ++st.voids;
+
+    auto six = [](const Aabb3& x, double* d) {
+        d[0] = x.minX; d[1] = x.minY; d[2] = x.minZ; d[3] = x.maxX; d[4] = x.maxY; d[5] = x.maxZ;
+    };
+    double a6[6], v6[6];
+    six(a, a6);
+    six(v, v6);
+    bool bad = (nNat != oNat) || (a.void_ != oVoid) || (v.void_ != oVoid);
+    if (!oVoid)
+        for (int i = 0; i < 6; ++i)
+            if (bitsOf(a6[i]) != bitsOf(o6[i]) || bitsOf(v6[i]) != bitsOf(o6[i])) bad = true;
+    if (c1 != c0 + 2 || n1 != n0 + (nNat ? 2u : 0u)) bad = true;
+    if (bad) {
+        ++st.diff;
+        if (st.diff <= 5)
+            std::printf("    %s: bridge differs from its b609b41d code (route %d/%d, void %d/%d, calls +%llu, native +%llu)\n",
+                        where.c_str(), nNat ? 1 : 0, oNat ? 1 : 0, a.void_ ? 1 : 0, oVoid ? 1 : 0,
+                        c1 - c0, n1 - n0);
+    }
+}
+
+std::vector<NamedShape> bridgeFixtures() {
+    std::vector<NamedShape> v = edgeFixtures();
+    for (const NamedShape& s : inventoryFixtures()) v.push_back(s);
+    for (const AngleCase& a : angleCases()) v.push_back({"draft: " + a.name, a.shape});
+    for (const LocalCase& l : localCases()) v.push_back({"draft-local: " + l.name, l.shape});
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(6, 8, 12).Shape();
+    for (TopExp_Explorer ex(box, TopAbs_FACE); ex.More(); ex.Next()) { v.push_back({"bare face", ex.Current()}); break; }
+    for (TopExp_Explorer ex(box, TopAbs_WIRE); ex.More(); ex.Next()) { v.push_back({"bare wire", ex.Current()}); break; }
+    for (TopExp_Explorer ex(box, TopAbs_SHELL); ex.More(); ex.Next()) { v.push_back({"bare shell", ex.Current()}); break; }
+    v.push_back({"empty compound", compoundOf({})});
+    v.push_back({"null shape", TopoDS_Shape()});
+    return v;
+}
+
+void sectionD() {
+    std::printf("[D] AABB bridge (shipped dylib) vs its b609b41d code, FORGE_NATIVE_AABB off and on\n");
+    const std::vector<NamedShape> fx = bridgeFixtures();
+    BridgeStats off, on;
+    forge::native::brep::setForgeNativeAabbEnabled(false);
+    for (const NamedShape& s : fx) compareBridge(s.shape, s.name + " [off]", off);
+    forge::native::brep::setForgeNativeAabbEnabled(true);
+    for (const NamedShape& s : fx) compareBridge(s.shape, s.name + " [on]", on);
+    forge::native::brep::setForgeNativeAabbEnabled(false);
+    std::printf("    off: %ld shapes, %ld native, %ld fell through, %ld void, %ld differ\n",
+                off.calls, off.native, off.fellThrough, off.voids, off.diff);
+    std::printf("    on : %ld shapes, %ld native, %ld fell through, %ld void, %ld differ\n",
+                on.calls, on.native, on.fellThrough, on.voids, on.diff);
+    check(off.diff == 0 && on.diff == 0,
+          "[D] route, void flag and all six numbers bit-identical to the b609b41d bridge, gate off and on");
+    check(off.native == 0, "[D] gate off: the native route never fires");
+    check(on.native >= 10, "[D] gate on: the native route fired on >= 10 fixtures");
+    check(on.fellThrough >= 3, "[D] gate on: >= 3 honest fall-throughs (face / wire / void shapes)");
+    check(off.voids >= 2 && on.voids >= 2, "[D] the void case was exercised (empty compound, null shape)");
+}
+
+// ─────────────────────── [E] stored vs evaluated pcurve start, on cylinders
+struct UvStats {
+    long cylPairs = 0, cylDiff = 0, otherPairs = 0, otherDiff = 0;
+    double otherMax = 0.0;
+};
+
+void compareUv(const TopoDS_Shape& s, const std::string& where, UvStats& st) {
+    for (TopExp_Explorer fx(s, TopAbs_FACE); fx.More(); fx.Next()) {
+        const TopoDS_Face F = TopoDS::Face(fx.Current());
+        Handle(Geom_Surface) surf;
+        try { surf = BRep_Tool::Surface(F); } catch (...) { continue; }
+        if (surf.IsNull()) continue;
+        // The draft engine's own test for "this neighbour is a cylinder".
+        const bool cyl = !Handle(Geom_CylindricalSurface)::DownCast(
+                              forge::occtdraftlocal::basisSurface(surf)).IsNull();
+        for (TopExp_Explorer ex(F, TopAbs_EDGE); ex.More(); ex.Next()) {
+            for (TopAbs_Orientation o : {TopAbs_FORWARD, TopAbs_REVERSED}) {
+                const TopoDS_Edge E = TopoDS::Edge(ex.Current().Oriented(o));
+                double f = 0.0, l = 0.0;
+                Handle(Geom2d_Curve) pc;
+                gp_Pnt2d val, uv0, uv1;
+                try {
+                    pc = BRep_Tool::CurveOnSurface(E, F, f, l);
+                    if (pc.IsNull()) continue;
+                    val = pc->Value(f);
+                    BRep_Tool::UVPoints(E, F, uv0, uv1);
+                } catch (...) { continue; }
+                const bool same = bitsOf(val.X()) == bitsOf(uv0.X()) && bitsOf(val.Y()) == bitsOf(uv0.Y());
+                if (cyl) {
+                    ++st.cylPairs;
+                    if (!same) {
+                        if (++st.cylDiff <= 5)
+                            std::printf("    %s: cylinder pcurve start (%.17g, %.17g) vs stored (%.17g, %.17g)\n",
+                                        where.c_str(), val.X(), val.Y(), uv0.X(), uv0.Y());
+                    }
+                } else {
+                    ++st.otherPairs;
+                    if (!same) {
+                        ++st.otherDiff;
+                        st.otherMax = std::max({st.otherMax, std::fabs(val.X() - uv0.X()),
+                                                std::fabs(val.Y() - uv0.Y())});
+                    }
+                }
+            }
+        }
+    }
+}
+
+void reportUv(const UvStats& st, const char* label) {
+    std::printf("    %s: %ld cylinder (edge, face) pairs, %ld differ; other surfaces %ld pairs, %ld differ "
+                "(max |d| %.3g, reported only)\n", label, st.cylPairs, st.cylDiff, st.otherPairs,
+                st.otherDiff, st.otherMax);
+}
+
+void sectionE() {
+    std::printf("[E] BRep_Tool::UVPoints start vs Geom2d_Curve::Value(first) on cylinders (bit-exact)\n");
+    UvStats st;
+    for (const NamedShape& s : edgeFixtures()) compareUv(s.shape, s.name, st);
+    for (const AngleCase& a : angleCases()) compareUv(a.shape, "draft: " + a.name, st);
+    for (const LocalCase& l : localCases()) compareUv(l.shape, "draft-local: " + l.name, st);
+    reportUv(st, "fixtures");
+    check(st.cylPairs >= 40, "[E] >= 40 cylinder (edge, face) pairs compared");
+    check(st.cylDiff == 0, "[E] the stored start point IS Value(first) on every cylinder pair");
+
+    // The engine the anchor feeds. It BRepCheck-validates its own result and
+    // declines otherwise, so a wrong branch is a red check HERE, not only a moved
+    // AB record (which needs BASE_SRC to exist at all).
+    const std::vector<LocalCase> lc = localCases();
+    int built = 0;
+    for (const LocalCase& l : lc) {
+        const TopoDS_Shape r = runLocalCase(l);
+        if (!r.IsNull()) {
+            ++built;
+            std::printf("    draft-local %-34s built, V = %.10g\n", l.name.c_str(), volumeOf(r));
+        } else {
+            std::printf("    draft-local %-34s DECLINED: %s\n", l.name.c_str(),
+                        forge::occtdraftlocal::draftLocalLastDeferReason());
+        }
+    }
+    check(built == static_cast<int>(lc.size()),
+          "[E] the draft engine builds every cylinder-neighbour case the anchor feeds");
+}
+
+// ─────────────────────────────────── [F] NativeDraftAngle closed forms
+void sectionF() {
+    std::printf("[F] NativeDraftAngle::draftFaces vs closed-form volumes, AABB bridge off and on\n");
+    for (int aabb = 0; aabb < 2; ++aabb) {
+        forge::native::brep::setForgeNativeAabbEnabled(aabb == 1);
+        int answered = 0, refused = 0, within = 0, positive = 0, refusals = 0;
+        double worst = 0.0;
+        for (const AngleCase& a : angleCases()) {
+            std::string why;
+            const TopoDS_Shape r = runAngleCase(a, why);
+            if (a.refuse) {
+                ++refusals;
+                if (r.IsNull()) ++refused;
+                else std::printf("    %s: expected a refusal, got a shape\n", a.name.c_str());
+                continue;
+            }
+            ++positive;
+            if (r.IsNull() || a.faces.empty()) {
+                std::printf("    %s: declined (%s)\n", a.name.c_str(), why.c_str());
+                continue;
+            }
+            ++answered;
+            const double rel = std::fabs(volumeOf(r) - a.ref) / std::fabs(a.ref);
+            worst = std::max(worst, rel);
+            if (rel <= 1e-9) ++within;
+            else std::printf("    %s: V rel error %.3g vs closed form\n", a.name.c_str(), rel);
+        }
+        std::printf("    aabb %s: %d/%d answered, %d within 1e-9 of the closed form (worst %.3g); %d/%d refusals\n",
+                    aabb ? "on " : "off", answered, positive, within, worst, refused, refusals);
+        const std::string tag = aabb ? " (bridge on)" : " (bridge off)";
+        check(answered == positive, "[F] every positive draft case answered" + tag);
+        check(within == positive, "[F] every answered volume within 1e-9 of its closed form" + tag);
+        check(refused == refusals, "[F] the top cap and the sphere wall are refused" + tag);
+    }
+    forge::native::brep::setForgeNativeAabbEnabled(false);
+}
+
 // ─────────────────────────────────────────────────────────────── --corpus
 void corpus(const std::string& list) {
     std::printf("[corpus] %s\n", list.c_str());
     EdgeStats st;
     InvStats inv;
+    UvStats uv;
+    BridgeStats bOff, bOn;
     long parts = 0, unread = 0, multi = 0;
     for (const std::string& path : readList(list)) {
         TopoDS_Shape s;
@@ -677,11 +1126,24 @@ void corpus(const std::string& list) {
         const std::string name = path.substr(path.find_last_of('/') + 1);
         runEdgeComparison(s, name, st);
         if (solidsOf(s).size() >= 2) { ++multi; compareInventory(s, name, inv, 8); }
+        compareUv(s, name, uv);
+        forge::native::brep::setForgeNativeAabbEnabled(false);
+        compareBridge(s, name + " [off]", bOff);
+        forge::native::brep::setForgeNativeAabbEnabled(true);
+        compareBridge(s, name + " [on]", bOn);
+        forge::native::brep::setForgeNativeAabbEnabled(false);
     }
     std::printf("    %ld parts read (%ld unreadable), %ld multi-solid\n", parts, unread, multi);
     reportEdgeStats(st, "corpus");
     std::printf("    corpus inventory: %ld pairs; diffs gap %ld, presence %ld, box %ld\n",
                 inv.pairs, inv.gapDiff, inv.presenceDiff, inv.boxDiff);
+    reportUv(uv, "corpus");
+    std::printf("    corpus AABB bridge: off %ld parts (%ld native) %ld differ; on %ld parts (%ld native, "
+                "%ld fell through) %ld differ\n", bOff.calls, bOff.native, bOff.diff, bOn.calls, bOn.native,
+                bOn.fellThrough, bOn.diff);
+    check(uv.cylDiff == 0, "[corpus] the stored start point IS Value(first) on every cylinder pair");
+    check(bOff.diff == 0 && bOn.diff == 0 && bOff.native == 0,
+          "[corpus] the AABB bridge is bit-identical to its b609b41d code on every part, gate off and on");
     check(parts > 0, "[corpus] read at least one part");
     check(st.kindDiff == 0 && st.readDiff == 0 && st.windowDiff == 0 && st.tanDiff == 0 &&
           st.junctionDiff == 0, "[corpus] ring-edge reader identical to the adaptor on every edge");
@@ -770,6 +1232,26 @@ void emit(const std::string& file, const std::string& corpusList) {
         }
         std::printf("[emit] corpus: %ld rim requests on candidate edges, %ld resolved\n", corpusAsked, corpusRims);
     }
+    // NativeDraftAngle, the AABB bridge's only production caller: every case of [F],
+    // with the bridge off and on. Only names that exist on both sides of the change.
+    for (int aabb = 0; aabb < 2; ++aabb) {
+        forge::native::brep::setForgeNativeAabbEnabled(aabb == 1);
+        for (const AngleCase& a : angleCases()) {
+            std::string why;
+            const TopoDS_Shape r = runAngleCase(a, why);
+            emitShape(o, "dangle", a.name + (aabb ? "|aabb-on" : "|aabb-off"), r, why);
+        }
+    }
+    forge::native::brep::setForgeNativeAabbEnabled(false);
+    // NativeDraftLocal where the cylinder branch anchor is read.
+    for (const LocalCase& l : localCases()) {
+        const TopoDS_Shape r = runLocalCase(l);
+        emitShape(o, "dlocal", l.name, r, r.IsNull() ? forge::occtdraftlocal::draftLocalLastDeferReason() : "");
+        const forge::occtdraftlocal::DraftLocalStats& s = forge::occtdraftlocal::draftLocalLastStats();
+        std::fprintf(o, "dlstats\t%s\t%d %d %d %d %d %d %d %d %d %d\n", l.name.c_str(), s.movedVertices,
+                     s.solvedByPlaneMeet, s.solvedByAnchor, s.solvedByQuadric, s.facesVerbatim, s.facesRebuilt,
+                     s.wiresVerbatim, s.edgesVerbatim, s.edgesRetrimmed, s.edgesRebuilt);
+    }
 #ifndef OCCTQ_NO_INVENTORY
     for (const NamedShape& s : inventoryFixtures()) {
         const forge::BodyInventory inv = forge::bodyInventory(s.shape);
@@ -804,6 +1286,9 @@ int main(int argc, char** argv) {
     sectionA();
     sectionB();
     sectionC();
+    sectionD();
+    sectionE();
+    sectionF();
     if (!corpusList.empty()) corpus(corpusList);
 #endif
     if (!emitFile.empty()) emit(emitFile, corpusList);

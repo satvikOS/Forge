@@ -105,6 +105,7 @@
 #include <gp_Dir.hxx>
 #include <gp_Lin.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Vec.hxx>
 
 namespace forge {
@@ -1162,7 +1163,25 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     // candidate starts and the nearest-branch round() decides a
                     // TIE -- measured landing the rim on [2*pi, 4*pi] beside seam
                     // edges at 0 and 2*pi.
-                    uNear = oldPc->Value(oa).X();
+                    //
+                    // READ, NOT RE-EVALUATED (T-148). That start point is the 2-D
+                    // point the BRep already STORES for this representation:
+                    // BRep_Tool::UVPoints walks the same curve-representation list
+                    // with the same match and the same seam/orientation choice as
+                    // the CurveOnSurface call above, and returns the point BRep_GCurve
+                    // computed from that pcurve at `oa` when the range was set. So
+                    // the answer is the one Geom2d_Curve::Value(oa) gave, without
+                    // naming that OCCT symbol -- MEASURED on b609b41d+924c9201, this
+                    // line was its ONLY owner in libforge_kernel_core, while UVPoints
+                    // is already taken by OcctNativeMesh.cpp (the same swap, for the
+                    // same seam-branch question). MEASURED on the 600-part corpus:
+                    // 128,292 (edge, cylindrical face) pairs, 0 bit differences in u
+                    // (test/occt_query_tail_gate.cpp [E] re-measures it). Only the
+                    // BRANCH is taken from uNear, so even a stale stored point would
+                    // have to be wrong by about half a period to change the answer.
+                    gp_Pnt2d uvStart, uvEnd;
+                    BRep_Tool::UVPoints(TopoDS::Edge(oldE), cylFace, uvStart, uvEnd);
+                    uNear = uvStart.X();
                 }
 
                 // ── THE BOUND IS THE EDGE'S OWN TOLERANCE, NOT THE MODEL'S SIZE ──

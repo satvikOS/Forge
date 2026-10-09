@@ -23,9 +23,10 @@
 #include <cstdlib>
 #include <string>
 
+#include "forge/native/brep/Aabb.hpp"          // Aabb3 (and computeAabb, exact analytic)
+
 #if defined(FORGE_HAVE_OCCT_AABB) && defined(FORGE_NATIVE_BREP)
 #include "forge/OcctImport.hpp"                // importOcctSolid
-#include "forge/native/brep/Aabb.hpp"          // computeAabb (exact analytic)
 #endif
 
 namespace forge {
@@ -63,8 +64,9 @@ void setForgeNativeAabbEnabled(bool on) {
 unsigned long long shapeAabbCallCount()   { return g_calls.load(std::memory_order_relaxed); }
 unsigned long long shapeAabbNativeCount() { return g_native.load(std::memory_order_relaxed); }
 
-bool shapeAabbNative(const TopoDS_Shape& shape, Bnd_Box& box) {
+bool shapeAabbNative(const TopoDS_Shape& shape, Aabb3& out) {
     g_calls.fetch_add(1, std::memory_order_relaxed);
+    out = Aabb3{};   // void until a route below fills it
 
 #if defined(FORGE_HAVE_OCCT_AABB) && defined(FORGE_NATIVE_BREP)
     if (forgeNativeAabbEnabled() && !shape.IsNull()) {
@@ -95,10 +97,14 @@ bool shapeAabbNative(const TopoDS_Shape& shape, Bnd_Box& box) {
             haveNative = false;
         }
         if (haveNative) {
-            // Bnd_Box::Update on a void box SETS it; the box keeps gap 0, so Get()
-            // returns exactly these numbers (this is where the 1e-7 that
-            // BRepBndLib::Add adds does NOT appear).
-            box.Update(b[0], b[1], b[2], b[3], b[4], b[5]);
+            // The analytic numbers, handed back as they are: no OCCT type is
+            // touched on this route (T-148). The 1e-7 that BRepBndLib::Add adds
+            // does not appear. Before T-148 these six were pushed through
+            // Bnd_Box::Update on a fresh box and read back with Get(), which on a
+            // gap-0 box returns x - 0.0 == x: the same bits.
+            out.minX = b[0]; out.minY = b[1]; out.minZ = b[2];
+            out.maxX = b[3]; out.maxY = b[4]; out.maxZ = b[5];
+            out.void_ = false;
             g_native.fetch_add(1, std::memory_order_relaxed);
             return true;
         }
@@ -107,18 +113,25 @@ bool shapeAabbNative(const TopoDS_Shape& shape, Bnd_Box& box) {
 
 #if defined(FORGE_HAVE_OCCT_AABB)
     // Gate OFF, import declined, or the native box failed its own sanity check.
-    // EXACTLY what the call site did before this seam existed.
-    BRepBndLib::Add(shape, box);
+    // EXACTLY what the call site did before this seam existed: a fresh Bnd_Box,
+    // BRepBndLib::Add, and Get() unless the box is void.
+    Bnd_Box bb;
+    BRepBndLib::Add(shape, bb);
+    if (!bb.IsVoid()) {
+        bb.Get(out.minX, out.minY, out.minZ, out.maxX, out.maxY, out.maxZ);
+        out.void_ = false;
+    }
     return false;
 #else
     (void)shape;
-    (void)box;
     return false;
 #endif
 }
 
-void shapeAabb(const TopoDS_Shape& shape, Bnd_Box& box) {
+Aabb3 shapeAabb(const TopoDS_Shape& shape) {
+    Aabb3 box;
     (void)shapeAabbNative(shape, box);
+    return box;
 }
 
 } // namespace brep

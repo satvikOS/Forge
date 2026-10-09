@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# run_occt_query_tail_gate.sh — T-148: five single-owner OCCT QUERY symbols out
+# run_occt_query_tail_gate.sh — T-148: seven single-owner OCCT QUERY symbols out
 # of libforge_kernel_core, with nothing a caller can observe moving.
 #
 #   KERNEL_BUILD=<cmake build dir of forge-kernel>   (default: forge-kernel/build-k)
-#   OCCT_SYMBOLS_CEILING=<N>      the ratchet this change sets (default 498)
+#   OCCT_SYMBOLS_CEILING=<N>      the ratchet this change sets (default 496)
 #   BASE_DYLIB=<pre-change libforge_kernel_core.dylib>   optional: ARRIVALS check
 #   BASE_SRC=<pre-change forge-kernel source dir>        optional, with BASE_DYLIB:
 #                                 BEFORE/AFTER diff of the observable record
@@ -12,16 +12,23 @@
 #
 # CHECKS (each prints PASS / FAIL / NOT_RUN; exit 0 iff no FAIL):
 #   S1  per OBJECT: none of NativeFilletChamfer.o / NativeDraftLocal.o /
-#       BodyInventory.o names any of the five departed symbols (nm -u on the .o,
-#       not only on the dylib — a dylib can lose a symbol another owner still
-#       names, and a .o is where an owner is visible).
-#   S2  the dylib names none of the five.
+#       BodyInventory.o / NativeAabbBridge.o / NativeDraftAngle.o names any of the
+#       seven departed symbols (nm -u on the .o, not only on the dylib — a dylib
+#       can lose a symbol another owner still names, and a .o is where an owner is
+#       visible).
+#   S2  the dylib names none of the seven.
 #   S3  ARRIVALS empty: no OCCT symbol the BASE_DYLIB did not already take.
-#   S4  occt_closure_count.sh --assert-symbols N passes and N-1 FAILS, so the
-#       ceiling measures this tree rather than being inert.
+#   S4  the MEASURED count C is within the ceiling (--assert-symbols N exits 0)
+#       and the assertion is live at C (--assert-symbols C-1 exits 1). When C is
+#       the ceiling this is exactly "N passes and N-1 fails". When another change
+#       has since lowered C, S4 still passes and prints the slack, so a merge that
+#       drops more symbols does not turn this gate red; S5 is what pins N to THIS
+#       change.
 #   G   test/occt_query_tail_gate.cpp, -Wall -Wextra -Werror, linked against the
 #       built dylib: [A] lift bit-exact, [B] ring-edge reader vs the replaced
-#       adaptor, [C] bodyInventory vs constructor+Perform (+ the corpus pass).
+#       adaptor, [C] bodyInventory vs constructor+Perform, [D] the AABB bridge vs
+#       its b609b41d code, [E] stored vs evaluated pcurve start on cylinders,
+#       [F] NativeDraftAngle closed forms (+ the corpus pass).
 #   S5  with BASE_DYLIB: the PRE-change dylib FAILS --assert-symbols N, so the
 #       ceiling is set by this change and not by drift elsewhere.
 #   AB  BEFORE/AFTER: the gate's --emit record built against BASE_SRC+BASE_DYLIB
@@ -49,7 +56,7 @@ done
 
 KERNEL_BUILD="${KERNEL_BUILD:-$KERNEL/build-k}"
 case "$KERNEL_BUILD" in /*) ;; *) KERNEL_BUILD="$KERNEL/$KERNEL_BUILD" ;; esac
-CEILING="${OCCT_SYMBOLS_CEILING:-498}"
+CEILING="${OCCT_SYMBOLS_CEILING:-496}"
 CXX="${CXX:-clang++}"
 OCCT="${OCCT_ROOT:-/opt/homebrew/opt/opencascade}"
 [ -e "$OCCT/include/opencascade/Standard_Version.hxx" ] || OCCT="/usr/local/opt/opencascade"
@@ -69,14 +76,22 @@ trap 'rm -rf "$TMP"' EXIT
 FAILS=0
 verdict() { printf '[occt-query-tail] %-4s %s\n' "$1" "$2"; [ "$1" = "FAIL" ] && FAILS=$((FAILS + 1)); return 0; }
 
-# The five departed symbols, Itanium-mangled WITHOUT the Mach-O leading '_'.
+# The seven departed symbols, Itanium-mangled WITHOUT the Mach-O leading '_'.
+#   BRepAdaptor_Curve ctor / Initialize / D1   NativeFilletChamfer.cpp
+#   BRepExtrema_DistShapeShape::Perform         BodyInventory.cpp
+#   ElCLib::InPeriod                            NativeDraftLocal.cpp
+#   Geom2d_Curve::Value                         NativeDraftLocal.cpp
+#   Bnd_Box::Update(6 doubles)                  NativeAabbBridge.cpp
 cat > "$TMP/departed" <<'SYMS'
 _ZN17BRepAdaptor_Curve10InitializeERK11TopoDS_Edge
 _ZN17BRepAdaptor_CurveC1Ev
 _ZN26BRepExtrema_DistShapeShape7PerformERK21Message_ProgressRange
 _ZN6ElCLib8InPeriodEddd
 _ZNK17BRepAdaptor_Curve2D1EdR6gp_PntR6gp_Vec
+_ZNK12Geom2d_Curve5ValueEd
+_ZN7Bnd_Box6UpdateEdddddd
 SYMS
+NDEP="$(grep -c . "$TMP/departed")"
 sort -u "$TMP/departed" -o "$TMP/departed"
 
 undef() { # undef FILE -> undefined symbols, one per line, Mach-O '_' stripped
@@ -97,7 +112,8 @@ echo "[occt-query-tail] dylib sha256: $(sha "$DYLIB")"
 
 # ── S1 per object ────────────────────────────────────────────────────────────
 S1=0
-for o in native/brep/NativeFilletChamfer.cpp.o native/brep/NativeDraftLocal.cpp.o BodyInventory.cpp.o; do
+for o in native/brep/NativeFilletChamfer.cpp.o native/brep/NativeDraftLocal.cpp.o BodyInventory.cpp.o \
+         native/brep/NativeAabbBridge.cpp.o native/brep/NativeDraftAngle.cpp.o; do
   if [ ! -f "$OBJ/$o" ]; then verdict FAIL "S1 object missing: $OBJ/$o"; S1=1; continue; fi
   hit="$(undef "$OBJ/$o" | comm -12 - "$TMP/departed")"
   if [ -n "$hit" ]; then
@@ -110,7 +126,7 @@ done
 # ── S2 the dylib ─────────────────────────────────────────────────────────────
 undef "$DYLIB" > "$TMP/dylib.undef"
 hit="$(comm -12 "$TMP/dylib.undef" "$TMP/departed")"
-[ -z "$hit" ] && verdict PASS "S2 the dylib names none of the five" \
+[ -z "$hit" ] && verdict PASS "S2 the dylib names none of the $NDEP" \
               || { verdict FAIL "S2 the dylib still names:"; echo "$hit" | c++filt | sed 's/^/    /'; }
 
 # ── S3 arrivals ──────────────────────────────────────────────────────────────
@@ -123,7 +139,7 @@ if [ -n "${BASE_DYLIB:-}" ] && [ -f "${BASE_DYLIB:-}" ]; then
   echo "  OCCT symbols: base $(wc -l < "$TMP/base.occt" | tr -d ' ') -> now $(wc -l < "$TMP/now.occt" | tr -d ' ')"
   echo "  departures ($(printf '%s' "$dep" | grep -c . )):"; printf '%s\n' "$dep" | grep . | c++filt | sed 's/^/    /'
   missing="$(comm -23 "$TMP/departed" <(printf '%s\n' "$dep" | grep . | sort -u))"
-  if [ -z "$arr" ] && [ -z "$missing" ]; then verdict PASS "S3 ARRIVALS empty; all five departed"
+  if [ -z "$arr" ] && [ -z "$missing" ]; then verdict PASS "S3 ARRIVALS empty; all $NDEP departed"
   else
     [ -n "$arr" ] && { echo "  ARRIVALS:"; printf '%s\n' "$arr" | c++filt | sed 's/^/    /'; }
     [ -n "$missing" ] && { echo "  expected departures that did not happen:"; printf '%s\n' "$missing" | c++filt | sed 's/^/    /'; }
@@ -133,13 +149,23 @@ else
   verdict NOT_RUN "S3 arrivals (set BASE_DYLIB=<pre-change libforge_kernel_core>)"
 fi
 
-# ── S4 the ratchet is not inert ──────────────────────────────────────────────
-bash scripts/occt_closure_count.sh "$DYLIB" --quiet --assert-symbols "$CEILING" >/dev/null 2>&1; rcN=$?
-bash scripts/occt_closure_count.sh "$DYLIB" --quiet --assert-symbols "$((CEILING - 1))" >/dev/null 2>&1; rcM=$?
-if [ "$rcN" -eq 0 ] && [ "$rcM" -eq 1 ]; then
-  verdict PASS "S4 --assert-symbols $CEILING exits 0 and $((CEILING - 1)) exits 1"
+# ── S4 the ratchet holds and is not inert ────────────────────────────────────
+# C is MEASURED, never assumed equal to the ceiling: once another change lowers
+# the count, "CEILING-1 must fail" would go red for a reason that is good news.
+C="$(bash scripts/occt_closure_count.sh "$DYLIB" --json --symbols 2>/dev/null \
+     | sed -n 's/.*"occt_symbols":\([0-9][0-9]*\).*/\1/p' | head -1)"
+if [ -z "$C" ]; then
+  verdict FAIL "S4 could not measure OCCT_SYMBOLS on $DYLIB"
 else
-  verdict FAIL "S4 --assert-symbols $CEILING exit=$rcN (want 0), $((CEILING - 1)) exit=$rcM (want 1)"
+  bash scripts/occt_closure_count.sh "$DYLIB" --quiet --assert-symbols "$CEILING" >/dev/null 2>&1; rcN=$?
+  bash scripts/occt_closure_count.sh "$DYLIB" --quiet --assert-symbols "$((C - 1))" >/dev/null 2>&1; rcM=$?
+  echo "  OCCT_SYMBOLS measured $C, ceiling $CEILING"
+  if [ "$rcN" -eq 0 ] && [ "$rcM" -eq 1 ]; then
+    verdict PASS "S4 --assert-symbols $CEILING exits 0 and $((C - 1)) exits 1 (measured $C)"
+    [ "$C" -lt "$CEILING" ] && echo "  NOTE: $((CEILING - C)) symbols of slack under the ceiling — lower OCCT_SYMBOLS_CEILING to $C"
+  else
+    verdict FAIL "S4 --assert-symbols $CEILING exit=$rcN (want 0), $((C - 1)) exit=$rcM (want 1), measured $C"
+  fi
 fi
 
 # ── S5 the ceiling is THIS change's ──────────────────────────────────────────
@@ -242,7 +268,8 @@ if [ "$WANT_MUT" -eq 1 ]; then
     local name="$1" rel="$2" old="$3" new="$4" d="$TMP/mut/$1" f n rc why
     MUT_TOTAL=$((MUT_TOTAL + 1))
     mkdir -p "$d/src/native/brep" "$d/test"
-    cp src/native/brep/NativeFilletChamfer.cpp src/native/brep/NativeDraftLocal.cpp "$d/src/native/brep/"
+    cp src/native/brep/NativeFilletChamfer.cpp src/native/brep/NativeDraftLocal.cpp \
+       src/native/brep/NativeAabbBridge.cpp src/native/brep/NativeDraftAngle.cpp "$d/src/native/brep/"
     cp src/BodyInventory.cpp "$d/src/"
     cp test/occt_query_tail_gate.cpp "$d/test/"
     ln -s "$KERNEL/include" "$d/include"
@@ -262,10 +289,13 @@ if [ "$WANT_MUT" -eq 1 ]; then
     if cmp -s "$f" "$rel"; then
       MUT_GREEN=$((MUT_GREEN + 1)); echo "  M $name: STALE — the substitution changed nothing"; return
     fi
-    # BodyInventory.cpp is compiled INTO the mutant gate, so the executable's
-    # copy of forge::bodyInventory (the mutated one) is the one [C] calls.
+    # BodyInventory.cpp, NativeAabbBridge.cpp and NativeDraftAngle.cpp are compiled
+    # INTO the mutant gate: a definition in the executable binds before the
+    # dylib's, so the mutated forge::bodyInventory / shapeAabb* / draftFaces are
+    # the ones [C] [D] [F] and the emit record call.
     if ! "$CXX" -std=c++20 -O2 -w -DFORGE_NATIVE_BREP=1 -I "$d/include" -I "$OCCT/include/opencascade" \
          "$d/test/occt_query_tail_gate.cpp" "$d/src/BodyInventory.cpp" \
+         "$d/src/native/brep/NativeAabbBridge.cpp" "$d/src/native/brep/NativeDraftAngle.cpp" \
          -L "$(dirname "$DYLIB")" -lforge_kernel_core -L "$OCCT_LIB" "${OCCT_LIBS[@]}" \
          -Wl,-rpath,"$(dirname "$DYLIB")" -Wl,-rpath,"$OCCT_LIB" -o "$d/gate" 2> "$d/build.err"; then
       MUT_GREEN=$((MUT_GREEN + 1)); echo "  M $name: the mutant did not BUILD"; sed -n '1,10p' "$d/build.err"; return
@@ -303,6 +333,23 @@ if [ "$WANT_MUT" -eq 1 ]; then
   mutate ctor-only-loads    src/BodyInventory.cpp \
     'BRepExtrema_DistShapeShape distance(solids[c.i], solids[c.j]);' \
     'BRepExtrema_DistShapeShape distance; distance.LoadS1(solids[c.i]); distance.LoadS2(solids[c.j]);'
+  # [E] + AB: the branch anchor read from the stored pcurve. Its END instead of its
+  # START is a whole period away on a closed rim, which is the defect the anchor
+  # comment in NativeDraftLocal measured (the rim lands on the wrong branch).
+  mutate uv-end-not-start   src/native/brep/NativeDraftLocal.cpp \
+    'uNear = uvStart.X();' 'uNear = uvEnd.X();'
+  # [D]: the AABB bridge's two routes and its reset.
+  mutate bridge-fallback-gapless src/native/brep/NativeAabbBridge.cpp \
+    'bb.Get(out.minX, out.minY, out.minZ, out.maxX, out.maxY, out.maxZ);' \
+    'bb.SetGap(0.0); bb.Get(out.minX, out.minY, out.minZ, out.maxX, out.maxY, out.maxZ);'
+  mutate bridge-native-axis-swap src/native/brep/NativeAabbBridge.cpp \
+    'out.minX = b[0]; out.minY = b[1]; out.minZ = b[2];' 'out.minX = b[1]; out.minY = b[0]; out.minZ = b[2];'
+  mutate bridge-no-reset    src/native/brep/NativeAabbBridge.cpp \
+    'out = Aabb3{};   // void until a route below fills it' '(void)0;'
+  # AB + [F]: NativeDraftAngle reads the right corner of the box it is handed.
+  mutate draftangle-window-z src/native/brep/NativeDraftAngle.cpp \
+    'const double xb = bb.maxX, yb = bb.maxY, zb = bb.maxZ;' \
+    'const double xb = bb.maxX, yb = bb.maxY, zb = bb.minZ;'
   if [ "$MUT_GREEN" -eq 0 ]; then verdict PASS "M all $MUT_TOTAL mutants turn the gate red"
   else verdict FAIL "M $MUT_GREEN of $MUT_TOTAL mutants stayed green, were stale, or did not build"; fi
 fi
