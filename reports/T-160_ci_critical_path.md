@@ -870,3 +870,43 @@ primary key (`ccache-desktop-macOS-f7723…`) both report `Cache not found` and
 1/653 hits: a cache saved under one PR's merge ref is invisible to other PRs, and no
 `archdisc`-scoped entry has existed since `archdisc`'s last push (2026-09-19; unused
 entries are evicted after 7 days).
+
+### 10.5 A2 + A3 on ONE base, locally — both arms, same machine, same JOBS, same kernel
+
+`before` = an export of `origin/archdisc` b609b41d; `after` = an export of this
+branch at 36b629f3 (gate code identical to this commit). One Guardian-admitted
+`forge-job`, `JOBS=2` (what `forge-nproc` granted) for both arms, one
+`libforge_kernel_core.dylib` (Release, `FORGE_BUILD_NODE_ADDON=OFF`) for both, the
+arms **interleaved gate by gate** so a load change lands on both. Apple M4 Max.
+Every gate exited 0 in both arms.
+
+| gate (CI command) | before (s) | after (s) |
+|---|---:|---:|
+| `run_ui.sh` | 74 | 74 |
+| `run_ui_contract_test.sh` | 76 | 8 |
+| `run_op_constraint_gate.sh` | 66 | 32 |
+| `run_differential_gate.sh` | 44 | 23 |
+| `run_user_prose_gate.sh --mutations` | 527 | 50 |
+| `run_panel_ratchet_gate.sh --mutations` | 233 | 36 |
+| `run_model_tree_gate.sh --mutations` | 175 | 28 |
+| `run_click_gate.sh` | 154 | 133 |
+| `run_isolation_gate.sh` | 626 | 116 |
+| **total** | **1,975** | **500** |
+
+**Kill matrix, same base: IDENTICAL** — 68 normalised verdict lines in each arm
+(prose 13 + verdict, panel 5 + control + verdict, model-tree 4 + verdict,
+op-constraint 9 + drift + verdict, differential 9 + verdict, click 12,
+crash-isolation S1–S6 + G1–G2 + verdict), `diff` empty. Normalisation removes only
+timestamps and the new `[compiled N, reused M]` suffix. After-arm accounting:
+prose/panel/model-tree clean build compiled 48, each mutation compiled 0 or 1 of 48;
+crash-isolation base compiled 103, each source mutation 1–2 of 103.
+
+**And the safety argument holds on this branch, by sabotage.** A copy of the
+after arm with the content hash removed from the cache key (path-only key) was run:
+`run_model_tree_gate.sh --mutations` printed `mutation 1..4 STAYED GREEN -- the check
+it targets is unfalsifiable` and `RED: 4 of 4 mutations did not prove the gate can
+fail`, rc 1; the cache selftest went `8 passed, 2 failed`, rc 1. A stale object
+cannot pass silently: it turns the gate red.
+
+Evidence: `~/.forge-program/evidence/T-160/local_comparison.txt`,
+`local_before/`, `local_after/`, `killmatrix_local_*.txt`, `sabotage_*.log`.
