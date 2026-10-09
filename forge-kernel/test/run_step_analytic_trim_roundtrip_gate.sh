@@ -14,6 +14,8 @@
 #   [5/10] M3 — skip the (u,v)-straightness test (an edge curved in (u,v), the
 #          oblique cut's ellipse, read through its vertex polygon): must go RED
 #   [6/10] M4 — annotate a disk face WITH holes as a disk again: must go RED
+#   [6b/10] M8 — read a holed disk of COARSE arcs (a circle in 4 arcs) as its
+#          chord polygon instead of refusing it: must go RED
 #   [7/10] M5 — seed the sector sweep at angle 0 again (a cap sector whose loop
 #          starts at its centre widened to start at 0): must go RED
 #   [8/10] M6 — ignore the AP214 SURFACE_CURVE wrapper on edges: must go RED
@@ -51,7 +53,8 @@ EVID="${STEP_TRIM_EVIDENCE:-}"
 
 echo "[0/10] the fixes under test are PRESENT in the source"
 for marker in T270-QUADRIC-TRIM-GUARD T270-QUADRIC-ON-SURFACE T270-QUADRIC-UV-STRAIGHT T270-QUADRIC-RECT \
-              T270-QUADRIC-REGION T270-QUADRIC-WINDING T270-DISK-HOLES T270-SECTOR-SWEEP \
+              T270-QUADRIC-REGION T270-QUADRIC-WINDING T270-HOLED-DISK-POLYGON T270-HOLED-DISK-COARSE \
+              T270-SECTOR-SWEEP \
               T270-EDGE-SURFACE-CURVE T270-DISK-SURFACE-CURVE; do
   if [ "$(grep -c -- "$marker" "$SRC")" != 1 ]; then
     echo "[step-trim] FATAL: $SRC does not carry '$marker' exactly once — the fix was reverted or moved." >&2
@@ -179,10 +182,16 @@ M3=$(run_mutant T270-QUADRIC-UV-STRAIGHT \
 check_caught M3 "$M3"; show "FAIL|checks," 4 M3
 
 echo "[6/10] M4 — a disk face with holes annotated as a disk again"
-M4=$(run_mutant T270-DISK-HOLES \
-  "                          f->innerLoops.empty();   // T270-DISK-HOLES" \
-  "                          true;   // M4 holes ignored again (T270-MUTANT)")
+M4=$(run_mutant T270-HOLED-DISK-POLYGON \
+  "            diskShaped = false;   // T270-HOLED-DISK-POLYGON" \
+  "            (void)0;   // M4 holes ignored again (T270-MUTANT)")
 check_caught M4 "$M4"; show "FAIL|checks," 4 M4
+
+echo "[6b/10] M8 — a holed disk of COARSE arcs read as its chord polygon"
+M8=$(run_mutant T270-HOLED-DISK-COARSE \
+  "                    if (!line && !fineArc) {   // T270-HOLED-DISK-COARSE" \
+  "                    if (false && !line && !fineArc) {   // M8 (T270-MUTANT)")
+check_caught M8 "$M8"; show "FAIL|checks," 4 M8
 
 echo "[7/10] M5 — the sector sweep seeded at angle 0 again"
 M5=$(run_mutant T270-SECTOR-SWEEP \
@@ -216,5 +225,5 @@ OUT2=$("$GATE" 2>&1); rc2=$?
 if [ "$rc2" -ne 0 ]; then
   echo "[step-trim] RED — the tree did not come back clean:"; echo "$OUT2" | sed 's/^/      /'; exit 1
 fi
-echo "      clean exit $rc2 ; M1 exit $M1 ; M2 exit $M2 ; M3 exit $M3 ; M4 exit $M4 ; M5 exit $M5 ; M6 exit $M6 ; M7 exit $M7"
-echo "[step-trim] GREEN — clean run passes and all seven mutations were caught."
+echo "      clean exit $rc2 ; M1 exit $M1 ; M2 exit $M2 ; M3 exit $M3 ; M4 exit $M4 ; M8 exit $M8 ; M5 exit $M5 ; M6 exit $M6 ; M7 exit $M7"
+echo "[step-trim] GREEN — clean run passes and all eight mutations were caught."

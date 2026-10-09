@@ -113,8 +113,11 @@
 // 2 refused, 4 equal in volume whose planar disk caps read as exact disks where
 // the readForeignStep source carries 96-gons.) A planar face reads as an exact
 // disk / annular sector only when its single loop is concentric arcs plus radial
-// lines and it has NO hole; a holed disk integrates as its boundary polygon, as
-// every other planar face bounded by arcs does (MassProps).
+// lines and it has NO hole. A holed disk integrates as its boundary polygon (as
+// every other planar face bounded by arcs does, MassProps) only when every arc of
+// it is chorded no coarser than pi/32 -- readForeignStep's own chording, which is
+// what an imported part written by write() carries; a holed disk bounded by
+// coarser arcs (a circle in 4 arcs reads as its inscribed square) is REFUSED.
 
 #ifndef FORGE_NATIVE_BREP_STEPANALYTIC_HPP
 #define FORGE_NATIVE_BREP_STEPANALYTIC_HPP

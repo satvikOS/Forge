@@ -36,12 +36,17 @@
 //
 // HOLED DISK (holed-disk): a cylinder with an off-axis square prism hole; its two
 // caps are disks with a square hole. The polar disk integral has no holes, so
-// read() must not annotate such a face as a disk: the round trip must reproduce
-// the SOURCE solid's area (both integrate the same boundary polygon) and the
-// hole must be cut out (area below the solid's full-disk area by >= 90 % of the
-// two hole areas). A planar face bounded by non-concentric arcs integrates as its
-// vertex polygon everywhere in Forge (MassProps), so this fixture is compared to
-// the source, not to closed form (stated, not hidden).
+// read() must not annotate such a face as a disk. Its boundary POLYGON is the
+// face only when the arcs are chorded as finely as readForeignStep chords them:
+//   rung-1      the fixture's caps are 4-arc circles (polygon = inscribed square):
+//               EXACT or REFUSED (no exact integral exists -> refused)
+//   round trip  the readForeignStep source carries the caps as fine polygons; the
+//               read must reproduce the SOURCE's volume and area (both integrate
+//               the same polygon) and cut the holes out (area below the
+//               full-disk solid by >= 90 % of the two hole areas). A planar face
+//               bounded by arcs integrates as its vertex polygon everywhere in
+//               Forge (MassProps), so this leg is compared to the source, not to
+//               closed form (stated, not hidden).
 //
 // NO-REGRESSION: the analytic builders (box, cylinder, cone, apex cone, sphere,
 // torus, tube, prism, wedge, pyramid, fillets, chamfer) must still round-trip
@@ -524,6 +529,14 @@ void runHoledDisk() {
     const Fixture f = holedDisk();
     std::printf("[%s] closed form: volume %.12g, area %.12g (a planar arc face integrates as its polygon)\n",
                 f.name.c_str(), f.vol, f.area);
+    // rung 1: the fixture's caps are disks cut from 4 arcs each -- a chord polygon
+    // that is the inscribed square, so no exact integral exists: EXACT or REFUSED.
+    {
+        bool exact, refused; double vr, ar;
+        const AnalyticReadResult r1 = StepAnalytic::read(f.text);
+        const std::string v1 = readVerdict(r1, f, exact, refused, vr, ar);
+        check(exact || refused, f.name + " rung-1 StepAnalytic::read EXACT or REFUSED: " + v1);
+    }
     const ForeignReadResult fr = readForeignStep(f.text);
     if (!(fr.ok && fr.solid && fr.unsupported.empty() && fr.closed)) {
         check(false, f.name + " readForeignStep did not import the fixture: " + fr.reason);

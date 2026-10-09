@@ -1444,7 +1444,7 @@ EdgeCircle circleOfEdgeCurve(const std::unordered_map<std::uint64_t, Instance>& 
 //
 // `ringCircles[i]` is the circle (if any) of the loop edge LEAVING ring[i].
 bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
-                const std::vector<EdgeCircle>& ringCircles) {
+                const std::vector<EdgeCircle>& ringCircles, std::string& why) {
     f->vertexUV.clear();
     f->vertexUV.reserve(ring.size());
 
@@ -1604,11 +1604,7 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
         // through `centre`. A box face that merely has an arc NOTCH (its other
         // edges are box edges, NOT radial) must NOT be treated as a disk — that is
         // the holed top/bottom face of a bored plate, integrated as a polygon.
-        // T-270: the polar disk integral has no holes -- a disk face WITH inner
-        // (hole) loops stays the holed polygon (boolHoled) instead of reading back
-        // as the whole disk.
-        bool diskShaped = haveCentre && consistent && nCircles >= 1 && rOuter > 1e-9 &&
-                          f->innerLoops.empty();   // T270-DISK-HOLES
+        bool diskShaped = haveCentre && consistent && nCircles >= 1 && rOuter > 1e-9;
         if (diskShaped) {
             const std::size_t n = ring.size();
             for (std::size_t i = 0; i < n && diskShaped; ++i) {
@@ -1623,6 +1619,38 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
                 double scale = std::max(1.0, rOuter * rOuter);
                 if (std::fabs(cross) > 1e-6 * scale) diskShaped = false;
             }
+        }
+        // T-270: HOLED DISK. The polar disk integral has no holes, so a disk face
+        // WITH inner (hole) loops was read back as the WHOLE disk, holes filled.
+        // Integrated as its holed boundary POLYGON (boolHoled) instead, it is the
+        // face only when every arc of it is chorded as finely as readForeignStep's
+        // own representation of the face (it densifies an arc into
+        // llround(96*span/2pi) chords, none wider than pi/32) -- which is what an
+        // imported part written by write() carries. A coarser arc (a circle in 3
+        // or 4 arcs: its polygon is the inscribed triangle / square, -36 % for 4)
+        // has no exact integral here, so such a face is REFUSED.
+        if (diskShaped && !f->innerLoops.empty()) {
+            std::vector<const Loop*> loops{f->outerLoop};
+            for (const Loop* il : f->innerLoops) loops.push_back(il);
+            for (const Loop* lp : loops) {
+                const Coedge* ce = lp ? lp->first : nullptr;
+                std::size_t guard = 0;
+                while (ce && ce->edge) {
+                    const Edge* e = ce->edge;
+                    const bool line = e->curve && e->curve->kind == GeomCurveKind::Line;
+                    const bool fineArc = e->curve && e->curve->kind == GeomCurveKind::Circle &&
+                                         std::fabs(e->curve->t1 - e->curve->t0) <=
+                                             3.14159265358979323846 / 32.0 + 1e-9;
+                    if (!line && !fineArc) {   // T270-HOLED-DISK-COARSE
+                        why = "a planar disk face with holes is bounded by an arc coarser than pi/32 "
+                              "(its chord polygon is not the face, and the disk integral has no holes)";
+                        return false;
+                    }
+                    ce = ce->next;
+                    if (ce == lp->first || ++guard > 1000000) break;
+                }
+            }
+            diskShaped = false;   // T270-HOLED-DISK-POLYGON
         }
         if (diskShaped) {
             if (rInner >= rOuter - 1e-9) rInner = 0.0;  // a single radius -> full disk
@@ -2500,9 +2528,10 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
                 return readFail("StepAnalytic.read: " + tw + " -- only a B-spline face "
                                 "that is its iso-parameter rectangle is read here; a "
                                 "general trimmed B-spline face is readForeignStep's");
-        } else if (!attachTrim(f, surf, ring, ringCircles)) {
-            return readFail("StepAnalytic.read: could not parameterise face over "
-                            "its analytic surface (trim window)");
+        } else if (std::string tw; !attachTrim(f, surf, ring, ringCircles, tw)) {
+            return readFail("StepAnalytic.read: " +
+                            (tw.empty() ? std::string("could not parameterise face over its "
+                                                      "analytic surface (trim window)") : tw));
         } else if (surf->kind != SurfaceKind::Plane) {
             // T-270: the vertex box is the face only when the face IS that box.
             std::string tw;
