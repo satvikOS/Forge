@@ -41,10 +41,15 @@
 //  surfaces — see native_ssi_test.cpp): general/skew cylinder∩cylinder, general
 //  (offset) cylinder∩sphere.
 //
+//   * cone ∩ (sphere | cylinder | cone) SHARING ONE AXIS -> Circles (T-310): two
+//     coaxial surfaces of revolution meet only in circles ⊥ the axis, at the roots
+//     of their radius-profile equation (linear/linear or linear/quadratic). This is
+//     the NAFEMS LE11 ball + taper + cylinder family.
+//
 // STILL DEFERRED (honestly reported ok=false, handed to the mesh boolean):
-//  cone∩(cyl/cone/sphere), every torus pair, anything involving a NURBS face — the
-//  higher-degree intersections with no elementary closed form and no marcher wired
-//  here yet.
+//  NON-coaxial cone∩(cyl/cone/sphere), coincident coaxial cones, every torus pair,
+//  anything involving a NURBS face — the higher-degree intersections with no
+//  elementary closed form and no marcher wired here yet.
 //
 // Pure C++20, ZERO external deps (stdlib + existing forge native brep headers).
 // No OCCT, no WASM. CONVENTIONS: namespace forge::native::brep.

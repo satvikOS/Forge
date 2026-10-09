@@ -312,6 +312,25 @@ bool projectToUV(const Surface* s, const Vec3& p, double& u, double& v) {
     }
 }
 
+// SPHERE-AWARE projection for the IMPRINT only (T-310). projectToUV above stays
+// byte-identical for every existing caller (stitch PASS 2 recomputes vertexUV with it,
+// and a sphere face has always left that empty); the imprint additionally needs the
+// sphere's own (u,v) = (azimuth about axis from refDir, polar angle from +axis) so a
+// sphere face can be band-split at a coaxial cut circle exactly like a cylinder/cone
+// sector. Matches Surface::evaluate's sphere convention.
+bool projectToUVImprint(const Surface* s, const Vec3& p, double& u, double& v) {
+    if (s->kind != SurfaceKind::Sphere) return projectToUV(s, p, u, v);
+    const Vec3 b = s->binormal();
+    Vec3 rel = vsub(p, s->origin);
+    const double x = vdot(rel, s->refDir), y = vdot(rel, b), z = vdot(rel, s->axis);
+    const double rho = std::hypot(x, y);
+    if (!(rho > 0.0) && !(std::fabs(z) > 0.0)) return false;   // the centre: no direction
+    u = std::atan2(y, x);
+    if (u < 0) u += 2.0 * kPi;
+    v = std::atan2(rho, z);   // polar angle in [0, pi]; well-conditioned at the poles (acos is not)
+    return true;
+}
+
 // Unwrap a cylinder/cone angular coordinate u so it is continuous within a sub-
 // window whose representative angle is `uref` (handles the 2pi seam).
 double unwrapNear(double u, double uref) {
@@ -535,6 +554,24 @@ struct SubFace {
     bool   paramTri = false;                    // integrate over the (u,v) triangle
     bool   insideOther = false;                 // classification result
     bool   fromA = true;                        // provenance: which input solid
+    // ORIENTATION FALLBACK (T-310): +1 if the RESULT outward normal of this sub-face
+    // is +rawNormal (du x dv with reversed=false), -1 if it is -rawNormal, 0 unknown.
+    // Derived from the PARENT face's loop winding and its solid's signed volume (and
+    // flipped for a Cut's B pieces), so it is exact for any consistently oriented
+    // closed input. stitch uses it ONLY when its material probe is ambiguous — a
+    // curved band piece whose chord centroid sits off the other operand's chordal
+    // soup by more than the probe step (the sphere band pieces) — instead of the
+    // parent's `reversed` flag, which is NOT an outward marker for every primitive
+    // (a factory sphere has reversed=false while its du x dv points inward).
+    int    wantSign = 0;
+    // COPLANAR SAME-DIRECTION COINCIDENCE (T-310): true iff this PLANAR sub-face lies
+    // on a planar face of the OTHER solid whose outward normal points the SAME way
+    // (two flush caps: a quarter-clip box's top face on a body's top face). Ray
+    // parity cannot classify such a face (its samples are ON the other boundary;
+    // the result depends on which way the ray leans), and the stitch's
+    // net-cancellation only resolves OPPOSITE-direction pairs. Selection resolves it
+    // by the standard rule instead: Fuse/Common keep exactly A's copy, Cut keeps none.
+    bool   onOtherSame = false;
     // LINEAGE (PD-7): the index of the PARENT INPUT FACE this sub-face was carved
     // from, in the input solid's face-enumeration order (fromA ? A's list : B's).
     // -1 == unassigned (never happens on the analytic path; the imprint always
@@ -693,23 +730,27 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
         return true;
     }
 
-    // Beyond the whole-face fast path, only plane / cylinder / cone faces are
-    // imprinted analytically (sphere/torus imprints are a TARGETED follow-on; an
-    // imprinted sphere/torus face defers honestly to the mesh fallback).
+    // Beyond the whole-face fast path, plane / cylinder / cone faces are imprinted
+    // analytically, and a SPHERE face is band-split at cut circles COAXIAL with the
+    // sphere's own axis (constant polar angle v — T-310, the LE11 ball∩taper/bore
+    // family). Any other sphere cut (an oblique circle crossing the patch) and every
+    // torus imprint defer honestly to the mesh fallback (the band-split path below
+    // returns false on a non-constant-v curve).
     if (s->kind != SurfaceKind::Plane && s->kind != SurfaceKind::Cylinder &&
-        s->kind != SurfaceKind::Cone)
+        s->kind != SurfaceKind::Cone && s->kind != SurfaceKind::Sphere)
         return false;
 
-    // Reference angle for unwrapping (cylinder/cone): the loop's mean angle.
+    // Reference angle for unwrapping (cylinder/cone/sphere): the loop's mean angle.
     double uref = 0.0;
-    bool angular = (s->kind == SurfaceKind::Cylinder || s->kind == SurfaceKind::Cone);
+    bool angular = (s->kind == SurfaceKind::Cylinder || s->kind == SurfaceKind::Cone ||
+                    s->kind == SurfaceKind::Sphere);
     if (angular) {
         // use the existing trim window centre as the unwrap reference
         uref = 0.5 * (parent->u0 + parent->u1);
     }
 
     auto toParam = [&](const Vec3& p, double& u, double& v) -> bool {
-        if (!projectToUV(s, p, u, v)) return false;
+        if (!projectToUVImprint(s, p, u, v)) return false;
         if (angular) u = unwrapNear(u, uref);
         return true;
     };
@@ -788,6 +829,9 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
         // which already accounts for the radius taper — remains EXACT; only the
         // welded topology ring drops the duplicated apex vertex).
         auto coneRadiusAt = [&](double vlvl) -> double {
+            // SPHERE: the polar parameter v is 0 / pi at the two poles, where every
+            // corner of a band edge collapses to the pole point (the pole fan).
+            if (s->kind == SurfaceKind::Sphere) return s->r1 * std::sin(vlvl);
             if (s->kind != SurfaceKind::Cone) return 1.0; // cylinder: never apex
             return s->r1 + (s->r2 - s->r1) * vlvl;
         };
@@ -883,10 +927,12 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
             }
             return true;
         }
-        // A face that ALREADY has holes but is met by an OPEN/partial cut is outside
-        // the analytic holed envelope — defer honestly to the mesh fallback rather
-        // than silently dropping the existing holes via the legacy CDT path.
-        if (!parent->innerLoops.empty()) return false;
+        // A face that ALREADY has holes but is met by an OPEN/partial cut (e.g. a
+        // symmetry plane slicing a drilled annulus, or a coaxial wall landing on its
+        // rim) continues into the CDT path below WITH ITS HOLES as constraint rings,
+        // and the hole interiors are excluded from the emitted triangles (T-310). The
+        // holes are never dropped: a hole ring that cannot be projected fails the
+        // imprint (honest deferral) rather than silently filling the hole.
     }
 
     // ---- PLANAR faces: CDT IMPRINT ---------------------------------------------
@@ -912,6 +958,24 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
     for (std::size_t i = 0; i < boundIdx.size(); ++i) {
         int a = boundIdx[i], b = boundIdx[(i + 1) % boundIdx.size()];
         if (a != b) cons.push_back({a, b});
+    }
+    // Existing INNER loops (holes from a prior boolean) as closed constraint rings
+    // (T-310). Each ring's (u,v) polygon excludes its interior from the output.
+    std::vector<std::vector<int>> holeIdx;
+    for (Loop* il : parent->innerLoops) {
+        std::vector<Vec3> hr = loopRing3D(il);
+        if (hr.size() < 3) continue;
+        std::vector<int> hi;
+        for (const Vec3& p : hr) {
+            double u, v;
+            if (!toParam(p, u, v)) return false;
+            hi.push_back(addPoint(u, v));
+        }
+        for (std::size_t k = 0; k < hi.size(); ++k) {
+            int a = hi[k], b = hi[(k + 1) % hi.size()];
+            if (a != b) cons.push_back({a, b});
+        }
+        holeIdx.push_back(std::move(hi));
     }
 
     // Curve polylines as constraints. Clip each curve to the face's (u,v) bbox so
@@ -946,18 +1010,22 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
     const double snapB = 1e-9 * std::max(1.0, std::max(bu1 - bu0, bv1 - bv0));
     auto snapToBoundary = [&](double& u, double& v) {
         double best = snapB, su = u, sv = v; bool hit = false;
-        std::size_t n = boundIdx.size();
-        for (std::size_t i = 0; i < n; ++i) {
-            const geom::Point2& A = pts[boundIdx[i]];
-            const geom::Point2& B = pts[boundIdx[(i + 1) % n]];
-            const double dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy;
-            if (L2 < 1e-30) continue;
-            double t = ((u - A.x) * dx + (v - A.y) * dy) / L2;
-            if (t < 0.0 || t > 1.0) continue;   // only onto the segment span
-            const double px = A.x + t * dx, py = A.y + t * dy;
-            const double d = std::hypot(u - px, v - py);
-            if (d < best) { best = d; su = px; sv = py; hit = true; }
-        }
+        auto scanRing = [&](const std::vector<int>& ringIdx) {
+            std::size_t n = ringIdx.size();
+            for (std::size_t i = 0; i < n; ++i) {
+                const geom::Point2& A = pts[ringIdx[i]];
+                const geom::Point2& B = pts[ringIdx[(i + 1) % n]];
+                const double dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy;
+                if (L2 < 1e-30) continue;
+                double t = ((u - A.x) * dx + (v - A.y) * dy) / L2;
+                if (t < 0.0 || t > 1.0) continue;   // only onto the segment span
+                const double px = A.x + t * dx, py = A.y + t * dy;
+                const double d = std::hypot(u - px, v - py);
+                if (d < best) { best = d; su = px; sv = py; hit = true; }
+            }
+        };
+        scanRing(boundIdx);
+        for (const auto& hi : holeIdx) scanRing(hi);   // a cut may terminate on a hole rim
         if (hit) { u = su; v = sv; }
     };
 
@@ -1001,8 +1069,47 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
         for (std::size_t i = 0; i < cons.size() && !changed; ++i) {
             for (std::size_t j = i + 1; j < cons.size() && !changed; ++j) {
                 int a0 = cons[i].a, a1 = cons[i].b, b0 = cons[j].a, b1 = cons[j].b;
+                const bool shareEnd = (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1);
+                // COLLINEAR OVERLAP (T-310): two constraints on one line sharing a
+                // sub-segment — a coplanar partner's cut line lying ON this face's own
+                // boundary edge (a cap plane's line on a symmetry face's top edge), or
+                // two partners depositing the same seam. constrainedDelaunay2D rejects
+                // the PSLG ("collinear overlap"), and the snap-retry below then merges
+                // genuinely distinct near points (a 1e-5 sphere sliver's two corners).
+                // Split each segment EXACTLY at the other's interior endpoints so the
+                // overlap becomes identical sub-segments, and drop exact duplicates.
+                if ((a0 == b0 && a1 == b1) || (a0 == b1 && a1 == b0)) {
+                    cons.erase(cons.begin() + static_cast<std::ptrdiff_t>(j));
+                    changed = true;
+                    continue;
+                }
+                {
+                    geom::SegIntersection co = geom::segmentIntersect(pts[a0], pts[a1], pts[b0], pts[b1]);
+                    if (co.relation == geom::SegRelation::COLLINEAR_OVERLAP) {
+                        auto strictlyInside = [&](int q, int s0, int s1) {
+                            if (q == s0 || q == s1 || sameRef(q, s0) || sameRef(q, s1)) return false;
+                            const double dx = pts[s1].x - pts[s0].x, dy = pts[s1].y - pts[s0].y;
+                            const double L2 = dx * dx + dy * dy;
+                            if (!(L2 > 0.0)) return false;
+                            const double t = ((pts[q].x - pts[s0].x) * dx + (pts[q].y - pts[s0].y) * dy) / L2;
+                            return t > 0.0 && t < 1.0;
+                        };
+                        int splitSeg = -1, at = -1;
+                        if (strictlyInside(b0, a0, a1))      { splitSeg = (int)i; at = b0; }
+                        else if (strictlyInside(b1, a0, a1)) { splitSeg = (int)i; at = b1; }
+                        else if (strictlyInside(a0, b0, b1)) { splitSeg = (int)j; at = a0; }
+                        else if (strictlyInside(a1, b0, b1)) { splitSeg = (int)j; at = a1; }
+                        if (splitSeg >= 0) {
+                            geom::ConstraintEdge e = cons[static_cast<std::size_t>(splitSeg)];
+                            cons[static_cast<std::size_t>(splitSeg)] = {e.a, at};
+                            cons.push_back({at, e.b});
+                            changed = true;
+                        }
+                        continue;
+                    }
+                }
                 // skip if they share an endpoint
-                if (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1) continue;
+                if (shareEnd) continue;
                 geom::SegIntersection si = geom::segmentIntersect(pts[a0], pts[a1], pts[b0], pts[b1]);
                 if (si.relation == geom::SegRelation::PROPER_CROSS) {
                     int m = addPoint(si.point.x, si.point.y);
@@ -1128,6 +1235,18 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
         return in;
     };
 
+    // Hole polygons (prior inner loops) in the same param space (T-310).
+    std::vector<std::vector<geom::Point2>> hpolys;
+    for (const auto& hi : holeIdx) {
+        std::vector<geom::Point2> hp;
+        for (int k : hi) hp.push_back(pts[k]);
+        hpolys.push_back(std::move(hp));
+    }
+    auto inAnyHole = [&](double qx, double qy) -> bool {
+        for (const auto& hp : hpolys) if (pointInPoly2(hp, qx, qy)) return true;
+        return false;
+    };
+
     // Emit one SubFace per triangle whose centroid lies inside the face boundary
     // loop, keeping the parent surface. A planar sub-face is integrated exactly as
     // a polygon; a CURVED sub-face is a true patch of the SAME quadric, integrated
@@ -1138,6 +1257,7 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
             double cx = (cdt.points[tri[0]].x + cdt.points[tri[1]].x + cdt.points[tri[2]].x) / 3.0;
             double cy = (cdt.points[tri[0]].y + cdt.points[tri[1]].y + cdt.points[tri[2]].y) / 3.0;
             if (!inBoundary(cx, cy)) continue;
+            if (inAnyHole(cx, cy)) continue;     // T-310: a prior hole stays a hole
         }
         SubFace sf = makeSubFromSurface(s, fromA, parentFaceIdx);
         double mnu = 1e300, mxu = -1e300, mnv = 1e300, mxv = -1e300;
@@ -1318,6 +1438,42 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
             tmp.reversed = false;
             nRaw = tmp.normalAt(um, vm);
         }
+        // HOLED planar face (T-310): its outer-ring centroid and the 60%-toward-corner
+        // points can all fall INSIDE a large hole (a 0.7071 bore in a radius-1 cap),
+        // where both probe sides read "not material" and the face would be mistaken
+        // for a coincident-face net-cancellation and DROPPED. Probe it only at points
+        // proven to lie in the annulus (inside the outer loop, outside every hole).
+        std::vector<Vec3> annulusPts;
+        if (sf.boolHoled && !sf.innerRings.empty() && sf.kind == SurfaceKind::Plane) {
+            Vec3 pn{0, 0, 0};
+            for (std::size_t k = 0; k < sf.ring.size(); ++k)
+                pn = vadd(pn, vcross(sf.ring[k], sf.ring[(k + 1) % sf.ring.size()]));
+            const Vec3 nrm = vnorm(pn);
+            Vec3 e1, e2; planeBasis(nrm, e1, e2);
+            const Vec3 o = sf.ring[0];
+            std::vector<geom::Point2> outer;
+            for (const Vec3& p : sf.ring) outer.push_back(proj2(p, o, e1, e2));
+            std::vector<std::vector<geom::Point2>> inners;
+            for (const auto& ir : sf.innerRings) {
+                std::vector<geom::Point2> q; for (const Vec3& p : ir) q.push_back(proj2(p, o, e1, e2));
+                inners.push_back(std::move(q));
+            }
+            auto inAnnulus = [&](const Vec3& p) -> bool {
+                geom::Point2 q = proj2(p, o, e1, e2);
+                if (!pointInPoly2(outer, q.x, q.y)) return false;
+                for (const auto& ip : inners) if (pointInPoly2(ip, q.x, q.y)) return false;
+                return true;
+            };
+            auto consider = [&](const Vec3& p) { if (inAnnulus(p)) annulusPts.push_back(p); };
+            consider(c);
+            for (const Vec3& p : sf.ring) consider(vadd(c, vscale(vsub(p, c), 0.6)));
+            const std::size_t n = sf.ring.size();
+            for (std::size_t k = 0; k < n; ++k) {     // just inside each outer edge
+                Vec3 m = vscale(vadd(sf.ring[k], sf.ring[(k + 1) % n]), 0.5);
+                consider(vadd(m, vscale(vsub(c, m), 0.05)));
+            }
+            if (!annulusPts.empty()) c = annulusPts.front();
+        }
         // Decide the OUTWARD direction geometrically: the side that is EMPTY (not
         // material) is outward. Probe both sides; pick the unambiguous one.
         bool plusInside  = material(vadd(c, vscale(nRaw, eps)));
@@ -1337,16 +1493,22 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
             bool drop = false;
             if (sf.kind == SurfaceKind::Plane) {
                 int bndy = 0, both = 0;
-                for (const Vec3& rp : sf.ring) {
-                    Vec3 cp = vadd(c, vscale(vsub(rp, c), 0.6)); // interior sample
+                auto voteAt = [&](const Vec3& cp) {
                     bool pi = material(vadd(cp, vscale(nRaw, eps)));
                     bool mi = material(vsub(cp, vscale(nRaw, eps)));
                     if (pi == mi) ++both; else ++bndy;
+                };
+                if (!annulusPts.empty()) {
+                    for (const Vec3& ap : annulusPts) voteAt(ap);   // T-310: annulus only
+                } else {
+                    for (const Vec3& rp : sf.ring)
+                        voteAt(vadd(c, vscale(vsub(rp, c), 0.6))); // interior sample
                 }
                 if (bndy == 0 && both > 0) drop = true; // non-boundary everywhere
             }
             if (drop) continue;                  // coincident-face net-cancellation
-            outwardIsPlus = !sf.reversedFlag;    // reversedFlag=true => outward is -nRaw
+            outwardIsPlus = (sf.wantSign != 0) ? (sf.wantSign > 0)   // T-310: winding-derived
+                                               : !sf.reversedFlag;    // reversedFlag=true => outward is -nRaw
         } else {
             outwardIsPlus = (!plusInside && minusInside);
         }
@@ -1680,11 +1842,89 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
             } else if (fb[j]->surface->kind == SurfaceKind::Cylinder || fb[j]->surface->kind == SurfaceKind::Cone) {
                 curvedS = fb[j]->surface; secW = fb[j]->u1 - fb[j]->u0;
             }
+            // SPHERE partner (T-310): a sphere face is band-split at a cut circle
+            // COAXIAL with its own axis, at its sector corners (su0,su1). The partner
+            // face must receive the SAME vertices, so sample such a circle on the
+            // sphere's angular grid too. Only a coaxial circle qualifies — a circle in
+            // an oblique plane does not run along constant polar angle.
+            const Face* sphF = nullptr;
+            if (!curvedS) {
+                if (fa[i]->surface->kind == SurfaceKind::Sphere) sphF = fa[i];
+                else if (fb[j]->surface->kind == SurfaceKind::Sphere) sphF = fb[j];
+            }
+            auto coaxialWithSphere = [&](const IntersectionCurve& cu) -> bool {
+                if (!sphF || cu.kind != CurveKind::Circle) return false;
+                const Surface* S = sphF->surface;
+                const Vec3 ax = vnorm(S->axis);
+                if (vlen(vcross(vnorm(cu.axis), ax)) > 1e-9) return false;
+                Vec3 d = vsub(cu.origin, S->origin);
+                Vec3 perp = vsub(d, vscale(ax, vdot(d, ax)));
+                return vlen(perp) <= 1e-9 * std::max(1.0, S->r1);
+            };
+            // CURVED-FACE EDGE ON A PLANE (T-310): when the partner is a PLANE that
+            // contains an iso-parameter EDGE of a sphere / cylinder / cone face — a
+            // symmetry plane through the axis lying on a meridian or generator seam,
+            // or a cap plane ⊥ the axis lying on a band edge — the cut IS that edge.
+            // Hand both faces the face's own edge corners (a consecutive run of ring
+            // corners on the plane): the curved face then sees a boundary-coincident
+            // curve (no split) and the plane's imprint mates edge-for-edge with it.
+            // Dense great-circle samples would land between a sphere patch's corners
+            // (every meridian edge unmated), and a clipped generator line overshoots
+            // its sector corner by the AABB pad (a ~1e-6 sliver edge at the weld
+            // grid's mercy). Only a plane that CONTAINS the axis or is PERPENDICULAR
+            // to it qualifies: an oblique plane through two corners crosses the patch.
+            std::vector<Vec3> sphereEdgeRun;
+            {
+                const Face* cvF = nullptr; const Face* plF = nullptr;
+                auto isCurvedRev = [](SurfaceKind k) {
+                    return k == SurfaceKind::Sphere || k == SurfaceKind::Cylinder || k == SurfaceKind::Cone;
+                };
+                if (isCurvedRev(fa[i]->surface->kind) && fb[j]->surface->kind == SurfaceKind::Plane) { cvF = fa[i]; plF = fb[j]; }
+                else if (isCurvedRev(fb[j]->surface->kind) && fa[i]->surface->kind == SurfaceKind::Plane) { cvF = fb[j]; plF = fa[i]; }
+                if (cvF) {
+                    const Surface* CS = cvF->surface;
+                    const Vec3 pn = vnorm(plF->surface->axis);
+                    const Vec3 po = plF->surface->origin;
+                    const Vec3 ax = vnorm(CS->axis);
+                    const double scl = std::max({1.0, std::fabs(CS->r1), std::fabs(CS->r2), std::fabs(CS->param)});
+                    const double ptol = 1e-9 * scl;
+                    const bool containsAxis = std::fabs(vdot(pn, ax)) <= 1e-9 &&
+                                              std::fabs(vdot(vsub(CS->origin, po), pn)) <= ptol;
+                    const bool perpAxis = vlen(vcross(pn, ax)) <= 1e-9;
+                    if (containsAxis || perpAxis) {
+                        std::vector<Vec3> sr = faceRing(cvF);
+                        std::vector<char> on(sr.size(), 0);
+                        std::size_t nOn = 0;
+                        for (std::size_t k = 0; k < sr.size(); ++k)
+                            if (std::fabs(vdot(vsub(sr[k], po), pn)) <= ptol) { on[k] = 1; ++nOn; }
+                        if (nOn >= 2 && nOn < sr.size()) {
+                            // rotate so the run starts right after an off-plane corner
+                            std::size_t st = 0;
+                            while (!(on[st] && !on[(st + sr.size() - 1) % sr.size()])) ++st;
+                            for (std::size_t k = 0; k < sr.size(); ++k) {
+                                std::size_t q = (st + k) % sr.size();
+                                if (!on[q]) break;
+                                sphereEdgeRun.push_back(sr[q]);
+                            }
+                            if (sphereEdgeRun.size() != nOn) sphereEdgeRun.clear(); // not one run
+                            // a cone apex collapses a run to one point: no edge there.
+                            if (sphereEdgeRun.size() == 2 &&
+                                vlen(vsub(sphereEdgeRun[0], sphereEdgeRun[1])) <= ptol)
+                                sphereEdgeRun.clear();
+                        }
+                    }
+                }
+            }
             for (const IntersectionCurve& cu : r.curves) {
                 if (cu.kind == CurveKind::Empty || cu.kind == CurveKind::Point) continue;
                 std::vector<Vec3> poly;
-                if (cu.kind == CurveKind::Circle && curvedS && secW > 1e-9)
+                if (!sphereEdgeRun.empty() &&
+                    (cu.kind == CurveKind::Circle || cu.kind == CurveKind::Line))
+                    poly = sphereEdgeRun;
+                else if (cu.kind == CurveKind::Circle && curvedS && secW > 1e-9)
                     poly = sampleCircleOnCurved(cu, *curvedS, secW, ov);
+                else if (coaxialWithSphere(cu) && (sphF->u1 - sphF->u0) > 1e-9)
+                    poly = sampleCircleOnCurved(cu, *sphF->surface, sphF->u1 - sphF->u0, ov);
                 else
                     poly = sampleCurveInBox(cu, ov);
                 if (poly.size() < 2) continue;
@@ -1699,6 +1939,27 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
     buildSoup(A, soupA, opts.weldTol);
     buildSoup(B, soupB, opts.weldTol);
 
+    // ORIENTATION FALLBACK (T-310) — see SubFace::wantSign. A closed, consistently
+    // oriented solid winds every loop the same way relative to its outward normal;
+    // the sign of its soup's signed volume says which way (a factory sphere winds
+    // INWARD: its soup volume is negative). A sub-face inherits its parent face's
+    // relation between that outward normal and the raw du x dv normal.
+    const int solidSignA = (soupSignedVolume(soupA.pos, soupA.idx) >= 0.0) ? 1 : -1;
+    const int solidSignB = (soupSignedVolume(soupB.pos, soupB.idx) >= 0.0) ? 1 : -1;
+    auto parentOutwardSign = [](const Face* f, int solidSign) -> int {
+        std::vector<Vec3> r = faceRing(f);
+        if (r.size() < 3 || !f->surface) return 0;
+        Vec3 nw{0, 0, 0};                                   // Newell area vector
+        for (std::size_t k = 0; k < r.size(); ++k)
+            nw = vadd(nw, vcross(r[k], r[(k + 1) % r.size()]));
+        Surface tmp = *f->surface; tmp.reversed = false;
+        Vec3 raw = tmp.normalAt(0.5 * (f->u0 + f->u1), 0.5 * (f->v0 + f->v1));
+        const double d = vdot(nw, raw) * solidSign;
+        const double scl = vlen(nw) * vlen(raw);
+        if (!(scl > 0.0) || std::fabs(d) < 1e-6 * scl) return 0;  // undecidable: no fallback
+        return d > 0.0 ? 1 : -1;
+    };
+
     // Imprint every face of A (classified vs B) and every face of B (vs A).
     std::vector<SubFace> subsA, subsB;
     for (std::size_t i = 0; i < fa.size(); ++i) {
@@ -1706,14 +1967,113 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
         if (!imprintFace(fa[i], /*fromA=*/true, /*parentFaceIdx=*/(int)i, curvesForA[i], out)) {
             fail.reason = "analytic: imprint of an A face failed (CDT)"; return fail;
         }
-        for (SubFace& sf : out) { classify(sf, soupB); subsA.push_back(std::move(sf)); }
+        const int ps = parentOutwardSign(fa[i], solidSignA);
+        for (SubFace& sf : out) { sf.wantSign = ps; classify(sf, soupB); subsA.push_back(std::move(sf)); }
     }
     for (std::size_t j = 0; j < fb.size(); ++j) {
         std::vector<SubFace> out;
         if (!imprintFace(fb[j], /*fromA=*/false, /*parentFaceIdx=*/(int)j, curvesForB[j], out)) {
             fail.reason = "analytic: imprint of a B face failed (CDT)"; return fail;
         }
-        for (SubFace& sf : out) { classify(sf, soupA); subsB.push_back(std::move(sf)); }
+        // A Cut keeps B's pieces INSIDE A with their normal reversed (they bound A-B).
+        const int ps = parentOutwardSign(fb[j], solidSignB) * (op == BoolOp::Cut ? -1 : 1);
+        for (SubFace& sf : out) { sf.wantSign = ps; classify(sf, soupA); subsB.push_back(std::move(sf)); }
+    }
+
+    // COPLANAR SAME-DIRECTION DETECTION (T-310) — see SubFace::onOtherSame.
+    {
+        struct PlaneRef { Vec3 o, n, e1, e2; std::vector<geom::Point2> outer;
+                          std::vector<std::vector<geom::Point2>> holes; };
+        auto planesOf = [&](const std::vector<Face*>& fs, int solidSign) {
+            std::vector<PlaneRef> out;
+            for (const Face* f : fs) {
+                if (f->surface->kind != SurfaceKind::Plane) continue;
+                std::vector<Vec3> r = faceRing(f);
+                if (r.size() < 3) continue;
+                Vec3 nw{0, 0, 0};
+                for (std::size_t k = 0; k < r.size(); ++k) nw = vadd(nw, vcross(r[k], r[(k + 1) % r.size()]));
+                if (!(vlen(nw) > 0.0)) continue;
+                PlaneRef pr; pr.o = r[0]; pr.n = vscale(vnorm(nw), (double)solidSign);  // OUTWARD
+                planeBasis(pr.n, pr.e1, pr.e2);
+                for (const Vec3& q : r) pr.outer.push_back(proj2(q, pr.o, pr.e1, pr.e2));
+                for (Loop* il : f->innerLoops) {
+                    std::vector<geom::Point2> h;
+                    for (const Vec3& q : loopRing3D(il)) h.push_back(proj2(q, pr.o, pr.e1, pr.e2));
+                    if (h.size() >= 3) pr.holes.push_back(std::move(h));
+                }
+                out.push_back(std::move(pr));
+            }
+            return out;
+        };
+        const std::vector<PlaneRef> plA = planesOf(fa, solidSignA), plB = planesOf(fb, solidSignB);
+        double scl = 1.0;
+        { Aabb sbb; for (const auto& sc : {&soupA, &soupB}) { sbb.add(sc->bb.lo); sbb.add(sc->bb.hi); }
+          scl = std::max(1.0, vlen(vsub(sbb.hi, sbb.lo))); }
+        const double ptol = 1e-9 * scl;
+        auto mark = [&](std::vector<SubFace>& subs, const std::vector<PlaneRef>& others, int ownSign) {
+            for (SubFace& sf : subs) {
+                if (sf.kind != SurfaceKind::Plane || sf.ring.size() < 3) continue;
+                // the sub-face's own OUTWARD normal (its loop winding, x its solid's sign)
+                Vec3 nw{0, 0, 0};
+                for (std::size_t k = 0; k < sf.ring.size(); ++k)
+                    nw = vadd(nw, vcross(sf.ring[k], sf.ring[(k + 1) % sf.ring.size()]));
+                if (!(vlen(nw) > 0.0)) continue;
+                // parent ring winding follows the parent's; the CDT/holed rings may not —
+                // so take the direction from the PARENT plane relation (wantSign) when known.
+                Vec3 nOwn = vnorm(nw);
+                {
+                    Surface tmp; tmp.kind = sf.kind; tmp.origin = sf.origin; tmp.axis = sf.axis;
+                    tmp.refDir = sf.refDir; tmp.reversed = false;
+                    Vec3 raw = tmp.normalAt(0.0, 0.0);
+                    int ws = sf.wantSign;
+                    if (!sf.fromA && op == BoolOp::Cut) ws = -ws;   // undo the Cut flip: own outward
+                    if (ws != 0) nOwn = vscale(raw, (double)ws);
+                    else nOwn = vscale(nOwn, (double)ownSign);
+                }
+                // an interior sample point (centroid; for a holed face, an annulus point)
+                Vec3 c{0, 0, 0};
+                for (const Vec3& q : sf.ring) c = vadd(c, q);
+                c = vscale(c, 1.0 / sf.ring.size());
+                if (!sf.innerRings.empty()) {
+                    Vec3 e1, e2; planeBasis(nOwn, e1, e2);
+                    std::vector<geom::Point2> outer;
+                    for (const Vec3& q : sf.ring) outer.push_back(proj2(q, sf.ring[0], e1, e2));
+                    std::vector<std::vector<geom::Point2>> inners;
+                    for (const auto& ir : sf.innerRings) {
+                        std::vector<geom::Point2> h; for (const Vec3& q : ir) h.push_back(proj2(q, sf.ring[0], e1, e2));
+                        inners.push_back(std::move(h));
+                    }
+                    auto inAnn = [&](const Vec3& q) {
+                        geom::Point2 t = proj2(q, sf.ring[0], e1, e2);
+                        if (!pointInPoly2(outer, t.x, t.y)) return false;
+                        for (const auto& h : inners) if (pointInPoly2(h, t.x, t.y)) return false;
+                        return true;
+                    };
+                    bool found = inAnn(c);
+                    const std::size_t n = sf.ring.size();
+                    for (std::size_t k = 0; k < n && !found; ++k) {
+                        Vec3 m = vscale(vadd(sf.ring[k], sf.ring[(k + 1) % n]), 0.5);
+                        Vec3 cand = vadd(m, vscale(vsub(c, m), 0.05));
+                        if (inAnn(cand)) { c = cand; found = true; }
+                    }
+                    if (!found) continue;
+                }
+                for (const PlaneRef& pr : others) {
+                    if (vlen(vcross(pr.n, nOwn)) > 1e-9) continue;          // not parallel
+                    if (vdot(pr.n, nOwn) <= 0.0) continue;                  // opposite: stitch handles it
+                    if (std::fabs(vdot(vsub(c, pr.o), pr.n)) > ptol) continue; // not coplanar
+                    geom::Point2 t = proj2(c, pr.o, pr.e1, pr.e2);
+                    if (!pointInPoly2(pr.outer, t.x, t.y)) continue;
+                    bool inHole = false;
+                    for (const auto& h : pr.holes) if (pointInPoly2(h, t.x, t.y)) { inHole = true; break; }
+                    if (inHole) continue;
+                    sf.onOtherSame = true;
+                    break;
+                }
+            }
+        };
+        mark(subsA, plB, solidSignA);
+        mark(subsB, plA, solidSignB);
     }
 
     // SELECT per op (ORIENTATION is decided geometrically in stitch, so no flip
@@ -1725,6 +2085,12 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
     std::vector<SubFace> chosen;
     auto take = [&](std::vector<SubFace>& src, bool wantInside) {
         for (SubFace& sf : src) {
+            if (sf.onOtherSame) {
+                // T-310: flush same-direction caps — exactly ONE copy survives a Fuse or a
+                // Common (A's), none survives a Cut (A-B is empty on B's flush side).
+                if (sf.fromA && (op == BoolOp::Fuse || op == BoolOp::Common)) chosen.push_back(sf);
+                continue;
+            }
             if (sf.insideOther != wantInside) continue;
             chosen.push_back(sf);
         }

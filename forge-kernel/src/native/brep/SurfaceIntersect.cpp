@@ -698,6 +698,144 @@ bool marchSurfaces(const Surface& A, const Surface& B,
     return !out.empty();
 }
 
+// ===========================================================================
+// COAXIAL SURFACES OF REVOLUTION -> CIRCLES (T-310).
+//
+// Two surfaces of revolution that share ONE axis (a cone with a cone, cylinder or
+// sphere whose centre lies on it) meet ONLY in circles centred on that axis in
+// planes perpendicular to it: both are swept by rotating a meridian about the axis,
+// so a meeting point stays a meeting point under every rotation. Write each surface
+// as a radius profile r(s) over the axial coordinate s (signed distance along the
+// unit axis â from the axis point O):
+//
+//   cone      r(s) = |α + β s|      (the double-napped cone: r_lin may go negative)
+//   cylinder  r(s) = rc             (α = rc, β = 0)
+//   sphere    r(s)² = R² − (s − sc)²,   |s − sc| <= R
+//
+// A circle of the intersection sits at every s where the profiles agree:
+//   linear/linear  α_A + β_A s = ±(α_B + β_B s)          (two linear roots)
+//   linear/sphere  (β²+1) s² + 2(αβ − sc) s + (α² + sc² − R²) = 0
+// Every emitted circle therefore lies on BOTH surfaces to round-off (its radius is
+// the profile value at a root of the exact profile equation) — the same exactness
+// contract as the other closed-form pairs. Returns false (DEFER, nothing faked)
+// when the pair is not coaxial or the two surfaces COINCIDE (identical profiles —
+// a coincident-surface case the boolean must not imprint as a curve).
+// The cone convention is the brep one: origin = base centre (v=0), axis unit,
+// r(v) = r1 + (r2−r1)·v, axial advance param·v.
+// ===========================================================================
+struct RevProfile {
+    enum Kind { Linear, Sphere } kind = Linear;
+    double alpha = 0.0, beta = 0.0;   // Linear: r_lin(s) = alpha + beta*s (cone/cylinder)
+    double sc = 0.0, R = 0.0;         // Sphere: centre axial coord + radius
+};
+
+// Distance from point p to the line (O, â).
+double distToAxis(const Vec3& p, const Vec3& O, const Vec3& a) {
+    Vec3 d = vsub(p, O);
+    return vlen(vsub(d, vscale(a, vdot(d, a))));
+}
+
+bool coaxialRevolution(const Surface& A, const Surface& B,
+                       std::vector<IntersectionCurve>& out, int sampleN, double tol) {
+    using SK = SurfaceKind;
+    auto isRev = [](const Surface& s) {
+        return s.kind == SK::Sphere || s.kind == SK::Cylinder || s.kind == SK::Cone;
+    };
+    if (!isRev(A) || !isRev(B)) return false;
+    // The common axis comes from a non-sphere operand (a sphere is symmetric about
+    // every line through its centre). Two spheres are handled by sphereSphere.
+    const Surface* axisSrc = (A.kind != SK::Sphere) ? &A : (B.kind != SK::Sphere ? &B : nullptr);
+    if (!axisSrc) return false;
+    const Vec3 a = vnorm(axisSrc->axis);
+    const Vec3 O = axisSrc->origin;
+    // Scale-relative coaxiality tolerance (the absolute `tol` is 1e-9 model units).
+    double scale = 1.0;
+    for (const Surface* s : {&A, &B})
+        scale = std::max({scale, std::fabs(s->r1), std::fabs(s->r2), std::fabs(s->param),
+                          vlen(s->origin)});
+    const double ctol = std::max(tol, 1e-9 * scale);
+
+    auto profileOf = [&](const Surface& s, RevProfile& p) -> bool {
+        if (s.kind == SK::Sphere) {
+            if (distToAxis(s.origin, O, a) > ctol) return false;   // centre off the axis
+            p.kind = RevProfile::Sphere;
+            p.sc = vdot(vsub(s.origin, O), a);
+            p.R = s.r1;
+            return p.R > 0.0;
+        }
+        const Vec3 sa = vnorm(s.axis);
+        if (vlen(vcross(sa, a)) > 1e-9) return false;             // axes not parallel
+        if (distToAxis(s.origin, O, a) > ctol) return false;       // parallel but offset
+        p.kind = RevProfile::Linear;
+        if (s.kind == SK::Cylinder) { p.alpha = s.r1; p.beta = 0.0; return s.r1 > 0.0; }
+        // Cone: s(v) = s0 + σ·param·v  ->  v = (s − s0)/(σ·param).
+        if (!(s.param > 0.0)) return false;
+        const double sigma = (vdot(sa, a) >= 0.0) ? 1.0 : -1.0;
+        const double s0 = vdot(vsub(s.origin, O), a);
+        const double k = (s.r2 - s.r1) / (sigma * s.param);       // dr/ds
+        p.beta = k;
+        p.alpha = s.r1 - k * s0;
+        return true;
+    };
+    RevProfile pa, pb;
+    if (!profileOf(A, pa) || !profileOf(B, pb)) return false;
+
+    const double rtol = std::max(tol, 1e-12 * scale);
+    std::vector<double> roots;
+    auto addCircleAt = [&](double s, double r) {
+        if (!(r > rtol) || !std::isfinite(s) || !std::isfinite(r)) return; // apex / pole: a point
+        for (double q : roots) if (std::fabs(q - s) <= ctol) return;      // tangent duplicate
+        roots.push_back(s);
+        IntersectionCurve c;
+        c.kind = CurveKind::Circle; c.closedForm = true;
+        c.origin = vadd(O, vscale(a, s));
+        c.axis = a;
+        Vec3 e1, e2; planeBasis(a, e1, e2);
+        c.refDir = e1; c.r1 = r;
+        sampleCircle(c, sampleN);
+        out.push_back(c);
+    };
+
+    if (pa.kind == RevProfile::Linear && pb.kind == RevProfile::Linear) {
+        // Identical lines (same cone / same cylinder): coincident surfaces -> DEFER.
+        const bool sameP = std::fabs(pa.alpha - pb.alpha) <= rtol && std::fabs(pa.beta - pb.beta) <= 1e-12;
+        const bool sameN = std::fabs(pa.alpha + pb.alpha) <= rtol && std::fabs(pa.beta + pb.beta) <= 1e-12;
+        if (sameP || sameN) return false;
+        for (int sg = -1; sg <= 1; sg += 2) {
+            // alpha_A + beta_A s = sg*(alpha_B + beta_B s)
+            const double den = pa.beta - sg * pb.beta;
+            if (std::fabs(den) <= 1e-15) continue;               // parallel profiles: no root
+            const double s = (sg * pb.alpha - pa.alpha) / den;
+            addCircleAt(s, std::fabs(pa.alpha + pa.beta * s));
+        }
+        return true;
+    }
+    const RevProfile& L = (pa.kind == RevProfile::Linear) ? pa : pb;
+    const RevProfile& S = (pa.kind == RevProfile::Sphere) ? pa : pb;
+    if (L.kind != RevProfile::Linear || S.kind != RevProfile::Sphere) return false;
+    // (β²+1) s² + 2(αβ − sc) s + (α² + sc² − R²) = 0
+    const double qa = L.beta * L.beta + 1.0;
+    const double qb = 2.0 * (L.alpha * L.beta - S.sc);
+    const double qc = L.alpha * L.alpha + S.sc * S.sc - S.R * S.R;
+    double disc = qb * qb - 4.0 * qa * qc;
+    const double discTol = 1e-12 * std::max(1.0, qb * qb);
+    if (disc < -discTol) return true;                            // profiles never meet
+    if (disc < 0.0) disc = 0.0;                                   // tangent (one circle)
+    const double sq = std::sqrt(disc);
+    // Numerically stable quadratic roots.
+    const double qq = -0.5 * (qb + (qb >= 0.0 ? sq : -sq));
+    double s1, s2;
+    if (std::fabs(qq) > 0.0) { s1 = qq / qa; s2 = qc / qq; }
+    else                     { s1 = s2 = 0.0; }
+    for (double s : {s1, s2}) {
+        const double dz = s - S.sc;
+        if (std::fabs(dz) > S.R + ctol) continue;
+        const double rS = std::sqrt(std::max(0.0, S.R * S.R - dz * dz));
+        addCircleAt(s, rS);
+    }
+    return true;
+}
+
 } // namespace
 
 SurfaceIntersectResult intersectSurfaces(const Surface& a, const Surface& b,
@@ -811,8 +949,24 @@ SurfaceIntersectResult intersectSurfaces(const Surface& a, const Surface& b,
         return res;
     }
 
-    // Everything else (cone∩cone / cone∩sphere / cone∩cyl, torus-anything, NURBS)
-    // is DEFERRED.
+    // cone ∩ (sphere | cylinder | cone) sharing ONE axis -> exact circles (T-310).
+    // The non-coaxial members of these families are quartic space curves with no
+    // closed form here and stay DEFERRED (below).
+    if ((isCone(a) && (isSphere(b) || isCyl(b) || isCone(b))) ||
+        (isCone(b) && (isSphere(a) || isCyl(a)))) {
+        std::vector<IntersectionCurve> cs;
+        if (coaxialRevolution(a, b, cs, N, tol)) {
+            res.ok = true; res.allClosedForm = true;
+            res.reason = "coaxial revolution pair (cone) -> circles";
+            res.curves = std::move(cs);
+            return res;
+        }
+        res.ok = false; res.reason = "cone pair not coaxial (or coincident) -> deferred";
+        return res;
+    }
+
+    // Everything else (non-coaxial cone∩cone / cone∩sphere / cone∩cyl, torus-anything,
+    // NURBS) is DEFERRED.
     (void)K;
     res.ok = false; res.reason = "deferred (high-degree or NURBS pair)";
     return res;
