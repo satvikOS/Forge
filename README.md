@@ -2,8 +2,10 @@
 
 Native parametric mechanical CAD built on a high-performance C++ kernel.
 The geometric core links directly to OCCT 7.9 and FreeCAD's authoring
-layers; **no WASM** — the kernel runs as a native `forge-kernel.node`
-addon loaded by the Electron desktop app.
+layers; **no WASM** — the node-free kernel core (`forge_kernel_core`) links
+in-process into the native C++ desktop app (`forge-desktop/` + `ui/`).
+The legacy Electron/JS app (`frontend/`, `electron/`, `e2e/`) was retired
+on 2026-10-09 (T-231); it remains in git history only.
 
 ## What Forge is
 
@@ -56,9 +58,8 @@ personally vouched for it, and the approval is you vouching instead.
 
 You approve **a copy of the app**, not the name. An app that updates itself in
 place never re-triggers the prompt, because nothing is re-downloaded through a
-browser — that is what makes the approval genuinely one-time for the Electron
-build, which auto-updates. The native `forge_desktop` build has no in-app
-updater yet, so for that one a hand-installed new version needs the same
+browser. The native `forge_desktop` build has no in-app
+updater yet, so a hand-installed new version needs the same
 one-time approval again. The step disappears for every build once a Developer
 ID certificate and notarization are in place.
 
@@ -76,15 +77,22 @@ shipped under the `SP-N` prefix when the product was named ArchDisc Mech.
 Native toolchain:
 
 ```sh
-brew install cmake opencascade
+brew install cmake opencascade sdl2 vulkan-headers vulkan-loader molten-vk glslang
 ```
 
-App:
+App (the native C++ desktop app; details in
+[`forge-desktop/README.md`](forge-desktop/README.md)):
 
 ```sh
-npm install
-npm run forge:kernel        # build forge-kernel.node
-npm run electron:dev        # launch the Electron app
+# 1. the node-free kernel core
+cmake -S forge-kernel -B forge-kernel/build-app -DCMAKE_BUILD_TYPE=Release \
+      -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+cmake --build forge-kernel/build-app -j8 --target forge_kernel_core
+
+# 2. the application, then run it
+cmake -S forge-desktop -B forge-desktop/build -DCMAKE_BUILD_TYPE=Release
+cmake --build forge-desktop/build -j8
+forge-desktop/build/run_forge.sh
 ```
 
 ## Branches

@@ -35,6 +35,10 @@ left off; `Forge-N` is the prefix from this point.
 
 ## Layer map
 
+> **Historical (2026-10-09, T-231):** the `frontend/` half of this map, and
+> `electron/`, were retired and removed from the tree. The product is the
+> native C++ app — `forge-desktop/` + `ui/` over `forge-kernel/`.
+
 ```
 forge-kernel/          C++ native addon (NEW)
   src/                   Forge kernel API surface
