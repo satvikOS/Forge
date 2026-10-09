@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 // PHASE-D wiring (2026-06-25) — route the ONE FEA mesh-DOMAIN construction op in this
@@ -1407,6 +1408,58 @@ ModalResult solveModal(const Mesh& mesh, const Material& mat,
     return result;
 }
 
+namespace {
+
+// Entry-wise linear combination of up to three same-shape CSR matrices over the
+// UNION of their patterns: out(i,j) = f(x(i,j), y(i,j), z(i,j)), where an entry
+// absent from an operand reads as exactly 0.0 (z ≡ 0 when Z is null) and a
+// result equal to 0.0 is not stored. That is precisely the matrix obtained by
+// densifying the operands, evaluating f at every (i,j) and keeping the nonzeros
+// — but in O(nnz) time and memory instead of O(n²). Rows are merged in
+// column order, so the triplets arrive sorted and duplicate-free.
+template <class F>
+la::SparseCSR<double> combineSparse(const la::SparseCSR<double>& X,
+                                    const la::SparseCSR<double>& Y,
+                                    const la::SparseCSR<double>* Z, F f) {
+    const std::size_t n = X.rows(), nc = X.cols();
+    if (Y.rows() != n || Y.cols() != nc ||
+        (Z && (Z->rows() != n || Z->cols() != nc))) {
+        throw std::invalid_argument("forge.fea: combineSparse shape mismatch");
+    }
+    // An empty (default-constructed) CSR has no row pointers; treat as all-zero.
+    auto rowRange = [](const la::SparseCSR<double>* S, std::size_t i,
+                       std::size_t& b, std::size_t& e) {
+        if (!S || S->rowPtr().empty()) { b = e = 0; return; }
+        b = S->rowPtr()[i]; e = S->rowPtr()[i + 1];
+    };
+    constexpr std::size_t kEnd = static_cast<std::size_t>(-1);
+    std::vector<la::Triplet<double>> trips;
+    trips.reserve(std::max({X.nnz(), Y.nnz(), Z ? Z->nnz() : std::size_t(0)}));
+    for (std::size_t i = 0; i < n; ++i) {
+        std::size_t px, ex, py, ey, pz, ez;
+        rowRange(&X, i, px, ex);
+        rowRange(&Y, i, py, ey);
+        rowRange(Z, i, pz, ez);
+        for (;;) {
+            const std::size_t cx = px < ex ? X.colIdx()[px] : kEnd;
+            const std::size_t cy = py < ey ? Y.colIdx()[py] : kEnd;
+            const std::size_t cz = pz < ez ? Z->colIdx()[pz] : kEnd;
+            const std::size_t c = std::min({cx, cy, cz});
+            if (c == kEnd) break;
+            const double x = (cx == c) ? X.values()[px++] : 0.0;
+            const double y = (cy == c) ? Y.values()[py++] : 0.0;
+            const double z = (cz == c) ? Z->values()[pz++] : 0.0;
+            const double v = f(x, y, z);
+            if (v != 0.0) trips.emplace_back(i, c, v);
+        }
+    }
+    la::SparseCSR<double> out(n, nc);
+    out.setFromTriplets(n, nc, trips);
+    return out;
+}
+
+} // namespace
+
 // ---------------------------------------------------------- solveDynamic
 //
 // Newmark-β with β=1/4, γ=1/2 (constant-average-acceleration scheme):
@@ -1482,12 +1535,16 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
     for (int i : pinned) isPinned[i] = true;
     // Zero pinned DOFs in fStep.
     for (int i : pinned) fStep[i] = 0;
+    // The raw assembly triplets (24 B each, ~3x nnz(K)) are only needed by the
+    // BC elimination above; release them before the factorisation peak.
+    std::vector<la::Triplet<double>>().swap(sys.kTrips);
+    std::vector<la::Triplet<double>>().swap(sys.mTrips);
 
     // Build the mass matrix the integrator sees: the eliminated consistent mass
     // (sparse, off-diagonal coupling) or the lumped diagonal.
     la::SparseCSR<double> M(nDof, nDof);
     if (opts.useConsistentMass) {
-        M = sys.Mconsistent;
+        M = std::move(sys.Mconsistent);   // not used again below
     } else {
         std::vector<la::Triplet<double>> trips;
         trips.reserve(nDof);
@@ -1496,45 +1553,24 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
                           static_cast<std::size_t>(nDof), trips);
     }
 
-    // C = α M + βR K  (Rayleigh). Assembled at the triplet level — la::SparseCSR
-    // has no operator+/scalar-multiply, so we densify the two operands once,
-    // combine, and re-emit the CSR (the matrices here are the moderate-DOF
-    // dense-eigen-capped systems, so this is exact and bounded). The result is
-    // numerically identical to αM + βR K.
-    la::SparseCSR<double> C(nDof, nDof);
-    {
-        la::MatrixD Mden = M.toDense();
-        la::MatrixD Kden = sys.K.toDense();
-        std::vector<la::Triplet<double>> cTrips;
-        cTrips.reserve(M.nnz() + sys.K.nnz());
-        for (int i = 0; i < nDof; ++i)
-            for (int j = 0; j < nDof; ++j) {
-                const double v = alpha * Mden(i, j) + betaR * Kden(i, j);
-                if (v != 0.0) cTrips.emplace_back(i, j, v);
-            }
-        C.setFromTriplets(static_cast<std::size_t>(nDof),
-                          static_cast<std::size_t>(nDof), cTrips);
-    }
+    // C = α M + βR K  (Rayleigh) and the effective Newmark operator
+    // A = M + γΔt C + βΔt² K, both formed SPARSE over the union pattern of
+    // their operands (combineSparse): O(nnz) time and memory. This used to
+    // densify M, K and C (three n×n doubles — 40 GB for a 41k-DOF mesh) only to
+    // add them; the per-entry expressions, the exact-zero drop and the sorted
+    // CSR are the same, so the matrices are the same (T-286).
+    la::SparseCSR<double> C = combineSparse(
+        M, sys.K, nullptr,
+        [alpha, betaR](double m, double k, double) {
+            return alpha * m + betaR * k;
+        });
 
-    // Effective system A = M + γΔt C + βΔt² K
     const double beta = 0.25, gamma = 0.5;
-    la::SparseCSR<double> A(nDof, nDof);
-    {
-        la::MatrixD Mden = M.toDense();
-        la::MatrixD Cden = C.toDense();
-        la::MatrixD Kden = sys.K.toDense();
-        std::vector<la::Triplet<double>> aTrips;
-        aTrips.reserve(M.nnz() + C.nnz() + sys.K.nnz());
-        for (int i = 0; i < nDof; ++i)
-            for (int j = 0; j < nDof; ++j) {
-                const double v = Mden(i, j)
-                               + (gamma * dt) * Cden(i, j)
-                               + (beta * dt * dt) * Kden(i, j);
-                if (v != 0.0) aTrips.emplace_back(i, j, v);
-            }
-        A.setFromTriplets(static_cast<std::size_t>(nDof),
-                          static_cast<std::size_t>(nDof), aTrips);
-    }
+    la::SparseCSR<double> A = combineSparse(
+        M, C, &sys.K,
+        [dt, beta, gamma](double m, double c, double k) {
+            return m + (gamma * dt) * c + (beta * dt * dt) * k;
+        });
 
     la::SparseLDLT ldlt(A);
     if (!ldlt.ok()) {
