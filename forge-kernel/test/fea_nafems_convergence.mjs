@@ -30,44 +30,16 @@
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { near, NODE, buildEllipticSlab, ellipticPlateModel } from './fea_nafems_bc.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const forge = require(path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node'));
 
 const MAT = { E: 210e9, nu: 0.3, rho: 7850 };
-const near = (a, b, t = 1e-6) => Math.abs(a - b) < t;
-const NODE = (m, i) => [m.nodes[3 * i], m.nodes[3 * i + 1], m.nodes[3 * i + 2]];
 
-// ---- helpers lifted verbatim from fea_nafems_gate.mjs so the models are IDENTICAL ----
-function tetBoundaryFaces(m) {
-  const t = m.tets, nT = m.tetCount, cnt = new Map(), rep = new Map();
-  const key = (a, b, c) => { const s = [a, b, c].sort((x, y) => x - y); return s[0] + '_' + s[1] + '_' + s[2]; };
-  for (let e = 0; e < nT; e++) {
-    const a = t[4 * e], b = t[4 * e + 1], c = t[4 * e + 2], d = t[4 * e + 3];
-    for (const f of [[a, b, c, d], [a, b, d, c], [a, c, d, b], [b, c, d, a]]) {
-      const k = key(f[0], f[1], f[2]); cnt.set(k, (cnt.get(k) || 0) + 1); if (!rep.has(k)) rep.set(k, f);
-    }
-  }
-  const out = []; for (const kc of cnt) if (kc[1] === 1) out.push(rep.get(kc[0])); return out;
-}
-function triAreaOutwardNormal(p0, p1, p2, apex) {
-  const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
-  const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
-  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  const L = Math.hypot(nx, ny, nz) || 1; const A = 0.5 * L; nx /= L; ny /= L; nz /= L;
-  const cx = (p0[0] + p1[0] + p2[0]) / 3, cy = (p0[1] + p1[1] + p2[1]) / 3, cz = (p0[2] + p1[2] + p2[2]) / 3;
-  if ((apex[0] - cx) * nx + (apex[1] - cy) * ny + (apex[2] - cz) * nz > 0) { nx = -nx; ny = -ny; nz = -nz; }
-  return [A, nx, ny, nz];
-}
-function buildEllipticSlab(t) {
-  const RZ = 30.0;
-  const o = forge.makeEllipsoid(3.25, 2.75, RZ), i = forge.makeEllipsoid(2.0, 1.0, RZ);
-  const ann = forge.cut(o, i), cl = forge.makeBox(3.5, 3.0, t), q = forge.common(ann, cl);
-  for (const h of [o, i, ann, cl]) forge.release(h);
-  return q;
-}
-const onOuterEllipse = (x, y) => Math.abs((x / 3.25) ** 2 + (y / 2.75) ** 2 - 1) < 0.06;
+// ---- LE1/LE10 constraints, loads and geometry: fea_nafems_bc.mjs, the SAME module the gate
+// imports (the earlier 'lifted verbatim' copies had drifted: near() and the u_z support differed).
 
 // Equivalent regular-tet edge of the mean element volume within `R` of `P`. This is the
 // resolution the solution actually sees at the probe; `targetEdge` is only a request.
@@ -88,43 +60,13 @@ function localH(m, P, R) {
 }
 
 function solveEllipticPlate(kind, t, edge, probeTarget, budget) {
-  const q = buildEllipticSlab(t);
+  const q = buildEllipticSlab(forge, t);
   const tMesh0 = Date.now();
   const m = budget ? forge.fea.tet.meshShape(q, edge, budget) : forge.fea.tet.meshShape(q, edge);
   const meshMs = Date.now() - tMesh0;
   forge.release(q);
-  const nd = m.nodes, ids = m.ids, prescribed = [];
-  for (let k = 0; k < m.nodeCount; k++) {
-    const x = nd[3 * k], y = nd[3 * k + 1], z = nd[3 * k + 2];
-    const p = { nodeId: ids[k], fx: false, fy: false, fz: false, ux: 0, uy: 0, uz: 0 };
-    if (near(x, 0, 1e-4)) p.fx = true;
-    if (near(y, 0, 1e-4)) p.fy = true;
-    if (kind === 'LE1') { if (near(z, 0, 1e-4)) p.fz = true; }
-    else { if (onOuterEllipse(x, y)) { p.fx = true; p.fy = true; if (near(z, t / 2, edge * 0.6)) p.fz = true; } }
-    if (p.fx || p.fy || p.fz) prescribed.push(p);
-  }
-  const bf = tetBoundaryFaces(m), accum = new Map();
-  if (kind === 'LE1') {
-    const pres = 10e6;
-    for (const f of bf) {
-      const p0 = NODE(m, f[0]), p1 = NODE(m, f[1]), p2 = NODE(m, f[2]);
-      if (onOuterEllipse(p0[0], p0[1]) && onOuterEllipse(p1[0], p1[1]) && onOuterEllipse(p2[0], p2[1])) {
-        const an = triAreaOutwardNormal(p0, p1, p2, NODE(m, f[3]));
-        for (const vi of [f[0], f[1], f[2]]) { const c = accum.get(vi) || [0, 0, 0]; c[0] += pres * an[0] / 3 * an[1]; c[1] += pres * an[0] / 3 * an[2]; c[2] += pres * an[0] / 3 * an[3]; accum.set(vi, c); }
-      }
-    }
-  } else {
-    const pres = 1e6;
-    for (const f of bf) {
-      const p0 = NODE(m, f[0]), p1 = NODE(m, f[1]), p2 = NODE(m, f[2]);
-      if (near(p0[2], t, 1e-3) && near(p1[2], t, 1e-3) && near(p2[2], t, 1e-3)) {
-        const an = triAreaOutwardNormal(p0, p1, p2, NODE(m, f[3]));
-        for (const vi of [f[0], f[1], f[2]]) { const c = accum.get(vi) || [0, 0, 0]; c[2] += -pres * an[0] / 3; accum.set(vi, c); }
-      }
-    }
-  }
-  const nodalForces = [];
-  for (const vf of accum) nodalForces.push({ nodeId: ids[vf[0]], fx: vf[1][0], fy: vf[1][1], fz: vf[1][2] });
+  const nd = m.nodes;
+  const { prescribed, nodalForces } = ellipticPlateModel(kind, m, t);
   const t0 = Date.now();
   const r = forge.fea.tet.solveLinearStatic(m, MAT, { fixedNodes: [], nodalForces, prescribed, nodeTemps: [] });
   const solveMs = Date.now() - t0;

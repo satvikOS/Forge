@@ -1410,6 +1410,17 @@ jobs:
         # closed-form answer. This is what exonerates the ELEMENT, so that the NAFEMS
         # misses below cannot be blamed on it without evidence.
         run: node forge-kernel/test/fea_tet4_convergence.mjs
+      - name: NAFEMS LE1/LE10 constraint sets are SURFACE sets (pure JS, no addon)
+        # The gate selected LE10's clamped outer edge with |f-1| < 0.06 in normalised
+        # ellipse units -- a ~0.1 m collar. MEASURED on the gate's own meshes (identical
+        # mesh, three arms, fea_nafems_bc_ab.mjs): at targetEdge 0.15 it clamped 327
+        # nodes of which 221 are interior material, and at 0.115, 616 of 795. Its near()
+        # also ignored its tolerance, so the gate and the convergence sweep -- documented
+        # as identical models -- supported u_z differently. fea_nafems_bc.mjs is now the
+        # one model both import; this fixture proves it on structured meshes whose outer
+        # surface is known exactly, and runs the old band as a positive control that
+        # must be caught clamping interior nodes.
+        run: node forge-kernel/test/fea_nafems_bc_sets_test.mjs
       - name: NAFEMS known-answer accuracy ratchet
         # Runs fea_nafems_gate.mjs and ratchets its band misses against
         # forge-kernel/test/fea_nafems_baseline.txt. Red if the miss count OR the miss set

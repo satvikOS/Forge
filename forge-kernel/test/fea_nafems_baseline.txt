@@ -33,6 +33,18 @@
 #   did not track targetEdge). Previous values, for the record: LE1 35.671 MPa / -61.5 %,
 #   LE10 -2.125 MPa / +60.5 %. Both cases still MISS their bands, so the miss SET is
 #   unchanged and this baseline's variables below are unchanged.
+#   RE-MEASURED 2026-10-08 after the LE1/LE10 boundary-condition fix (T-186): constraints and
+#   loads now come from test/fea_nafems_bc.mjs, the ONE model the gate and the convergence
+#   sweep import. The outer face is the outer part of the discrete boundary (by elimination of
+#   the planes and the inner ellipse), not the |f-1|<0.06 collar that clamped interior
+#   material (221 of 327 clamped nodes at edge 0.15); the LE10 u_z support is the mid-plane
+#   LINE of that face; near() honours its tolerance. Gate now: LE1 73.314 MPa / -20.91 %,
+#   LE10 -3.570 MPa / +33.64 %. Both still MISS, so the miss SET and the variables below are
+#   unchanged. A/B on identical meshes (test/fea_nafems_bc_ab.mjs): LE10 err by targetEdge
+#   0.20/0.15/0.115 = 35.3/33.6/31.7 % (was 44.7/35.6/36.2 %, non-monotone); LE1's outer-edge
+#   resultant is now exact at every level (was 20 % of it at 0.30, 2.4 % short at 0.12). What
+#   remains is the mesher's frozen surface (sag 0.0708 m at every edge <= 0.20; mid-plane
+#   trace drifts 0.06 -> 0.13 m) -- T-035, boundary recovery.
 # THE ORDERS ARE NOW POSITIVE: LE1 0.754, LE10 1.043 — roughly first order, which is what
 # Tet4 stress recovery should give. They were previously recorded here as "-0.06, -0.18,
 # -6.70 ... the error GROWS under h-refinement", and that reading BLOCKED a task for
