@@ -320,12 +320,19 @@ inline double vonMisesVoigt(const double s[6]) {
 //     strictly visible from the point — so every new tet has strictly positive volume and the
 //     result is a valid tetrahedralization even for cospherical input (where Delaunay is not
 //     unique and a cospherical tie is resolved by keeping the old tet);
-//     (MUTATION-TESTED: with forge::native::orient3dNaive / insphereNaive in place of the
-//     exact predicates the gate fails — flat tets on the box, cylinder and sphere, and a
-//     non-manifold cavity on the LE10 slab at 0.075. With the shrink step removed it passes:
-//     with exact predicates the strict-insphere cavity of a Delaunay triangulation is already
-//     star-shaped, so the shrink is the guarantee for the case that should not occur, not a
-//     repair that runs.)
+//   * a cavity face counts as visible only when its new tet is non-flat beyond the snap's
+//     reach (NUMERICALLY FLAT TETS, in bowyerWatson), so a configuration that is degenerate
+//     in the reals (mirrored samples on two faces of a box) never becomes a tet that is
+//     positive only by the snap;
+//     (MUTATION-TESTED, test/fea_tet_surface_conformance_gate.cpp: without the flat guard —
+//     shrinking only on an exactly non-positive face, the round-1 code — or without the
+//     shrink step at all, the gate fails: the fea_smoke cantilever gets a tet of 6V/L^3 =
+//     2.1e-13 (CG 27430 iterations, peak von Mises +34.5 %) and the cylinder at 0.15 / 0.075
+//     tets of ~1e-15. With orient3dNaive / insphereNaive in place of the exact predicates the
+//     gate now PASSES — the guard's band already absorbs every visibility decision the naive
+//     orientation gets wrong — and the one symptom left is a point the walk cannot locate
+//     (LE1 at 0.09, 1 of 3367, counted on stderr). Before the guard the naive mutant failed:
+//     flat tets on box, cylinder and sphere, a non-manifold cavity on the slab at 0.075.)
 //   * a point that cannot be inserted (an exact duplicate after snapping) is skipped and
 //     COUNTED on stderr, never silently;
 //   * each insertion costs a walk plus a local cavity, not a scan of every tet ever made.
@@ -432,6 +439,46 @@ bowyerWatson(std::vector<Vec3>& pts) {
         return orientSign(*q4[0], *q4[1], *q4[2], *q4[3]);
     };
 
+    // NUMERICALLY FLAT TETS (T-035 fix round). Snapping moves every coordinate by <= q/2, and
+    // the samples were computed in floating point, so a configuration that is EXACTLY
+    // degenerate in the reals — four samples on two faces of a box mirrored across their
+    // common edge form an isosceles trapezoid, coplanar and cocircular — reaches the exact
+    // predicates perturbed by ~q. Read literally, that perturbation can put the trapezoid in
+    // the cavity's boundary with P as one of its corners: MEASURED on the fea_smoke cantilever
+    // (box 0.1 x 0.01 x 0.01 at targetEdge 0.002) the trapezoid became ONE tet, positive only
+    // by the snap (radius ratio 1.48e-12; CG 1556 -> 27430 iterations, peak von Mises
+    // 56.35 -> 80.67 MPa). So a cavity face counts as visible only when its new tet's
+    // orientation is beyond the snap's reach (clearlyVisible); otherwise the star-shaping step
+    // drops the cavity tet behind that face, as for an invisible face. That only happens when P
+    // is within the snap's reach of that face's plane. The circumspheres of the two tets on
+    // either side meet that plane in the same circle, so P's powers with respect to them differ
+    // only by a term proportional to its distance from the plane; with one tet in conflict and
+    // the other not, both are near zero, and keeping the tet resolves a near-tie, not a real
+    // conflict. (The tet containing P is never dropped; its faces keep the exact test. P near
+    // one of them with the neighbour out of conflict means P near a vertex, which the merge
+    // tolerance in meshShape keeps away.) The in-sphere test itself stays EXACT: a
+    // tolerance there was tried and MEASURED harmful — the in-sphere determinant of a sliver
+    // (6V << L^3) is always inside a q-sized band, so slivers stopped being removed by later
+    // insertions and the LE10 slab at 0.075 lost its boundary (2 non-manifold boundary edges,
+    // an inner-surface vertex 0.054 m off the ellipsoid, min radius ratio 1.0e-10).
+    //
+    // Is P clearly (beyond the snap's reach) on the inner side of t's face j — i.e. is the
+    // tet "face j + P" non-flat? Exact differences, double products.
+    auto clearlyVisible = [&](const BT& t, int j, const Vec3& P) {
+        const Vec3* q4[4] = {&pts[t.v[0]], &pts[t.v[1]], &pts[t.v[2]], &pts[t.v[3]]};
+        q4[j] = &P;
+        const Vec3 u = *q4[1] - *q4[0], v = *q4[2] - *q4[0], w = *q4[3] - *q4[0];
+        const double v6 = u.cross(v).dot(w);          // tetVolume's sign: > 0 is the good side
+        const Vec3 vu = v - u, wu = w - u, wv = w - v;
+        const double L2 = std::max({u.dot(u), v.dot(v), w.dot(w), vu.dot(vu), wu.dot(wu), wv.dot(wv)});
+        // A <= q move of each coordinate shifts 6V by <= ~12 q L^2 (L the longest edge), and
+        // the double evaluation errs by < 1e-14 L^3; the band is >= 20x that, i.e. a tet is
+        // emitted only with 6V / L^3 > 256 q / L (6e-11 .. 2e-9 on the gate's models: q is
+        // 3.6e-15 m on the 0.1 m cantilever, 1.1e-13 m on the 3.5 m slab), never at rounding level.
+        const double band = (256.0 * q + 1e-13 * std::sqrt(L2)) * L2;
+        return v6 > band;
+    };
+
     std::uint32_t rng = 2463534242u;               // xorshift32, deterministic
     auto nextRand = [&rng]() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
     unsigned stamp = 0;
@@ -501,7 +548,9 @@ bowyerWatson(std::vector<Vec3>& pts) {
                 }
             }
         }
-        // 3. Star-shape it: drop any tet (never t) with a boundary face P does not strictly see.
+        // 3. Star-shape it: drop any tet (never t) with a boundary face P does not CLEARLY see —
+        //    a face P is (up to the snap) on would become a numerically flat tet (see NUMERICALLY
+        //    FLAT TETS above).
         for (bool changed = true; changed;) {
             changed = false;
             for (int c : cav) {
@@ -509,7 +558,7 @@ bowyerWatson(std::vector<Vec3>& pts) {
                 for (int j = 0; j < 4; ++j) {
                     const int n = T[c].nb[j];
                     if (n >= 0 && T[n].inCav == stamp) continue;
-                    if (replacedOrient(T[c], j, P) <= 0) { T[c].inCav = 0; changed = true; break; }
+                    if (!clearlyVisible(T[c], j, P)) { T[c].inCav = 0; changed = true; break; }
                 }
             }
         }

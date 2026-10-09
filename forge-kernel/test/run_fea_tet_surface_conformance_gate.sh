@@ -11,7 +11,7 @@
 #   KERNEL_BUILD  an existing kernel build dir to reuse (must hold libforge_kernel_core);
 #                 default $TMPDIR/forge_fea_tet_gate_build, configured + built here.
 #   JOBS          parallel build jobs (default 6)
-#   PART          surface | le10 | le1 | all   (default all)
+#   PART          surface | le10 | le1 | prim | le11 | quality | all   (default all)
 #   OCCT_ROOT     OCCT prefix (default: brew --prefix opencascade)
 # exit: the gate's own exit code (0 = every asserted check held), 2 = setup error.
 # ─────────────────────────────────────────────────────────────────────────────

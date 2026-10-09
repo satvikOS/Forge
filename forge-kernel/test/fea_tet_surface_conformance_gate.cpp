@@ -52,8 +52,13 @@
 //   convergence contract as Part S. Every primitive level must be a valid tetrahedralization:
 //   cospherical surface samples are exactly what broke the old floating-point Bowyer-Watson.
 // PART 11 — NAFEMS LE11 (fea_nafems_gate.mjs::solveLE11), REPORTED with correctness guards.
+// PART Q — element quality: the fea_smoke.cjs cantilever (box 0.1 x 0.01 x 0.01 at 0.002),
+//   static, with regression bounds on its min radius ratio, CG iterations, tip deflection and
+//   peak von Mises (solveCantilever), and fea_boundary_refines_test.mjs's slender box
+//   (0.2 x 0.01 x 0.01 at 0.004). Every mesh of every part is also asserted to hold NO
+//   NUMERICALLY FLAT tet (checkNotFlat: min 6V / Lmax^3 >= kFlatFloor).
 //
-// Usage: fea_tet_surface_conformance_gate [surface|le10|le1|prim|le11|all]   (default all)
+// Usage: fea_tet_surface_conformance_gate [surface|le10|le1|prim|le11|quality|all]   (default all)
 //   FORGE_FEA_GATE_EDGES="0.3,0.2,..." overrides the Part S / LE10 sweep (diagnostics only;
 //   Part S needs a ratio-2 chain of >= 3 levels in it), FORGE_FEA_GATE_LE1_EDGES the LE1 one.
 // Output: human table + one machine line per level ("[surface-level] ...", "[le-level] ...")
@@ -164,9 +169,13 @@ std::vector<BFace> tetBoundaryFaces(const tet::Mesh& m) {
 // MEASURED: the projected boundary samples drove the pre-T-035 floating-point Bowyer-Watson to
 // 321,464 overlapping "tets" on a cylinder r 0.5 at targetEdge 0.15; no assertion here caught
 // it before this check existed.
+double radiusRatio(const P3& a, const P3& b, const P3& c, const P3& d);
+
 struct Validity {
     std::size_t overShared = 0, nonManifoldEdges = 0, boundaryFaces = 0, inverted = 0;
     double tetVolume = 0, enclosedVolume = 0;
+    double minRadiusRatio = 1;   // element quality, REPORTED (geometric slivers are T-253)
+    double minRelVolume = 1;     // min 6|V| / (longest edge)^3: ASSERTED by checkNotFlat
     bool ok() const {
         return overShared == 0 && nonManifoldEdges == 0 && inverted == 0 && boundaryFaces > 0 &&
                std::abs(tetVolume - enclosedVolume) <= 1e-9 * std::max(1.0, std::abs(tetVolume));
@@ -189,6 +198,13 @@ Validity meshValidity(const tet::Mesh& m) {
         const double v6 = ux * (vy * wz - vz * wy) - uy * (vx * wz - vz * wx) + uz * (vx * wy - vy * wx);
         if (!(v6 > 0)) ++v.inverted;
         v.tetVolume += std::abs(v6) / 6.0;
+        v.minRadiusRatio = std::min(v.minRadiusRatio, radiusRatio(nodeP(m, t.a), nodeP(m, t.b), nodeP(m, t.c), nodeP(m, t.d)));
+        const P3 q[4] = {nodeP(m, t.a), nodeP(m, t.b), nodeP(m, t.c), nodeP(m, t.d)};
+        double l2 = 0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = i + 1; j < 4; ++j)
+                l2 = std::max(l2, std::pow(q[i].x - q[j].x, 2) + std::pow(q[i].y - q[j].y, 2) + std::pow(q[i].z - q[j].z, 2));
+        if (l2 > 0) v.minRelVolume = std::min(v.minRelVolume, std::abs(v6) / (l2 * std::sqrt(l2)));
     }
     for (const auto& kv : faceCount) if (kv.second > 2) ++v.overShared;
     std::map<std::pair<int, int>, int> edgeCount;
@@ -216,6 +232,34 @@ std::string validityText(const Validity& v) {
     std::snprintf(b, sizeof b, "faces>2tets=%zu nonManifoldBoundaryEdges=%zu inverted=%zu tetVol=%.9g enclosedVol=%.9g",
                   v.overShared, v.nonManifoldEdges, v.inverted, v.tetVolume, v.enclosedVolume);
     return b;
+}
+
+// No NUMERICALLY FLAT tet. A tet whose four vertices are coplanar up to rounding is positive
+// only by the rounding: its stiffness is ~singular and it pollutes the whole solve. MEASURED
+// (T-035 validator, round 1): the exact-predicate Bowyer-Watson built one such tet on the
+// fea_smoke cantilever — four samples on two box faces mirrored across their common edge, an
+// isosceles trapezoid, exactly coplanar and cocircular in the reals — relative volume
+// 6V / Lmax^3 = 2.1e-13 (radius ratio 1.48e-12), and CG went 1556 -> 27430 iterations, peak
+// von Mises 56.35 -> 80.67 MPa. meshValidity cannot see it (its volume is positive).
+// FLATNESS IS MEASURED AS RELATIVE VOLUME, 6|V| / (longest edge)^3 (0.707 for a regular tet),
+// NOT radius ratio: for four nearly coplanar points that are NOT cocircular the circumradius
+// grows like L^2 / h, so the radius ratio falls like (h / L)^2 and calls a geometric sliver
+// "flat at rounding level" — MEASURED, LE1 at 0.09: radius ratio 1.35e-11 on a tet of relative
+// volume 2.84e-9 (four outer-surface samples on two near-vertical generators of the RZ = 30
+// ellipsoid: a geometric boundary sliver, identical on the round-1 mesh, T-253).
+// The floor: the mesher's snap moves a coordinate by <= q/2 with q = 2^-49 x ~32 x the model
+// size, so a tet positive only by the snap has 6V / L^3 <~ 12 q / L — at most ~3e-11 on these
+// meshes (the cantilever's q / L = 2.2e-12 is the largest) — and bowyerWatson now emits a tet
+// (other than on the faces of the tet containing the new point) only above 256 q / L, i.e.
+// above ~6e-11 on these meshes. kFlatFloor lies below that and 140x above the measured flat
+// tet (2.1e-13), and 95x below the flattest geometric sliver (2.84e-9); every level REPORTS both.
+constexpr double kFlatFloor = 3e-11;
+void check(bool ok, const std::string& what);
+void checkNotFlat(const std::string& label, const Validity& v) {
+    char b[240];
+    std::snprintf(b, sizeof b, "%s: no numerically flat tet (min 6V/Lmax^3 %.3g >= %.0e; min radius ratio %.3g, reported)",
+                  label.c_str(), v.minRelVolume, kFlatFloor, v.minRadiusRatio);
+    check(v.minRelVolume >= kFlatFloor, b);
 }
 
 // Area and UNIT outward normal (flipped away from the apex) — triAreaOutwardNormal.
@@ -266,6 +310,28 @@ Classified classifyBoundary(const tet::Mesh& m, double maxDev = 0.5) {
     }
     return c;
 }
+
+// Largest |deviation| of a vertex of a curved boundary face from its own ellipsoid.
+double curvedVertexMaxDev(const tet::Mesh& m, const Classified& c) {
+    double worst = 0;
+    for (std::size_t i = 0; i < c.faces.size(); ++i) {
+        if (c.surf[i] != Surf::Outer && c.surf[i] != Surf::Inner) continue;
+        const Ell e = c.surf[i] == Surf::Outer ? kOuter : kInner;
+        for (int j = 0; j < 3; ++j) {
+            const P3 q = nodeP(m, c.faces[i].v[j]);
+            worst = std::max(worst, std::abs(ellipsoidDistance(q.x, q.y, q.z, e)));
+        }
+    }
+    return worst;
+}
+
+// A curved-boundary vertex is either a projected sample (on the surface to the R1 projector's
+// ~2e-8 m) or a lattice point the keep-out failed to hold back (off it by up to the keep-out,
+// 0.5 targetEdge). kOnGeometry separates the two by >= 50x either way; it is asserted at EVERY
+// level of Part S and of LE1 so that a lattice point exposed on a curved face is caught where
+// it happens, not only where it changes a convergence ratio. (MEASURED, keep-out removed:
+// 7 exposed vertices on the slab at 0.15, inner deviation 2.1e-4 m; 12 on LE1 at 0.09.)
+constexpr double kOnGeometry = 1e-6;
 
 // ---------------------------------------------------------------- the LE model
 struct Diag {
@@ -492,7 +558,7 @@ SurfaceLevel measureSurface(const tet::Mesh& m, const Classified& c, double t, d
 
 // ---------------------------------------------------------------- Part L solve
 struct LeLevel {
-    double edge = 0, sigma = 0, errPct = 0, meshMs = 0, solveMs = 0, cgResidual = 0;
+    double edge = 0, sigma = 0, errPct = 0, meshMs = 0, solveMs = 0, cgResidual = 0, curvedMaxDev = 0;
     std::size_t nodes = 0, tets = 0;
     int cgIters = 0;
     bool converged = false;
@@ -511,6 +577,7 @@ LeLevel solveLe(bool le10, const tet::Mesh& m, const Classified& c, double t, co
     LeLevel L;
     L.nodes = m.nodes.size(); L.tets = m.tets.size();
     L.valid = meshValidity(m);
+    L.curvedMaxDev = curvedVertexMaxDev(m, c);
     Model md = ellipticPlateModel(le10, m, t, c);
     L.d = md.d;
     const tet::Material mat{210e9, 0.3, 7850, 0.0};
@@ -694,6 +761,47 @@ Le11 solveLe11(double edge) {
     r.errPct = (r.sigma / 1e6 + 105.0) / 105.0 * 100.0;
     return r;
 }
+
+// ---------------------------------------------------------------- Part Q: element quality
+// The fea_smoke.cjs cantilever, native and STATIC only (its modal solve is ~160 s): a steel
+// beam 0.1 x 0.01 x 0.01 m meshed at targetEdge 0.002, every node at x = xmin clamped, 100 N
+// in -z spread evenly over the nodes at x = xmax — fea_smoke.cjs's node selection (tolerance
+// 1e-3 of the length) and material, line for line. All planar, so the boundary projection and
+// the keep-out play no part: this is the mesher's Delaunay fill on cospherical lattice and
+// mirrored face samples, the case that produced a numerically flat tet (kFlatFloor above).
+struct Cantilever {
+    std::size_t nodes = 0, tets = 0, fixedN = 0, tipN = 0;
+    double meshMs = 0, solveMs = 0, maxDisp = 0, maxVM = 0;
+    int cgIters = 0;
+    bool converged = false, shell = false;
+    Validity valid;
+};
+Cantilever solveCantilever() {
+    Cantilever c;
+    forge::ShapeHandle h = forge::makeBox(0.1, 0.01, 0.01);
+    double t0 = nowMs();
+    tet::Mesh m = tet::meshShapeFromHandle(h, 0.002);
+    c.meshMs = nowMs() - t0;
+    forge::ShapeRegistry::instance().release(h);
+    c.nodes = m.nodes.size(); c.tets = m.tets.size(); c.shell = m.shellTetsOnly;
+    c.valid = meshValidity(m);
+    double xmin = std::numeric_limits<double>::max(), xmax = -xmin;
+    for (const auto& n : m.nodes) { xmin = std::min(xmin, n.x); xmax = std::max(xmax, n.x); }
+    const double tol = (xmax - xmin) * 1e-3;
+    tet::BC bc;
+    std::vector<int> tip;
+    for (std::size_t i = 0; i < m.nodes.size(); ++i) {
+        if (m.nodes[i].x - xmin < tol) bc.fixedNodes.push_back(static_cast<int>(i));
+        if (xmax - m.nodes[i].x < tol) tip.push_back(static_cast<int>(i));
+    }
+    for (int i : tip) bc.nodalForces.push_back({i, {0.0, 0.0, -100.0 / static_cast<double>(tip.size())}});
+    c.fixedN = bc.fixedNodes.size(); c.tipN = tip.size();
+    t0 = nowMs();
+    const tet::Result r = tet::solveLinearStatic(m, tet::Material{200e9, 0.3, 7850, 0.0}, bc);
+    c.solveMs = nowMs() - t0;
+    c.converged = r.converged; c.cgIters = r.cgIterations; c.maxDisp = r.maxDisp; c.maxVM = r.maxVonMises;
+    return c;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -703,8 +811,9 @@ int main(int argc, char** argv) {
     const bool doL1 = which == "all" || which == "le1";
     const bool doP = which == "all" || which == "prim";
     const bool doL11 = which == "all" || which == "le11";
-    if (!doS && !doL10 && !doL1 && !doP && !doL11) {
-        std::fprintf(stderr, "usage: %s [surface|le10|le1|prim|le11|all]\n", argv[0]);
+    const bool doQ = which == "all" || which == "quality";
+    if (!doS && !doL10 && !doL1 && !doP && !doL11 && !doQ) {
+        std::fprintf(stderr, "usage: %s [surface|le10|le1|prim|le11|quality|all]\n", argv[0]);
         return 2;
     }
 
@@ -734,11 +843,11 @@ int main(int argc, char** argv) {
                         "vertMax=%.6g outerVertMax=%.6g innerVertMax=%.6g vertP95=%.6g vertMean=%.6g offSurface=%zu facetSag=%.6g nearProbeVerts=%zu "
                         "nearProbeMax=%.6g outerFaces=%zu outerWorstDev2D=%.6g midNodes=%zu midWorstDz=%.6g "
                         "topArea=%.6g topAreaErrPct=%.4f volErrPct=%.4f unassigned=%zu inverted=%zu "
-                        "minRadiusRatio=%.3g slivers=%zu\n",
+                        "minRadiusRatio=%.3g slivers=%zu minRelVolume=%.3g\n",
                         e, s.nodes, s.tets, s.meshMs, s.shell ? 1 : 0, s.bndVerts, s.curvedVerts, s.vertMax, s.outerVertMax, s.innerVertMax, s.vertP95,
                         s.vertMean, s.offSurface, s.facetSag, s.nearProbeVerts, s.nearProbeMax, s.outerFaces,
                         s.outerWorstDev2D, s.midNodes, s.midWorstDz, s.topArea, s.topAreaErrPct, s.volErrPct,
-                        s.unassigned, s.inverted, s.minRadiusRatio, s.slivers);
+                        s.unassigned, s.inverted, s.minRadiusRatio, s.slivers, s.valid.minRelVolume);
             std::fflush(stdout);
             if (doL10) {
                 LeLevel l = solveLe(true, m, c, t, P3{2.0, 0.0, 0.6}, -5.38);
@@ -803,6 +912,10 @@ int main(int argc, char** argv) {
                 check(!s.shell && s.unassigned == 0 && s.inverted == 0, b);
                 check(s.valid.ok(), "edge " + std::to_string(s.edge).substr(0, 5) +
                                         ": valid tetrahedralization (" + validityText(s.valid) + ")");
+                checkNotFlat("edge " + std::to_string(s.edge).substr(0, 5), s.valid);
+                std::snprintf(b, sizeof b, "edge %.4g: every curved-boundary vertex on its ellipsoid (max |dev| %.3g <= %.0e m)",
+                              s.edge, s.vertMax, kOnGeometry);
+                check(s.vertMax <= kOnGeometry, b);
             }
         }
         if (doL10) {
@@ -821,9 +934,11 @@ int main(int argc, char** argv) {
                               l.edge, l.d.outerNodes, l.d.outerUnassigned, l.d.midNodes);
                 check(l.d.outerNodes > 0 && l.d.outerUnassigned == 0 && l.d.midNodes > 0 && l.converged &&
                           std::isfinite(l.sigma) && l.sigma < 0, b);
-                if (!doS)   // Part S already asserts it on the same mesh
+                if (!doS) {   // Part S already asserts both on the same mesh
                     check(l.valid.ok(), "LE10 edge " + std::to_string(l.edge).substr(0, 5) +
                                             ": valid tetrahedralization (" + validityText(l.valid) + ")");
+                    checkNotFlat("LE10 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
+                }
             }
         }
     }
@@ -847,10 +962,10 @@ int main(int argc, char** argv) {
             L1.push_back(l);
             std::printf("[le-level] case=LE1 edge=%.4g nodes=%zu tets=%zu sigma=%.4f target=92.7 errPct=%.2f "
                         "probe=(%.3f,%.3f,%.3f) outerNodes=%zu outerFaces=%zu outerWorstDev2D=%.4g loadedArea=%.5f "
-                        "resultantErr=%.3e converged=%d cgIters=%d meshMs=%.0f solveMs=%.0f\n",
+                        "resultantErr=%.3e converged=%d cgIters=%d meshMs=%.0f solveMs=%.0f minRadiusRatio=%.3g minRelVolume=%.3g\n",
                         e, l.nodes, l.tets, l.sigma / 1e6, l.errPct, l.probe.x, l.probe.y, l.probe.z, l.d.outerNodes,
                         l.d.outerFaces, l.d.outerWorstDev2D, l.d.loadedArea, l.d.resultantErr, l.converged ? 1 : 0,
-                        l.cgIters, ms, l.solveMs);
+                        l.cgIters, ms, l.solveMs, l.valid.minRadiusRatio, l.valid.minRelVolume);
             std::fflush(stdout);
         }
         std::printf("\n--- PART L: LE1 elliptic membrane, sigma_yy at D(2,0) [REPORTED, not asserted] ---\n");
@@ -869,6 +984,10 @@ int main(int argc, char** argv) {
                       std::isfinite(l.sigma) && l.sigma > 0, b);
             check(l.valid.ok(), "LE1 edge " + std::to_string(l.edge).substr(0, 5) +
                                     ": valid tetrahedralization (" + validityText(l.valid) + ")");
+            checkNotFlat("LE1 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
+            std::snprintf(b, sizeof b, "LE1 edge %.4g: every curved-boundary vertex on its ellipsoid (max |dev| %.3g <= %.0e m)",
+                          l.edge, l.curvedMaxDev, kOnGeometry);
+            check(l.curvedMaxDev <= kOnGeometry, b);
         }
     }
 
@@ -895,15 +1014,16 @@ int main(int argc, char** argv) {
                                                           std::abs(q.z), std::abs(q.z - c)}));
                     }
                 const double vErr = std::abs(V - a * b * c) / (a * b * c);
-                std::printf("[prim-level] shape=box edge=%.3g nodes=%zu tets=%zu volRelErr=%.3e worstPlaneDist=%.3e shell=%d\n",
-                            e, m.nodes.size(), m.tets.size(), vErr, worst, m.shellTetsOnly ? 1 : 0);
+                const Validity bv = meshValidity(m);
+                std::printf("[prim-level] shape=box edge=%.3g nodes=%zu tets=%zu volRelErr=%.3e worstPlaneDist=%.3e shell=%d minRadiusRatio=%.3g minRelVolume=%.3g\n",
+                            e, m.nodes.size(), m.tets.size(), vErr, worst, m.shellTetsOnly ? 1 : 0, bv.minRadiusRatio, bv.minRelVolume);
                 char msg[200];
                 std::snprintf(msg, sizeof msg, "box edge %.3g: exact (volume rel err %.2e <= 1e-9, boundary vertices on the faces %.2e <= 1e-9, solid)",
                               e, vErr, worst);
                 check(!m.shellTetsOnly && vErr <= 1e-9 && worst <= 1e-9, msg);
-                const Validity bv = meshValidity(m);
                 check(bv.ok(), "box edge " + std::to_string(e).substr(0, 5) + ": valid tetrahedralization (" +
                                    validityText(bv) + ")");
+                checkNotFlat("box edge " + std::to_string(e).substr(0, 5), bv);
             }
         }
         struct Spec { const char* name; int kind; double R, H; std::vector<double> edges; };
@@ -919,8 +1039,8 @@ int main(int argc, char** argv) {
                 const double Vx = sp.kind == 1 ? kPi * sp.R * sp.R * sp.H : 4.0 / 3.0 * kPi * sp.R * sp.R * sp.R;
                 PrimLevel L = measurePrim(m, e, sp.kind, sp.R, sp.H, Vx);
                 P.push_back(L);
-                std::printf("[prim-level] shape=%s edge=%.3g tets=%zu curvedVerts=%zu vertMax=%.3e facetSag=%.3e volRelErr=%+.3e shell=%d\n",
-                            sp.name, e, L.tets, L.curved, L.vertMax, L.facetSag, L.volErr, L.shell ? 1 : 0);
+                std::printf("[prim-level] shape=%s edge=%.3g tets=%zu curvedVerts=%zu vertMax=%.3e facetSag=%.3e volRelErr=%+.3e shell=%d minRadiusRatio=%.3g minRelVolume=%.3g\n",
+                            sp.name, e, L.tets, L.curved, L.vertMax, L.facetSag, L.volErr, L.shell ? 1 : 0, L.valid.minRadiusRatio, L.valid.minRelVolume);
             }
             std::vector<double> vm, fs;
             for (const auto& L : P) { vm.push_back(L.vertMax); fs.push_back(L.facetSag); }
@@ -934,6 +1054,7 @@ int main(int argc, char** argv) {
                 check(!L.shell, msg);
                 check(L.valid.ok(), std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5) +
                                         ": valid tetrahedralization (" + validityText(L.valid) + ")");
+                checkNotFlat(std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5), L.valid);
             }
         }
     }
@@ -954,6 +1075,46 @@ int main(int argc, char** argv) {
             check(!r.shell && r.converged && std::isfinite(r.sigma) && r.sigma < 0, msg);
             check(r.valid.ok(), "LE11 edge " + std::to_string(e).substr(0, 5) + ": valid tetrahedralization (" +
                                     validityText(r.valid) + ")");
+            checkNotFlat("LE11 edge " + std::to_string(e).substr(0, 5), r.valid);
+        }
+    }
+
+    // ---- element quality: the fea_smoke cantilever ---------------------------------------
+    if (doQ) {
+        std::printf("\n--- PART Q: element quality, the fea_smoke cantilever (static) ---------------\n");
+        const Cantilever c = solveCantilever();
+        std::printf("[quality-level] shape=cantilever edge=0.002 nodes=%zu tets=%zu meshMs=%.0f minRadiusRatio=%.3g minRelVolume=%.3g "
+                    "fixed=%zu tip=%zu converged=%d cgIters=%d solveMs=%.0f maxDisp=%.3f um maxVM=%.2f MPa\n",
+                    c.nodes, c.tets, c.meshMs, c.valid.minRadiusRatio, c.valid.minRelVolume, c.fixedN, c.tipN, c.converged ? 1 : 0,
+                    c.cgIters, c.solveMs, c.maxDisp * 1e6, c.maxVM / 1e6);
+        check(!c.shell && c.valid.ok(), "cantilever: solid, valid tetrahedralization (" + validityText(c.valid) + ")");
+        checkNotFlat("cantilever", c.valid);
+        // Regression bounds, from the measured pre-T-035 mesher on this exact mesh request
+        // (fb98b794: min radius ratio 0.104, CG 1556 iterations, 184.15 um = -7.9 % and
+        // 56.35 MPa = -6.1 % of the Euler-Bernoulli 200 um / 60 MPa) and the flat-tet
+        // regression they must reject (1.48e-12, 27430 iterations, 80.67 MPa = +34.5 %).
+        // Looser than either baseline on purpose: a smoke-level contract, not a ratchet.
+        char b[256];
+        std::snprintf(b, sizeof b, "cantilever: min radius ratio %.3g >= 0.05 (pre-T-035: 0.104)", c.valid.minRadiusRatio);
+        check(c.valid.minRadiusRatio >= 0.05, b);
+        std::snprintf(b, sizeof b, "cantilever: CG converged in %d <= 3112 iterations (2x pre-T-035's 1556)", c.cgIters);
+        check(c.converged && c.cgIters <= 3112, b);
+        const double dErr = (c.maxDisp - 200e-6) / 200e-6 * 100.0, sErr = (c.maxVM - 60e6) / 60e6 * 100.0;
+        std::snprintf(b, sizeof b, "cantilever: tip deflection %.2f um within 15%% of 200 um (%+.1f%%)", c.maxDisp * 1e6, dErr);
+        check(std::abs(dErr) <= 15.0, b);
+        std::snprintf(b, sizeof b, "cantilever: peak von Mises %.2f MPa within 15%% of 60 MPa (%+.1f%%)", c.maxVM / 1e6, sErr);
+        check(std::abs(sErr) <= 15.0, b);
+        // The slender box of fea_boundary_refines_test.mjs: MEASURED on the round-1 mesher,
+        // 264 tets of radius ratio < 1e-6 (min 1.2e-12); pre-T-035 and now, min 0.013.
+        {
+            forge::ShapeHandle h = forge::makeBox(0.2, 0.01, 0.01);
+            const tet::Mesh m = tet::meshShapeFromHandle(h, 0.004);
+            forge::ShapeRegistry::instance().release(h);
+            const Validity v = meshValidity(m);
+            std::printf("[quality-level] shape=slender-box edge=0.004 nodes=%zu tets=%zu minRadiusRatio=%.3g minRelVolume=%.3g\n",
+                        m.nodes.size(), m.tets.size(), v.minRadiusRatio, v.minRelVolume);
+            check(!m.shellTetsOnly && v.ok(), "slender box: solid, valid tetrahedralization (" + validityText(v) + ")");
+            checkNotFlat("slender box", v);
         }
     }
 
