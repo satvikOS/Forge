@@ -45,6 +45,19 @@
 #   record and REJECTS any record whose acceptance disagrees, so a hand-written
 #   or post-edited `"acceptance": true` on a ratchet is invalid, not merely odd.
 #
+#   ★ AND A RATCHET CANNOT ESCAPE THE RULE BY CALLING ITSELF HARD. `kind` is the
+#   caller's word, so the rule above held only for ratchets that SAID so. MEASURED
+#   at 14f4a277: `run --gate kernel.s0_conformance --kind hard` over
+#   "[s0-ratchet] pass=70 fail=5" recorded acceptance=true, validated, and
+#   `verdict` printed ACCEPTED. Three defences, each mutation-proved:
+#     - ratchet_gates.txt (beside this file) REGISTERS ratchet gate ids. `emit`
+#       and `run` refuse them under any other kind, and `validate` rejects any
+#       record that names one under any other kind, however it was produced.
+#     - `run` refuses a non-ratchet kind for a command naming a *ratchet* script,
+#       before running it, so an unregistered id cannot launder one either.
+#     - the registry is FAIL-CLOSED: without it nothing is emitted or validated.
+#   Converting a ratchet to hard = deleting its registry line in a reviewed change.
+#
 # ── USAGE ────────────────────────────────────────────────────────────────────
 #   gate_result.sh emit --gate ID --kind K --status S --input P [--input P]...
 #        [--known-misses N|null] [--known-blocked N|null] [--exit-code N]
@@ -108,6 +121,26 @@ resolve_commit() {
 
 is_count() { printf '%s' "$1" | grep -qE '^(null|0|[1-9][0-9]*)$'; }
 
+# ── THE RATCHET REGISTRY ── always the file BESIDE this script; there is no
+# override, because an override is a way to point it at an empty file.
+REGISTRY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ratchet_gates.txt"
+RATCHET_IDS=""; RATCHET_JSON="[]"
+load_registry() {
+  [ -f "$REGISTRY" ] || die "ratchet registry $REGISTRY is missing -- refusing to judge a gate's kind blind (fail closed)"
+  RATCHET_IDS="$(sed 's/#.*//' "$REGISTRY" | awk 'NF { print $1 }')"
+  local bad_id
+  bad_id="$(printf '%s\n' "$RATCHET_IDS" | grep -vE '^$|^[a-z0-9][a-z0-9_.:-]*$' | head -1)"
+  [ -z "$bad_id" ] || die "ratchet registry $REGISTRY: '$bad_id' is not a stable gate id"
+  RATCHET_JSON="$(printf '%s\n' "$RATCHET_IDS" | jq -Rsc 'split("\n") | map(select(. != ""))')" \
+    || die "ratchet registry $REGISTRY could not be read"
+}
+is_registered_ratchet() { [ -n "$RATCHET_IDS" ] && printf '%s\n' "$RATCHET_IDS" | grep -qxF -- "$1"; }
+refuse_relabelled_ratchet() {  # <gate> <kind> <subcommand>
+  if [ "$2" != ratchet ] && is_registered_ratchet "$1"; then
+    die "$3: '$1' is a registered RATCHET ($REGISTRY); recording it as kind=$2 would let it accept. Converting a ratchet to a hard gate is a reviewed edit of that registry, not a flag."
+  fi
+}
+
 # The jq definition of the rule. `emit` and `validate` both use THIS text, so the
 # rule cannot drift between the producer and the checker.
 JQ_RULE='
@@ -146,6 +179,7 @@ cmd_emit() {
   printf '%s' "$gate" | grep -qE '^[a-z0-9][a-z0-9_.:-]*$' || die "emit: --gate '$gate' is not a stable id"
   case "$kind" in hard|ratchet|selftest|aggregate) ;; *) die "emit: --kind must be hard|ratchet|selftest|aggregate" ;; esac
   case "$status" in PASSED|FAILED|BLOCKED|NOT_RUN) ;; *) die "emit: --status must be PASSED|FAILED|BLOCKED|NOT_RUN" ;; esac
+  refuse_relabelled_ratchet "$gate" "$kind" emit
   [ "${#inputs[@]}" -gt 0 ] || die "emit: at least one --input is required (what is this verdict a function of?)"
   is_count "$misses"  || die "emit: --known-misses '$misses' is not a count or null"
   is_count "$blocked" || die "emit: --known-blocked '$blocked' is not a count or null"
@@ -228,6 +262,16 @@ cmd_run() {
   [ $# -gt 0 ] || die "run: no command after --"
   [ -n "$out" ] || die "run: no --out and FORGE_GATE_RESULTS is unset"
   [ "$kind" != aggregate ] || die "run: an aggregate is computed with 'aggregate', not run"
+  # Both checks BEFORE the command runs: a misconfigured step is not a measurement.
+  refuse_relabelled_ratchet "$gate" "$kind" run
+  if [ "$kind" != ratchet ]; then
+    local w
+    for w in "$@"; do
+      case "$w" in *ratchet*)
+        die "run: the command names a RATCHET ('$w') but --kind is '$kind'; record it with --kind ratchet -- a ratchet can never accept" ;;
+      esac
+    done
+  fi
   local tmplog; tmplog="$(mktemp "${TMPDIR:-/tmp}/gate_result_run.XXXXXX")"
   "$@" 2>&1 | tee "$tmplog"
   local rc=${PIPESTATUS[0]}
@@ -287,6 +331,7 @@ def problems:
     (if .acceptance == true and .kind == "ratchet" then "a RATCHET claims acceptance" else empty end),
     (if .acceptance == true and .status != "PASSED" then "acceptance=true on a non-PASSED status" else empty end),
     (if .acceptance == true and ((.known_misses // 0) != 0 or (.known_blocked // 0) != 0) then "acceptance=true with known misses/blocked" else empty end),
+    (if (.gate as $g | $ratchets | any(. == $g)) and .kind != "ratchet" then "registered RATCHET \(.gate) recorded as kind=\(.kind) (tools/gates/ratchet_gates.txt)" else empty end),
     (if (.acceptance|type) == "boolean" and .kind != "aggregate" and .acceptance != derived_acceptance then "acceptance disagrees with the derivation rule" else empty end)
   ];
 '
@@ -299,7 +344,7 @@ cmd_validate() {
     while IFS= read -r line || [ -n "$line" ]; do
       ln=$((ln+1)); [ -n "$line" ] || continue
       n=$((n+1))
-      if ! probs="$(printf '%s' "$line" | jq -r "$JQ_CHECK"' problems | join("; ")' 2>/dev/null)"; then
+      if ! probs="$(printf '%s' "$line" | jq -r --argjson ratchets "$RATCHET_JSON" "$JQ_CHECK"' problems | join("; ")' 2>/dev/null)"; then
         probs="not valid JSON"
       fi
       if [ -n "$probs" ]; then
@@ -432,6 +477,7 @@ cmd_summary() {
 }
 
 sub="${1:-}"; [ $# -gt 0 ] && shift
+case "$sub" in emit|run|aggregate|validate|verdict) load_registry ;; esac
 case "$sub" in
   emit)      cmd_emit "$@" ;;
   run)       cmd_run "$@" ;;
@@ -439,5 +485,5 @@ case "$sub" in
   validate)  cmd_validate "$@" ;;
   verdict)   cmd_verdict "$@" ;;
   summary)   cmd_summary "$@" ;;
-  *) sed -n '2,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; [ -z "$sub" ] && exit 2; die "unknown subcommand '$sub'" ;;
+  *) sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; [ -z "$sub" ] && exit 2; die "unknown subcommand '$sub'" ;;
 esac

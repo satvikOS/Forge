@@ -414,10 +414,12 @@ jobs:
       # T-185. forge.gate_result/v1 is how a gate says PASSED / FAILED / BLOCKED /
       # NOT_RUN with an acceptance flag a RATCHET can never set. Prove the schema
       # can say NO -- forged acceptance on a ratchet, NOT_RUN without a reason, a
-      # missing required gate, the measured brake/skip release shapes -- and that
-      # each of its seven defences is load-bearing (each mutant must be caught).
-      # bash + jq + perl, no build; MEASURED locally ~16 s.
-      - name: Prove forge.gate_result/v1 can say NO (48 checks + 7 mutations)
+      # missing required gate, the measured brake/skip release shapes, and a
+      # registered ratchet (tools/gates/ratchet_gates.txt) relabelled kind=hard,
+      # which accepted until round 2 -- and that each of its eleven defences is
+      # load-bearing (each mutant must be caught). bash + jq + perl, no build;
+      # MEASURED locally 64 s on a loaded Mac (Guardian ORANGE).
+      - name: Prove forge.gate_result/v1 can say NO (62 checks + 11 mutations)
         shell: bash
         run: bash tools/gates/gate_result_selftest.sh
 

@@ -14,6 +14,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 ROOT="$PWD"
 GR_SHIPPED="$ROOT/tools/gates/gate_result.sh"
 RGR_SHIPPED="$ROOT/tools/gates/release_gate_results.sh"
+REG_SHIPPED="$ROOT/tools/gates/ratchet_gates.txt"
 W="$(mktemp -d "${TMPDIR:-/tmp}/gr_selftest.XXXXXX")"; trap 'rm -rf "$W"' EXIT
 SHA=0123456789abcdef0123456789abcdef01234567
 export GITHUB_SHA="$SHA"
@@ -123,14 +124,29 @@ cases() {
   ck "11d ... and the known misses are carried (2 NAFEMS + 5 s0)" 7 "$(jq -r 'select(.gate=="release.acceptance") | .known_misses' "$RO")"
 
   # 12 (control: the arms DIFFER) every component a hard PASS -> ACCEPTED.
+  #    kernel.s0_conformance and kernel.nafems_accuracy are REGISTERED ratchets
+  #    (ratchet_gates.txt), so a hard record for them is refused. The only route to
+  #    a hard verdict is the reviewed one: remove the entry from the registry. This
+  #    control runs a copy of the scripts whose registry has had that review.
+  local CONV="$D/converted"; mkdir -p "$CONV"
+  cp "$G" "$CONV/gate_result.sh"; cp "$RDIR/release_gate_results.sh" "$CONV/"
+  grep -vE '^kernel\.(s0_conformance|nafems_accuracy)[[:space:]]' "$(dirname "$G")/ratchet_gates.txt" \
+    > "$CONV/ratchet_gates.txt" 2>/dev/null
   mkdir -p "$D/k2/gate-results-x"
-  bash "$G" emit --gate kernel.nafems_accuracy --kind hard --status PASSED --exit-code 0 --input "$IN" --out "$D/k2/gate-results-x/k.jsonl" 2>/dev/null
-  bash "$G" emit --gate kernel.s0_conformance --kind hard --status PASSED --exit-code 0 --input "$IN" --out "$D/k2/gate-results-x/k.jsonl" 2>/dev/null
+  bash "$CONV/gate_result.sh" emit --gate kernel.nafems_accuracy --kind hard --status PASSED --exit-code 0 --input "$IN" --out "$D/k2/gate-results-x/k.jsonl" 2>/dev/null
+  bash "$CONV/gate_result.sh" emit --gate kernel.s0_conformance --kind hard --status PASSED --exit-code 0 --input "$IN" --out "$D/k2/gate-results-x/k.jsonl" 2>/dev/null
   RO="$D/rel_clean.jsonl"
   ( cd "$ROOT" && env FORGE_GATE_RESULTS="$RO" GR_EVENT=push GR_REF=refs/heads/archdisc GR_MODE=auto GR_KGATE=go \
       GR_BUILD=success GR_SELFCONTAINED=success GR_PUBLISH=success GR_ACCEPT=success GR_KERNEL_DIR="$D/k2" \
+      bash "$CONV/release_gate_results.sh" ) >/dev/null 2>&1
+  ck "12  (control) all hard PASS, ratchets converted by a registry review -> release ACCEPTED" true "$(acc release.acceptance "$RO")"
+  # ... and the SAME records, judged by the scripts as shipped, are refused.
+  RO="$D/rel_clean_shipped.jsonl"
+  ( cd "$ROOT" && env FORGE_GATE_RESULTS="$RO" GR_EVENT=push GR_REF=refs/heads/archdisc GR_MODE=auto GR_KGATE=go \
+      GR_BUILD=success GR_SELFCONTAINED=success GR_PUBLISH=success GR_ACCEPT=success GR_KERNEL_DIR="$D/k2" \
       bash "$RDIR/release_gate_results.sh" ) >/dev/null 2>&1
-  ck "12  (control) all hard PASS -> release ACCEPTED" true "$(acc release.acceptance "$RO")"
+  ck "12b ... the same hard records under the shipped registry -> release NOT accepted" false "$(acc release.acceptance "$RO")"
+  ck "12c ... and the relabelled s0 record is NOT copied: s0 reads NOT_RUN" NOT_RUN "$(st kernel.s0_conformance "$RO")"
 
   # 13 kernel records never fetched -> those components NOT_RUN -> not accepted
   RO="$D/rel_nok.jsonl"
@@ -167,6 +183,53 @@ cases() {
   jq -r 'select(.gate=="release.publish") | .reason' "$RO" | grep -q 'brake'
   ck "15e ... and the publish record names the brake as the reason" 0 $?
 
+  # 16 ★ A RATCHET CANNOT ACCEPT BY CALLING ITSELF HARD. `kind` is declared by the
+  #    caller, so "a ratchet never accepts" held only for ratchets that SAID so.
+  #    MEASURED at 14f4a277: `run --gate kernel.s0_conformance --kind hard` over
+  #    "[s0-ratchet] pass=70 fail=5" recorded acceptance=true, validated, and
+  #    `verdict` printed ACCEPTED. Three independent defences, each tested here.
+  #    (a) the PRODUCER refuses a registered ratchet id under any other kind
+  bash "$G" emit --gate kernel.s0_conformance --kind hard --status PASSED --exit-code 0 --input "$IN" \
+    --out "$D/x16.jsonl" >/dev/null 2>&1
+  ck "16  emit: registered ratchet kernel.s0_conformance as kind=hard is refused" 2 $?
+  bash "$G" emit --gate kernel.nafems_accuracy --kind selftest --status NOT_RUN --reason r --input "$IN" \
+    --out "$D/x16.jsonl" >/dev/null 2>&1
+  ck "16b emit: ... under ANY non-ratchet kind (selftest, NOT_RUN) too" 2 $?
+  #    (b) the CHECKER rejects such a record however it was written -- a hand-made
+  #    one that is otherwise perfectly self-consistent (hard, PASSED, 0 misses,
+  #    acceptance=true agrees with the derivation for a HARD gate).
+  jq -c 'select(.gate=="kernel.s0_conformance") | .kind="hard" | .known_misses=0 | .known_blocked=null | .acceptance=true' \
+    "$D/k/gate-results-s0/s0_conformance.jsonl" > "$D/relabel.jsonl"
+  bash "$G" validate "$D/relabel.jsonl" > "$D/v16.out" 2>&1; ck "16c validate: a registered ratchet recorded as hard is REJECTED" 1 $?
+  grep -q 'registered RATCHET' "$D/v16.out"; ck "16d ... and the defect names the registry" 0 $?
+  bash "$G" verdict --require kernel.s0_conformance "$D/relabel.jsonl" >/dev/null 2>&1
+  ck "16e verdict over the relabelled record -> NOT ACCEPTED" 1 $?
+  #    (c) `run` refuses to record a RATCHET SCRIPT under a non-ratchet kind, and
+  #    refuses BEFORE running it (a misconfigured step is not a measurement).
+  printf '#!/usr/bin/env bash\ntouch "%s/ran16"\necho "pass=9 fail=4"\n' "$D" > "$D/probe_ratchet.sh"
+  bash "$G" run --gate c.unregistered --kind hard --input "$IN" --out "$D/x16.jsonl" -- bash "$D/probe_ratchet.sh" >/dev/null 2>&1
+  ck "16f run: an unregistered id over a *ratchet* script as kind=hard is refused" 2 $?
+  ck "16g ... before the script ran" no "$( [ -e "$D/ran16" ] && echo yes || echo no )"
+  bash "$G" run --gate c.unregistered --kind ratchet --known-misses-from 'fail=([0-9]+)' --input "$IN" \
+    --out "$D/x16.jsonl" -- bash "$D/probe_ratchet.sh" >/dev/null 2>&1
+  ck "16h (control) the same script as kind=ratchet runs, rc 0" 0 $?
+  ck "16i (control) ... and records acceptance=false with its 4 misses" "false 4" \
+     "$(jq -r 'select(.gate=="c.unregistered") | "\(.acceptance) \(.known_misses)"' "$D/x16.jsonl" | tail -1)"
+  #    (d) every kernel ratchet the RELEASE requires is in the registry, so the
+  #    release path cannot be handed a hard s0/NAFEMS record either (12b/12c).
+  local req missing=""
+  for req in $(sed -n 's/^KERNEL_REQUIRED="\(.*\)"$/\1/p' "$RDIR/release_gate_results.sh"); do
+    grep -qE "^${req//./\\.}[[:space:]]" "$(dirname "$G")/ratchet_gates.txt" 2>/dev/null || missing="$missing $req"
+  done
+  ck "16j every release-required kernel ratchet is registered" "" "$missing"
+  #    (e) the registry is FAIL-CLOSED: without it nothing can be judged.
+  local NOREG="$D/noreg"; mkdir -p "$NOREG"; cp "$G" "$NOREG/gate_result.sh"
+  bash "$NOREG/gate_result.sh" emit --gate c.hard2 --kind hard --status PASSED --exit-code 0 --input "$IN" \
+    --out "$D/x16.jsonl" >/dev/null 2>&1
+  ck "16k a missing ratchet registry refuses to emit (fail closed)" 2 $?
+  bash "$NOREG/gate_result.sh" validate "$R" >/dev/null 2>&1
+  ck "16l ... and refuses to validate" 2 $?
+
   return "$fails"
 }
 
@@ -179,7 +242,7 @@ echo "[gate-result-selftest] shipped: $SHIP_FAILS failed check(s)"
 # mutated gate_result.sh beside it, exactly as it finds the shipped one.
 mutate() { # mutate <name> <perl substitution>
   local name="$1" expr="$2" d; d="$(mktemp -d "$W/m.XXXX")"
-  cp "$GR_SHIPPED" "$RGR_SHIPPED" "$d/"
+  cp "$GR_SHIPPED" "$RGR_SHIPPED" "$REG_SHIPPED" "$d/"
   perl -0pi -e "$expr" "$d/gate_result.sh"
   if cmp -s "$GR_SHIPPED" "$d/gate_result.sh"; then
     echo "    FAIL  mutant '$name' changed NOTHING -- it cannot prove anything"; return 1
@@ -204,6 +267,11 @@ mutate "a missing gate counts as PASS"  's/\\tNOT_RUN\\tfalse\\t-\\tno record/\\
 mutate "aggregate trusts PASSED"        's/misses=1; reason="\$\{reason:-a component is not accepted\}"/:/' || MUT_FAILS=$((MUT_FAILS+1))
 mutate "run calls every rc a PASS"      's/\[ "\$rc" -eq 0 \] && status=PASSED/status=PASSED/' || MUT_FAILS=$((MUT_FAILS+1))
 mutate "an absent component is fine"    's/\{gate:\$c, status:"NOT_RUN", acceptance:false/{gate:\$c, status:"PASSED", acceptance:true/' || MUT_FAILS=$((MUT_FAILS+1))
+# T-185 round 2: a ratchet must not escape the rule by declaring another kind.
+mutate "emit trusts the declared kind"  's/\n  refuse_relabelled_ratchet "\$gate" "\$kind" emit//' || MUT_FAILS=$((MUT_FAILS+1))
+mutate "validate ignores the registry"  's/then "registered RATCHET [^"]*"/then empty/' || MUT_FAILS=$((MUT_FAILS+1))
+mutate "run trusts a ratchet command"   's/case "\$w" in \*ratchet\*\)/case "\$w" in *NEVER-MATCHES*)/' || MUT_FAILS=$((MUT_FAILS+1))
+mutate "a missing registry is empty"    's/\[ -f "\$REGISTRY" \] \|\| die "ratchet registry/[ -f "\$REGISTRY" ] || return 0; : "ratchet registry/' || MUT_FAILS=$((MUT_FAILS+1))
 
 echo "[gate-result-selftest] shipped failures=$SHIP_FAILS  surviving/no-op mutants=$MUT_FAILS"
 if [ "$SHIP_FAILS" -eq 0 ] && [ "$MUT_FAILS" -eq 0 ]; then
