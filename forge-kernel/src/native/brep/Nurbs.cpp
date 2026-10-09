@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
 namespace forge {

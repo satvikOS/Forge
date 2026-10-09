@@ -314,7 +314,9 @@ build_linked() {
 }
 # $1 label, $2 mode (readers|corpus), $3 expect (pass|fail), $4 killer case ("" = any)
 run_linked() {
-  local d="$OUT/linked_$1" rc out
+  # $4 is optional (the corpus calls pass none); `set -u` would abort the whole
+  # gate on a bare "$4", silently skipping every later step (A2-on-REF, A3).
+  local d="$OUT/linked_$1" rc out killer="${4:-}"
   [ -x "$d/gate" ] || { fail "$2[$1]: no gate binary"; return; }
   out="$d/$2.txt"
   if [ "$2" = readers ]; then "$d/gate" --readers > "$out" 2> "$d/$2.stderr"; rc=$?
@@ -324,7 +326,7 @@ run_linked() {
     else fail "$2[$1] exit=$rc $(tail -1 "$out")"; grep -v '^\[PASS\]' "$out" | head -30; fi
   else
     if [ "$rc" = 0 ]; then fail "$2[$1] exit=0 — the check does not detect the defect"
-    elif [ -n "$4" ] && ! grep -qE "^\[(FAIL|CRASH)\] +$4 " "$out"; then fail "$2[$1] red (exit $rc) but not on its killer $4"
+    elif [ -n "$killer" ] && ! grep -qE "^\[(FAIL|CRASH)\] +$killer " "$out"; then fail "$2[$1] red (exit $rc) but not on its killer $killer"
     else pass "$2[$1] RED as required: exit=$rc  $(tail -1 "$out")  crash=$(grep -c '^\[CRASH\]' "$out") fail-lines=$(grep -c '^\[FAIL\]' "$out")"; fi
   fi
 }
