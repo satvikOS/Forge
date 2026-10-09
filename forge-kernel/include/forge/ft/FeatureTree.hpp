@@ -377,6 +377,98 @@ struct Token {
     int                 dim  = 0;     // kind == Points: 2 or 3 (coords per source point)
 };
 
+// ------------------------------------------------------- the op RECORD (T-132)
+// An op says WHAT to build. Its record says what the op RESTS ON: the units its
+// numbers are in, the ops it depends on, the semantic entities it addresses, what
+// must hold before and after it, what it must not disturb, how sure the emitter
+// is, and where the values came from. Doc 05 (FeatureIR, semantic references,
+// invariant system) and directive s9 (dataset records) both require these per
+// operation; before this struct the IR could not state a single one of them.
+//
+// TEXT FORM. One annotation line per op, written AFTER the op it annotates and
+// bound to it by id:
+//
+//   %3 = FILLET(%2, 2.5, ALL)
+//   @%3 units=mm deps=%2 refs="%2:top-rim" pre="edges>=12" post="faces>=10" inv="holes=4" conf=0.9 prov=USER src="turn 2"
+//
+// Items are whitespace-separated `key=value`; a value is a bare token or a quoted
+// string ('"' or '\'') holding at most ONE kind of quote character (a value with
+// both could not be written back, so it is refused). List keys (units, deps, refs,
+// pre, post, inv) may repeat, and a BARE `units` / `deps` value is also a comma
+// list; a quoted unit is one unit, verbatim. Ids are `%` + digits (an optional
+// '-' for a parser-synthesised id), nothing else. '#' and '//' outside quotes
+// start a comment on a record line exactly as on any other line, so a value that
+// holds one must be quoted (emit() always does). The bare value `none` STATES an
+// empty list, which is a different fact from leaving the key out: a BOX that
+// depends on nothing says `deps=none`; a record that never mentions deps has not
+// said. Keys and provenance values are case-insensitive; an unknown key, an
+// unknown provenance value, a repeated scalar key, a second record for one op, or
+// a record for an op not yet defined is a PARSE error -- a record field the parser
+// skipped would be a requirement dropped without a trace. Only a line SHAPED like
+// a record (`@REQUIRE ...`, or '@' then an op id) is read as one; any other '@'
+// line (`@boss apply fillets`) is still refused as an s0.5 OpaquePlaceholder.
+//
+// A program may also state a CONTRACT, once, before its first op:
+//
+//   @REQUIRE units deps refs pre post inv conf prov        (or: @REQUIRE ALL)
+//
+// It names the fields EVERY op must state. compile() refuses -- before building
+// anything -- a tree in which any op lacks one. A caller can impose the same
+// contract on a tree whose text did not ask for one by setting
+// FeatureTree::required after parse(). NO caller does so yet: the Archie plan
+// path (ui/ and forge-desktop/) still hands the kernel record-free text, and
+// wiring it to demand records is separate work, not something this header does.
+//
+// A program with no '@' lines is the program it always was: parse() returns the
+// identical tree, compile() builds the identical solid, nothing is required.
+// Old parsers reject an '@' line loudly (s0.5 opaque placeholder) rather than
+// silently ignoring it, so a record can never be dropped by version skew.
+#define FORGE_FT_OP_RECORDS 1
+
+// Where an op's values came from. Doc 05: "No missing detail is silently filled
+// with false certainty. Values are USER, SOURCE, DERIVED, PROPOSED, or
+// UNRESOLVED." Unstated is the default and means the record did not say.
+enum class Provenance : std::uint8_t {
+    Unstated = 0,
+    User,        // stated by the user                       (alias USER_SPECIFIED)
+    Source,      // read from a drawing / model / document   (alias SOURCE_DERIVED)
+    Derived,     // computed from other stated values        (alias ENGINEERING_DERIVED)
+    Proposed,    // chosen by the planner; a reviewable guess
+    Unresolved,  // NOT KNOWN. compile() refuses to build an op that says this.
+};
+
+// One bit per record field, so "stated" is a set and a contract is a mask.
+enum OpRecordField : std::uint16_t {
+    kRecUnits = 1u << 0,
+    kRecDeps  = 1u << 1,
+    kRecRefs  = 1u << 2,
+    kRecPre   = 1u << 3,
+    kRecPost  = 1u << 4,
+    kRecInv   = 1u << 5,
+    kRecConf  = 1u << 6,
+    kRecProv  = 1u << 7,
+    kRecAll   = 0xFFu,
+};
+
+struct OpRecord {
+    std::uint16_t            stated = 0;    // OpRecordField bits this record STATES
+                                            // (an explicit `none` counts as stated)
+    std::vector<std::string> units;         // unit symbols of the op's numbers:
+                                            //   mm (length), deg (angle), 1 (count)
+    std::vector<int>         deps;          // upstream op ids this op depends on
+    std::vector<std::string> refs;          // semantic references ("%2:top-rim", "@boss")
+    std::vector<std::string> pre;           // must hold on the op's input   (VERIFY grammar)
+    std::vector<std::string> post;          // must hold on the op's output  (VERIFY grammar)
+    std::vector<std::string> inv;           // must hold on input AND output (VERIFY grammar)
+    double                   confidence = -1.0;   // [0,1]; -1 = not stated
+    Provenance               provenance = Provenance::Unstated;
+    std::string              source;        // provenance detail ("user turn 2", "dwg A1 dim 7")
+    int                      srcLine = 0;   // 1-based line of the '@' record, 0 = none
+
+    bool present() const { return srcLine != 0 || stated != 0 || !source.empty(); }
+    bool has(OpRecordField f) const { return (stated & f) != 0; }
+};
+
 // --------------------------------------------------------------------- one op
 struct Op {
     int                 id   = 0;      // 1-based creation id
@@ -395,6 +487,8 @@ struct Op {
     std::vector<Point2> arcThrough;
     std::vector<char>   arcIsArc;
     int                 srcLine = 0;   // 1-based source line, for diagnostics
+    OpRecord            record;        // T-132: provenance, dependencies, invariants...
+                                       // Empty for every op of a program with no '@' lines.
 };
 
 // ------------------------------------------------- s0.4 cardinality ledger
@@ -414,6 +508,9 @@ struct Census {
     std::size_t declared     = 0;   // executable statements that must yield an op
     std::size_t parsed       = 0;   // ops actually in `ops`
     std::size_t terminators  = 0;   // RESULT(%id) lines (bind, produce no op)
+    std::size_t records      = 0;   // '@' lines: op records + the @REQUIRE contract.
+                                    // Non-executable (they build nothing), counted so
+                                    // a dropped record is as visible as a dropped op.
 
     // The reconciliation itself. declared counts every executable statement;
     // parsed counts what survived. They must be equal — a difference is exactly
@@ -425,6 +522,10 @@ struct FeatureTree {
     std::vector<Op> ops;
     int             resultId = -1;     // explicit RESULT(%id), or -1 => last solid
     Census          counts;            // s0.4 count table for THIS parse
+    // T-132 contract: OpRecordField bits every op's record must STATE, from the
+    // program's `@REQUIRE` line or set by the caller. 0 (the default, and what
+    // every program without the line gets) requires nothing.
+    std::uint16_t   required = 0;
 };
 
 // -------------------------------------------------- parse failure taxonomy
@@ -465,6 +566,48 @@ public:
 // form of prose and is counted, not silently discarded.
 FeatureTree parse(const std::string& text);
 
+// ------------------------------------------------------------- emit (T-132)
+// FeatureTree -> canonical IR text: the inverse of parse() on everything parse()
+// keeps. One statement per op in tree order, each op's record on the line after
+// it, `@REQUIRE` first when the tree has a contract, `RESULT(%id)` last when it
+// has one. Numbers print as forge::ui::formatIrNumber does (printf %.10g) unless
+// that would lose bits, in which case the shortest exact %.Ng is used -- so a
+// program the app printed comes back byte-for-byte, and no value ever moves. An op
+// that is exactly what parse() makes of a BARE `VERIFY(...)` / `SURFCHECK(...)`
+// (a synthetic negative id, bound to the newest value) is written back bare, as
+// `VERIFY(...)`, so the parser's synthetic ids never appear in emitted text.
+// Commentary, blank lines and an echoed format template are not kept by parse()
+// and so are not reproduced. For every tree parse() returns, parse(emit(t)) == t
+// field for field and emit(parse(emit(t))) == emit(t) byte for byte. A HAND-BUILT
+// tree whose record cannot be spelled that way -- a value that is empty, holds a
+// line break or both quote characters, a field with content its `stated` set does
+// not mark, a stated prov naming no provenance, bits outside kRecAll -- makes
+// emit() throw std::invalid_argument rather than write text that reads back
+// different.
+std::string emit(const FeatureTree& ft);
+
+// ------------------------------------------------- record checks (T-132)
+// Everything compile() refuses about a tree's RECORDS, without building it. An
+// empty vector means the records are acceptable. Refused:
+//   * an op missing a field the tree's contract (FeatureTree::required) demands;
+//   * a unit other than mm / deg / 1 -- the IR builds in mm and degrees, and a
+//     value the emitter believed was in inches is a 25.4x wrong part;
+//   * a dependency that is not an earlier op, or an op whose stated deps omit a
+//     %ref it actually consumes (the record contradicts the program);
+//   * a "%N..." semantic reference to an op that is neither earlier nor itself;
+//   * a confidence outside [0, 1];
+//   * provenance UNRESOLVED -- a value nobody knows is not built with false
+//     certainty.
+struct RecordRefusal {
+    int         opId    = 0;
+    int         srcLine = 0;    // the op's line (its record's line is in the op)
+    std::string reason;
+};
+std::vector<RecordRefusal> checkRecords(const FeatureTree& ft);
+
+const char* provenanceName(Provenance p) noexcept;    // "USER", ... ; "" for Unstated
+std::string recordFieldNames(std::uint16_t fields);   // "units deps conf"
+
 // --------------------------------------------------------------- compile API
 struct CompileResult {
     bool        ok         = false;
@@ -498,6 +641,16 @@ struct CompileResult {
 // Walk a FeatureTree into native forge-kernel calls, building the solid.
 // Never throws for a modelling failure — the failing op id + reason land in the
 // returned CompileResult (ok=false). Fails LOUDLY (does not silently degrade).
+//
+// RECORDS (T-132). checkRecords() runs FIRST, before any kernel call and before
+// the progress hook announces a single op: a refused tree is never built, and
+// comes back ok=false, handle 0, nCompiled 0, error "RECORD_REFUSED: ...",
+// failedOpId the first refused op. An accepted record's conditions are then
+// EVALUATED with the VERIFY grammar: `pre` on the op's first %ref input before it
+// builds, `post` on its output after, `inv` on both. Each lands in `verify` as
+// "PASS|FAIL <pre|post|inv-in|inv-out> %id: <expr> ..."; a false or unevaluable
+// one fails the compile at the end, exactly as a false VERIFY does, so the
+// geometry is still built and measured.
 //
 // `inputStepPath` backs the edit op `INPUT()`: it is imported (and face-unified)
 // to become the body an edit tree modifies. Empty for pure generation trees; an
