@@ -253,7 +253,7 @@ int main() {
   // Mirrored here, and the mirror is PINNED: if the predicate changes this fails
   // and asks to be updated rather than quietly disagreeing with the application.
   const bool predicatePinned =
-      frame.find("return id.rfind(\"viewport_\", 0) == 0 || id == \"sheet_canvas\";") !=
+      frame.find("return id.rfind(\"viewport_\", 0) == 0;") !=
       std::string::npos;
   if (!predicatePinned) {
     std::printf("  isViewportPanel() has changed; update the mirror in this gate\n");
@@ -261,7 +261,7 @@ int main() {
   CHECK(predicatePinned);
 
   const auto isDispatched = [&dispatched](const std::string& id) {
-    if (id.rfind("viewport_", 0) == 0 || id == "sheet_canvas") return true;
+    if (id.rfind("viewport_", 0) == 0) return true;
     return std::find(dispatched.begin(), dispatched.end(), id) != dispatched.end();
   };
 

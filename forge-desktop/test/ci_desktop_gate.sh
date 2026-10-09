@@ -271,7 +271,13 @@ set -uo pipefail
 #    handed the previous part's sheet). The same awk now prints 201, READ OFF
 #    THIS TREE:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
-EXPECTED_MUTATIONS=201
+#  * 2026-10-09, T-296: forge_desktop_sheet_canvas_gate arrived with 4 -- the
+#    Drawing workspace's Sheet tab, which drew the 3-D viewport, now draws the
+#    sheet the Save writes, and the gate reads it back out of the draw list
+#    (another scale, hidden lines dropped, views upside down, a stale sheet not
+#    flagged). The same awk now prints 205, READ OFF THIS TREE:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+EXPECTED_MUTATIONS=205
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

@@ -228,6 +228,10 @@ CHECKED=(
   #    forge/ui only, the same include set as drawing_gate.cpp -- no OCCT header,
   #    no SDK. Its kernel half, DrawingHost.cpp, is in SKIPPED below by name.
   forge-desktop/test/drawing_export_gate.cpp
+  # -- ADDED 2026-10-09 (T-296). The sheet-canvas gate: forge_desktop_core,
+  #    forge/ui and Dear ImGui's own imgui_internal.h (vendored in-tree, like
+  #    imgui_recovery_gate.cpp's) -- no OCCT header, no SDK.
+  forge-desktop/test/sheet_canvas_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
