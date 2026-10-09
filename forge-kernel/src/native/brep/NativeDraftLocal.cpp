@@ -1168,17 +1168,27 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     // point the BRep already STORES for this representation:
                     // BRep_Tool::UVPoints walks the same curve-representation list
                     // with the same match and the same seam/orientation choice as
-                    // the CurveOnSurface call above, and returns the point BRep_GCurve
-                    // computed from that pcurve at `oa` when the range was set. So
-                    // the answer is the one Geom2d_Curve::Value(oa) gave, without
-                    // naming that OCCT symbol -- MEASURED on b609b41d+924c9201, this
-                    // line was its ONLY owner in libforge_kernel_core, while UVPoints
-                    // is already taken by OcctNativeMesh.cpp (the same swap, for the
-                    // same seam-branch question). MEASURED on the 600-part corpus:
-                    // 128,292 (edge, cylindrical face) pairs, 0 bit differences in u
-                    // (test/occt_query_tail_gate.cpp [E] re-measures it). Only the
-                    // BRANCH is taken from uNear, so even a stale stored point would
-                    // have to be wrong by about half a period to change the answer.
+                    // the CurveOnSurface call above, and returns the point the
+                    // representation CACHED from its pcurve when its range was last
+                    // set. That reading avoids naming Geom2d_Curve::Value -- MEASURED
+                    // on b609b41d+924c9201, this line was its ONLY owner in
+                    // libforge_kernel_core, while UVPoints is already taken by
+                    // OcctNativeMesh.cpp (the same swap, same seam-branch question).
+                    //
+                    // WHAT IS PROVEN AND WHAT IS NOT. OCCT does not promise that the
+                    // cached point equals Value(oa): it is a cache, and on the
+                    // 600-part corpus it DIFFERS on 144,948 of 562,312 (edge, face)
+                    // pairs whose face is NOT a cylinder (by up to 6.85e-7, cause not
+                    // established). On CYLINDERS, the only place it is read here,
+                    // it MEASURED equal bit for bit: 128,292 corpus pairs and every
+                    // fixture pair (test/occt_query_tail_gate.cpp [E] re-asserts the
+                    // fixtures). That is evidence, not a guarantee. What bounds the
+                    // risk: only the 2*pi BRANCH is taken from uNear, so a stale point
+                    // must be off by about half a period to matter, and a wrong branch
+                    // puts the new pcurve a period away from the face's others, which
+                    // step 9's BRepCheck turns into a named defer, not a wrong solid
+                    // -- MEASURED with the uv-end-not-start mutant: both closed-rim
+                    // cases decline "the rebuilt solid is not BRepCheck-valid".
                     gp_Pnt2d uvStart, uvEnd;
                     BRep_Tool::UVPoints(TopoDS::Edge(oldE), cylFace, uvStart, uvEnd);
                     uNear = uvStart.X();
@@ -1214,6 +1224,19 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                 // is what the fit has to beat. min() with resTol keeps the old
                 // bound wherever it was ALREADY the tighter of the two, so this
                 // can only tighten and never loosen.
+                //
+                // WHY THE BRep_Tool::Tolerance READS STAY (T-148 residual, moved
+                // to T-297). Here and at the MakeEdge / MakeFace / UpdateEdge
+                // sites below they read the tolerance of the INPUT edge and face
+                // (oldE, cylFace, oldF) to stamp the NEW ones. MEASURED on the
+                // T-148 core: Tolerance(TopoDS_Edge) and Tolerance(TopoDS_Face)
+                // have ONE owner, this file, and no symbol the core already takes
+                // returns either value. EmptyCopied() carries the tolerance but
+                // also the old curve representations, UpdateFace SETS a face
+                // tolerance rather than raising it (probe: T-148 evidence run4),
+                // and reading BRep_TEdge/BRep_TFace fields inline would only hide
+                // the demand from nm (rejected, as in T-150). They leave when this
+                // engine states its own tolerance from the residuals it measures.
                 const double edgeTol =
                     std::max(std::max(tol, BRep_Tool::Tolerance(oldE)),
                              BRep_Tool::Tolerance(cylFace));
