@@ -49,14 +49,16 @@
 //              box at all, and it stays green if somebody reverts the seed.
 //
 // ── THE WALK IS DERIVED, NEVER A LIST ──────────────────────────────────────
-// W1 does not enumerate four command ids. It walks
+// W1 does not enumerate five command ids. It walks
 // forge::desktop::fileDialogCommandIds(), keeps every SAVE-mode row that is not
-// one of the two document saves, and REQUIRES the count to be 4. A tenth file
+// one of the two document saves, and REQUIRES the count to be 5. A new file
 // command that writes a copy therefore arrives inside this walk by default and
-// is red on arrival if it skipped the guard -- and `walked == 4` is load-bearing
+// is red on arrival if it skipped the guard -- and `walked == 5` is load-bearing
 // rather than decoration: file.export_gcode's box only opens once
 // ForgeFrame::hasMachineProgram() is true, and a walk that silently skipped the
-// worst of the four is the exact shape of the hole this file exists to close.
+// worst of the five is the exact shape of the hole this file exists to close.
+// The fifth is file.export_drawing (T-230), which arrived exactly that way: it
+// was walked on arrival, and its refusal is checked against its own closed set.
 //
 // ── RUN ONE POPULATION PER PROCESS ─────────────────────────────────────────
 //     forge_desktop_write_target_gate --pop <one of kPopulations>
@@ -93,6 +95,7 @@
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/DrawingExport.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MachineProgram.hpp"
@@ -374,8 +377,8 @@ struct App {
   // body's bounding box inside ensureCamPlan().
   bool wireMachineProgram() {
     // MUTATION 6: the CAM panels are never drawn, so there is no program,
-    // file.export_gcode stays disabled, and the W1 walk finds three commands
-    // instead of four. `walked == 4` is what refuses that.
+    // file.export_gcode stays disabled, and the W1 walk finds four commands
+    // instead of five. `walked == 5` is what refuses that.
     if (g_mutation == 6) return frame->hasMachineProgram();
     shell.setWorkspace(forge::ui::WorkspaceProfile::Manufacturing);
     const bool tools = showPanel("tool_library");
@@ -644,9 +647,9 @@ void popTypedBox(const std::string& root) {
   }
 
   // ★ LOAD-BEARING. file.export_gcode's box opens only once hasMachineProgram()
-  //   is true; a walk that silently skipped the worst of the four is the exact
+  //   is true; a walk that silently skipped the worst of the five is the exact
   //   shape of the hole this gate exists to close.
-  check(walked == 4, "★ all four copy commands were walked", std::to_string(walked));
+  check(walked == 5, "★ all five copy commands were walked", std::to_string(walked));
   std::printf("\n  [W1] the user's part: %zu NOTE / %zu FEATURE / %zu bytes, unchanged\n",
               before.notes, before.features, before.bytes);
   std::printf("  [W1] warnings +%zu, errors +%zu\n", b.warnings() - warnings,
@@ -703,6 +706,11 @@ void popTypedPath(const std::string& root) {
                 forge::ui::MachineProgramRefusal::TargetIsDocument,
             id + ": for the reason the closed set has a value for",
             forge::ui::toString(b.shell.lastMachineProgram().refusal));
+    } else if (id == "file.export_drawing") {
+      check(b.shell.lastDrawingExport().refusal ==
+                forge::ui::DrawingExportRefusal::TargetIsDocument,
+            id + ": for the reason the closed set has a value for",
+            forge::ui::toString(b.shell.lastDrawingExport().refusal));
     } else {
       check(b.shell.lastExchange().refusal == forge::ui::ExchangeRefusal::TargetIsDocument,
             id + ": for the reason the closed set has a value for",
@@ -1584,7 +1592,7 @@ void popStrangerFile(const std::string& root) {
   std::printf("   [walk] document-save commands, DERIVED from descriptor.writes:");
   for (const std::string& id : saves) std::printf(" %s", id.c_str());
   std::printf("  (%zu)\n", saves.size());
-  // Load-bearing rather than decoration, the way W1's `walked == 4` is: a walk
+  // Load-bearing rather than decoration, the way W1's `walked == 5` is: a walk
   // that silently skipped one of the two saves is the exact shape of the hole
   // this file exists to close, and a THIRD document-save command must be looked
   // at rather than absorbed.
@@ -1953,7 +1961,7 @@ int main(int argc, char** argv) {
   //   5  W4's re-export goes to a fresh name, so the stubbed earlier copy is
   //      never replaced and "re-exporting REPLACED it" goes red.
   //   6  W1 skips the Manufacturing panels, so hasMachineProgram() is false,
-  //      file.export_gcode's box never opens and `walked == 4` goes red.
+  //      file.export_gcode's box never opens and `walked == 5` goes red.
   //   7  W6's two parts are made the SAME SHAPE, so "replaced" and "untouched"
   //      are the same bytes and the byte-identical checks cannot tell them
   //      apart. It is this gate's own note-on-method as a mutation: the

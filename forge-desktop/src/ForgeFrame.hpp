@@ -44,6 +44,7 @@
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/DocumentStore.hpp"
 #include "forge/ui/Drawing.hpp"
+#include "forge/ui/DrawingExport.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/EngineeringCalculators.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
@@ -245,8 +246,12 @@ struct SplitterHit {
 // CAM plan the Manufacturing panels compute is state in this object and nowhere
 // else, and forge::ui::MachineProgramSource is the seam that lets the shell's ONE
 // file.export_gcode write it without ui/ knowing what a toolpath is.
+// And it is the source of the DRAWING (T-230): the sheet, scale, projection and
+// title block are state in this object, and forge::ui::DrawingSource lets the
+// shell's ONE file.export_drawing write them without ui/ seeing the kernel.
 class ForgeFrame final : public forge::ui::DocumentHost,
-                         public forge::ui::MachineProgramSource {
+                         public forge::ui::MachineProgramSource,
+                         public forge::ui::DrawingSource {
  public:
   ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene);
 
@@ -443,6 +448,19 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // once an operation has been set up and greyed until then.
   bool hasMachineProgram() override;
   bool machineProgram(forge::ui::MachineProgram& out) override;
+
+  // ── forge::ui::DrawingSource (T-230) ────────────────────────────────────
+  // hasDrawing() COMPUTES NOTHING, for the reason hasMachineProgram() gives: it
+  // is a command's enabled predicate. It reports that the last rebuild produced a
+  // body and a known sheet is chosen. drawingSheet() is what does the work: it
+  // projects the CURRENT feature history through DrawingHost, so the file is of
+  // the part on screen and never of a cached body.
+  //
+  // No test seam lives here. forge_desktop_drawing_export_gate proves its checks
+  // can fail by installing its OWN DrawingSource in front of this one (the shell
+  // takes any), so the application carries no mutation switch.
+  bool hasDrawing() override;
+  bool drawingSheet(forge::ui::DrawingSheetContent& out) override;
 
   // Feed one key press. Returns true when it resolved to a command that ran.
   bool onKey(const std::string& key, forge::ui::ModMask mods);
@@ -1660,6 +1678,11 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // answer, so all four invalidate it: a sheet change with a stale triangle
   // count would print a scale chosen for a different part.
   std::size_t drawingTriangles_ = 0;
+  // ★ T-230: THE BUILD COUNT, beside the triangle count. A parametric edit
+  //   re-tessellates to the SAME triangle count with different coordinates --
+  //   the defect measureMesh() was already fixed for -- and keyed on triangles
+  //   alone this layout kept the previous body's sizes and scale for ever.
+  std::size_t drawingBuilds_ = 0;
   std::string drawingSheetId_;
   forge::ui::ProjectionAngle drawingProjection_ = forge::ui::ProjectionAngle::First;
   forge::ui::ScaleMode drawingScaleMode_ = forge::ui::ScaleMode::Automatic;

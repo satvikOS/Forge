@@ -224,6 +224,10 @@ CHECKED=(
   #    it went RED at 52 present / 50 classified.
   forge-desktop/src/CalculatorHost.cpp
   forge-desktop/test/calculator_value_gate.cpp
+  # -- ADDED 2026-10-08 (T-230). The drawing-export gate: forge_desktop_core and
+  #    forge/ui only, the same include set as drawing_gate.cpp -- no OCCT header,
+  #    no SDK. Its kernel half, DrawingHost.cpp, is in SKIPPED below by name.
+  forge-desktop/test/drawing_export_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
@@ -234,6 +238,7 @@ SKIPPED=(
   "forge-desktop/test/click_gate.cpp     (Vulkan, through its ImGui backend)"
   "forge-desktop/test/render_gate.cpp    (Vulkan directly, and OCCT through KernelScene -- it drives ViewportRenderer on a real device)"
   "forge-desktop/test/differential_solid_gate.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/Topology.hpp -> forge/ShapeRegistry.hpp)"
+  "forge-desktop/src/DrawingHost.cpp     (OCCT: TopoDS_Shape.hxx, through forge/OcctImport.hpp and forge/ShapeRegistry.hpp -- it hands a compiled body to the native HLR, T-230)"
   "forge-desktop/src/FileDialogMac.mm    (AppKit + UniformTypeIdentifiers, and it is Objective-C++: -x objective-c++, not a C++ TU)"
   "forge-desktop/test/panel_probe.mm     (AppKit + UniformTypeIdentifiers; run it with test/run_panel_probe.sh, which builds it under the same -Wall -Wextra -Werror this gate would)"
 )

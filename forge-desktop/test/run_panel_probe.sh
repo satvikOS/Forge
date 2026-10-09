@@ -50,6 +50,7 @@ c++ -std=c++20 -O1 -Wall -Wextra -Werror \
     "$DESKTOP/src/FileDialog.cpp" \
     "$ROOT/ui/src/FileExchange.cpp" \
     "$ROOT/ui/src/MachineProgram.cpp" \
+    "$ROOT/ui/src/DrawingExport.cpp" \
     -framework AppKit -framework Foundation -framework UniformTypeIdentifiers
 rc=$?
 if [ "$rc" -ne 0 ]; then

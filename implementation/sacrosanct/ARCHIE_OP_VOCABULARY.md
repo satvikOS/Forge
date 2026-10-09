@@ -46,10 +46,15 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **104 commands**; **69 of them emit
+Measured at this revision: the registry holds **105 commands**; **69 of them emit
 feature-IR**, reaching **65 distinct op names**. The kernel defines **68** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+The registry grew from 104 to 105 with `file.export_drawing` (T-230), the Drawing
+workspace's way out: it writes the drawing sheet as SVG or DXF beside the document,
+emits no feature-IR and changes nothing in the document, so the EMITTING count and
+the op set are unchanged.
 
 The registry grew from 100 to 104 and the EMITTING count did not move: the four are
 the PARAMETER commands (`ui/src/ParameterCommands.cpp`). `part.parameter_set`

@@ -359,11 +359,14 @@ int main(int argc, char** argv) {
     // file.save_as from the DATA-LOSS work, which declares a REQUIRED path and is
     // therefore owed a panel on every invocation, which is what makes it Save As
     // rather than Save. 6 + 2 + 1 = 9.
+    // TEN since T-230: file.export_drawing, the Drawing workspace's egress, is a
+    // Save panel for the reason file.export_gcode is -- a required path with no
+    // honest default name. 9 + 1 = 10.
     //
     // Pinned as a number on purpose: the two-way comparison below proves the two
     // LISTS agree, and this is what refuses a command quietly leaving the policy
     // table altogether.
-    check(ids.size() == 9, "the policy table names nine commands",
+    check(ids.size() == 10, "the policy table names ten commands",
           "it names " + std::to_string(ids.size()));
     for (const std::string& id : ids) {
       check(shell.registry().find(id) != nullptr, "policy names a registered command: " + id);
@@ -386,7 +389,7 @@ int main(int argc, char** argv) {
       check(forge::desktop::fileDialogPolicyFor(id, policy),
             "every file command that takes a path opens a panel: " + id);
     }
-    check(pathCommands == 9, "nine registered file commands take a path",
+    check(pathCommands == 10, "ten registered file commands take a path",
           "found " + std::to_string(pathCommands));
   }
 

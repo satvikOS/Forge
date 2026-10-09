@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "762f79404678420a97acfb5e2bbd2c92b74807b0b7cf947a41e7cd5af2979d8f",
-        "bytes": 591117,
-        "lines": 11992
+        "sha256": "04112be86161755ae672aa32c8ab1542135694a83ae3a27d09d082f6fe6fbae6",
+        "bytes": 595272,
+        "lines": 12080
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -60,9 +60,9 @@
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "d22702eb9939ae85f60c8e40c5c4e01a064fb008f6db2a6d977fd0b406206366",
-        "bytes": 82125,
-        "lines": 1714
+        "sha256": "f3f018169853e2c5f42e4cdbeb4c01c3192878766b2d79207b56f4415a38d71f",
+        "bytes": 87741,
+        "lines": 1842
       }
     ],
     "build_configuration": {
@@ -84,7 +84,7 @@
   "counts": {
     "kernel_ops": 68,
     "ui_validator_ops": 68,
-    "registry_commands": 104,
+    "registry_commands": 105,
     "commands_emitting_ir": 69,
     "user_invocable_ops": 65,
     "forbidden_ops": 3,
@@ -7697,6 +7697,31 @@
     {
       "id": "file.export_brep",
       "label": "Save a Copy as BREP",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "file.export_drawing",
+      "label": "Save the Drawing",
       "category": "File",
       "feature_ir_op": null,
       "emits_feature_ir": false,

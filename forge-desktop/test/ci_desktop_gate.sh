@@ -264,7 +264,14 @@ set -uo pipefail
 #  * 2026-09-15, archie-in-forge: forge_desktop_archie_model_gate arrived with 4
 #    -- the CoPilot reaching Archie's model over real loopback HTTP. The same awk
 #    now prints 192, READ OFF THIS TREE with that command.
-EXPECTED_MUTATIONS=192
+#  * 2026-10-08, T-230: forge_desktop_drawing_export_gate arrived with 9 -- the
+#    drawing a user saves from File > Save the Drawing, read back as SVG and DXF
+#    and judged against the part's hand numbers, each mutation corrupting what
+#    the frame hands the writer (the ninth: a part the views cannot cover is
+#    handed the previous part's sheet). The same awk now prints 201, READ OFF
+#    THIS TREE:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+EXPECTED_MUTATIONS=201
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

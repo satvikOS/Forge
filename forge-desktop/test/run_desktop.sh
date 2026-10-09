@@ -373,6 +373,15 @@ run_gate forge_desktop_save_target_gate 1 2
 run_gate forge_desktop_write_target_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
 run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
+# The DRAWING EXPORT gate (T-230): File > Save the Drawing on the app's own part,
+# the SVG and DXF read back off the disk and judged against the part's hand
+# numbers -- every view's extent at the chosen scale, the bore's hidden lines,
+# placement by the document's projection, the title block -- then the plate's
+# width and the bore's location are edited and the drawing must move by exactly
+# scale x delta, and a part the views cannot cover is refused. Its nine mutations
+# corrupt what the frame hands the writer, through a DrawingSource the gate
+# installs in front of the frame's own.
+run_gate forge_desktop_drawing_export_gate 1 2 3 4 5 6 7 8 9
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.
 run_gate forge_desktop_sketch_panels_gate 1 2 3 4 5 6
 # THE TRUST PANELS: Interference, Verification, Continuity, Draft and Zebra,

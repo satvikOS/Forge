@@ -18,6 +18,7 @@
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/DocumentModel.hpp"
 #include "forge/ui/DocumentStore.hpp"
+#include "forge/ui/DrawingExport.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/KeymapAudit.hpp"
@@ -340,6 +341,29 @@ void ForgeShell::registerCommands() {
     // ★ T-128: see the geometry exports above.
     c.writes = WriteIntent::Copy;
     c.execute = [this](CommandContext& ctx) { runExportMachineProgram(ctx); };
+    registry_.add(std::move(c));
+  }
+  {
+    // ── THE DRAWING WORKSPACE'S WAY OUT (T-230) ───────────────────────────
+    // Beside the other egress commands for the reason the machine program gave:
+    // a user looking for "how do I get this out of Forge" looks in File. What it
+    // writes is a 2-D drawing sheet -- SVG or DXF by the name's extension -- laid
+    // out exactly as the View List and Title Block tabs describe it, with views
+    // projected from the CURRENT feature history by the kernel's native hidden-
+    // line remover. MEASURED before it existed: no command, writer or menu item
+    // produced a drawing in any format, and the Sheet tab drew the 3-D viewport.
+    CommandDescriptor c;
+    c.id = "file.export_drawing";
+    c.label = "Save the Drawing";
+    c.category = "File";
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Application, not Document: writing a file changes nothing in the document.
+    c.sideEffect = SideEffectClass::Application;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return drawingAvailable(); };
+    // ★ T-128: declared, so writeTarget() guards it like every other copy.
+    c.writes = WriteIntent::Copy;
+    c.execute = [this](CommandContext& ctx) { runExportDrawing(ctx); };
     registry_.add(std::move(c));
   }
   {
@@ -1095,7 +1119,7 @@ std::optional<std::string> ForgeShell::writeTarget(CommandContext& ctx, const st
     if (writing != nullptr) {
       refuseExchange(ctx, ExchangeRefusal::TargetIsBound, *writing, path);
     } else if (intent == WriteIntent::Copy) {
-      refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsBound, path, std::string());
+      refuseCopyTarget(ctx, id, /*bound=*/true, path);
     } else {
       documentError_ = "This part is built from the file at \"" + path +
                        "\", so saving the part over it would change the part you are "
@@ -1113,7 +1137,7 @@ std::optional<std::string> ForgeShell::writeTarget(CommandContext& ctx, const st
     if (writing != nullptr) {
       refuseExchange(ctx, ExchangeRefusal::TargetIsDocument, *writing, path);
     } else {
-      refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsDocument, path, std::string());
+      refuseCopyTarget(ctx, id, /*bound=*/false, path);
     }
     return std::nullopt;
   }
@@ -1141,7 +1165,7 @@ std::optional<std::string> ForgeShell::writeTarget(CommandContext& ctx, const st
     if (writing != nullptr) {
       refuseExchange(ctx, ExchangeRefusal::TargetIsDocument, *writing, path);
     } else if (intent == WriteIntent::Copy) {
-      refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsDocument, path, std::string());
+      refuseCopyTarget(ctx, id, /*bound=*/false, path);
     } else {
       documentError_ = "There is already a Forge part at \"" + path +
                        "\", and it is not the part you have open. Choose a name that is "
@@ -1356,6 +1380,110 @@ void ForgeShell::runExportMachineProgram(CommandContext& ctx) {
   lastMachineProgram_.bytes = static_cast<long long>(program.text.size());
   lastMachineProgram_.message =
       machineProgramSuccessMessage(program.dialect, program.lines, path);
+}
+
+// ── THE DRAWING (T-230) ─────────────────────────────────────────────────────
+bool ForgeShell::drawingAvailable() const noexcept {
+  // Asked of the source every time and never cached, as machineProgramAvailable.
+  return drawingSource_ != nullptr && drawingSource_->hasDrawing();
+}
+
+void ForgeShell::refuseDrawing(CommandContext& ctx, DrawingExportRefusal refusal,
+                               const std::string& path, const std::string& advice) {
+  lastDrawingExport_ = DrawingExportReport{};
+  lastDrawingExport_.ok = false;
+  lastDrawingExport_.refusal = refusal;
+  // The same leak stop runExportMachineProgram applies: the source's own advice
+  // is preferred and is not trusted to be readable.
+  lastDrawingExport_.message =
+      (!advice.empty() && isUserReadable(advice)) ? advice : drawingExportMessage(refusal, path);
+  documentError_ = lastDrawingExport_.message;
+  ++documentErrorSeq_;
+  ctx.fail(lastDrawingExport_.message);
+}
+
+void ForgeShell::refuseCopyTarget(CommandContext& ctx, const std::string& id, bool bound,
+                                  const std::string& path) {
+  if (id == "file.export_drawing") {
+    refuseDrawing(ctx,
+                  bound ? DrawingExportRefusal::TargetIsBound
+                        : DrawingExportRefusal::TargetIsDocument,
+                  path, std::string());
+    return;
+  }
+  refuseMachineProgram(ctx,
+                       bound ? MachineProgramRefusal::TargetIsBound
+                             : MachineProgramRefusal::TargetIsDocument,
+                       path, std::string());
+}
+
+void ForgeShell::runExportDrawing(CommandContext& ctx) {
+  documentError_.clear();
+  lastDrawingExport_ = DrawingExportReport{};
+  // ★ THE PATH COMES FROM THE ONE PRODUCER, exactly as every other copy command.
+  const std::optional<std::string> target = writeTarget(ctx, "file.export_drawing", nullptr);
+  if (!target) return;
+  const std::string path = *target;
+  if (drawingSource_ == nullptr) {
+    refuseDrawing(ctx, DrawingExportRefusal::NoSource, path, std::string());
+    return;
+  }
+  if (path.empty()) {
+    refuseDrawing(ctx, DrawingExportRefusal::NoPath, path, std::string());
+    return;
+  }
+  DrawingFileFormat format = DrawingFileFormat::Svg;
+  if (!drawingFormatFromPath(path, format)) {
+    refuseDrawing(ctx, DrawingExportRefusal::UnknownFormat, path, std::string());
+    return;
+  }
+  // The folder must already exist -- the rule Save a Copy as STEP and the
+  // machine program both keep, so one File menu answers a typo one way.
+  {
+    const std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    std::error_code ec;
+    if (!parent.empty() && !std::filesystem::is_directory(parent, ec)) {
+      refuseDrawing(ctx, DrawingExportRefusal::WriteFailed, path, std::string());
+      return;
+    }
+  }
+
+  DrawingSheetContent sheet;
+  if (!drawingSource_->drawingSheet(sheet)) {
+    refuseDrawing(ctx, DrawingExportRefusal::NoDrawing, path, sheet.advice);
+    return;
+  }
+  const DrawingLayoutResult layout = layoutDrawing(sheet);
+  if (!layout.ok) {
+    refuseDrawing(ctx, DrawingExportRefusal::NoDrawing, path, layout.reason);
+    return;
+  }
+  const std::string bytes = format == DrawingFileFormat::Dxf ? writeDrawingDxf(sheet, layout)
+                                                             : writeDrawingSvg(sheet, layout);
+
+  // ATOMIC, through the storage the autosave uses: temporary beside the target,
+  // then rename, so a failed write never leaves yesterday's drawing half-replaced.
+  FileSystemStorage storage;
+  std::string why;
+  if (!storage.write(path, bytes, why)) {
+    refuseDrawing(ctx, DrawingExportRefusal::WriteFailed, path, std::string());
+    return;
+  }
+
+  DrawingExportReport& r = lastDrawingExport_;
+  r.ok = true;
+  r.refusal = DrawingExportRefusal::None;
+  r.format = format;
+  r.sheetLabel = sheet.sheet.label;
+  r.scaleText = sheet.scale.text();
+  r.views = layout.views.size();
+  for (const PlacedView& v : layout.views) {
+    r.visiblePolylines += v.visiblePolylines;
+    r.hiddenPolylines += v.hiddenPolylines;
+  }
+  r.crowded = layout.crowded;
+  r.bytes = static_cast<long long>(bytes.size());
+  r.message = drawingExportSuccessMessage(r, path);
 }
 
 void ForgeShell::setDocumentHost(DocumentHost* host) noexcept {
