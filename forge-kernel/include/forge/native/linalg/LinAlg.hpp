@@ -595,6 +595,104 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// FILL-REDUCING ORDERINGS for the sparse SPD direct solver (T-163).
+//
+// A sparse direct factorization's cost is set by nnz(L) and its flop count, and
+// both are set by the ELIMINATION ORDER, not by the matrix values. Every ordering
+// below is a PERMUTATION, so the computed solution is unchanged up to round-off.
+// All of them are native, clean-room implementations written from the cited
+// papers; nothing is vendored (no new third-party code, no new licence).
+//
+//   Natural          the identity — the control arm (what the assembly's own DOF
+//                    numbering gives; a lexicographically meshed FE part is
+//                    already fairly banded, so this must be measured, not assumed
+//                    bad).
+//   RCM              Reverse Cuthill-McKee (George & Liu 1981): minimizes
+//                    BANDWIDTH/PROFILE, the right objective for a band solver and
+//                    only indirectly related to fill. What SparseLDLT shipped with.
+//   AMD              Approximate Minimum Degree (Amestoy, Davis & Duff, SIAM J.
+//                    Matrix Anal. Appl. 17(4):886-905, 1996): greedy local fill
+//                    minimization on the quotient graph.
+//   NestedDissection multilevel nested dissection (George, SIAM J. Numer. Anal.
+//                    10(2), 1973; multilevel vertex-separator bisection after
+//                    Hendrickson & Leland 1995 / Karypis & Kumar, SIAM J. Sci.
+//                    Comput. 20(1), 1998): recursively remove a small vertex
+//                    separator and order it LAST; leaves ordered by AMD. The
+//                    3-D FE graphs this kernel factors are where the global
+//                    view of ND beats the local greedy view of AMD.
+//   Auto             a COST MODEL per matrix (the DEFAULT): candidates are
+//                    formed in increasing cost — Natural; then RCM and AMD only
+//                    if Natural's factorization is expensive enough for a
+//                    reordering to pay for itself; then nested dissection only
+//                    if the best so far is expensive enough for ND's (much
+//                    larger) ordering time to pay for itself — and each one's
+//                    EXACT symbolic analysis (elimination tree + column counts,
+//                    O(nnz(A)), no numeric work) picks the fewest factor flops
+//                    (ties: fewer nnz(L)). Whenever any reordering is considered
+//                    RCM is among the candidates, so the result never needs more
+//                    flops than what shipped. The thresholds and their
+//                    calibration are in LinAlg.cpp (chooseOrdering); evidence
+//                    and the gate: test/sparse_ordering_gate.cpp (T-163).
+//
+// API names match PR #282 (origin/work/T-163-sparse-ordering) so that branch's
+// callers/benchmark compile against this one; NestedDissection is the addition.
+// ---------------------------------------------------------------------------
+#define FORGE_LINALG_HAS_ORDERING_API 1
+enum class SparseOrdering {
+    Natural,           // identity permutation (no reordering)
+    RCM,               // Reverse Cuthill-McKee (bandwidth/profile reducing)
+    AMD,               // Approximate Minimum Degree (fill reducing, local)
+    NestedDissection,  // multilevel nested dissection (fill reducing, global)
+    Auto               // cost model over the above; fewest exact factor flops
+};
+
+// The ordering the sparse SPD solver uses when the caller does not name one.
+inline constexpr SparseOrdering kDefaultSparseOrdering = SparseOrdering::Auto;
+
+const char* sparseOrderingName(SparseOrdering ord);
+
+// What SparseOrdering::Auto decided for one matrix (diagnostic; the gate uses
+// it to check the policy against the measured cost of every ordering).
+struct AutoOrderingReport {
+    SparseOrdering chosen = SparseOrdering::Natural;
+    double chosenFlops = 0.0;
+    double naturalFlops = 0.0;           // exact factor flops of the identity
+    double reorderThresholdFlops = 0.0;  // RCM/AMD considered iff naturalFlops > this
+    bool evaluatedCheap = false;         // RCM and AMD were formed and analysed
+    double bestCheapFlops = 0.0;         // min over Natural/RCM/AMD (if evaluated)
+    std::size_t compressedEdges = 0;     // ND's graph size (if evaluatedCheap)
+    double ndThresholdFlops = 0.0;       // ND considered iff bestCheapFlops >= this
+    bool evaluatedNd = false;            // nested dissection was formed and analysed
+};
+
+// Fill-reducing permutation of the SYMMETRIZED pattern of A (A + Aᵀ, diagonal
+// ignored; values are never read).  perm[k] = ORIGINAL index eliminated k-th.
+// For Auto, `chosen` (if non-null) receives the candidate that won and
+// `report` (if non-null) the policy's inputs and decisions.
+// Returns an empty vector if A is not square.
+std::vector<std::size_t> fillReducingOrdering(const SparseCSR<double>& A,
+                                              SparseOrdering ord,
+                                              SparseOrdering* chosen = nullptr,
+                                              AutoOrderingReport* report = nullptr);
+
+// EXACT symbolic statistics of the strictly-lower LDLᵀ factor of P A Pᵀ for the
+// permutation `perm` (perm[k] = original index at position k), computed WITHOUT
+// forming L: elimination tree (Liu), its postorder, and column counts by the
+// skeleton/least-common-ancestor method of Gilbert, Ng & Peyton (SIAM J. Matrix
+// Anal. Appl. 15(4), 1994) in O(nnz(A)·α(n)).
+//   nnzL  = Σ_j c_j                 (c_j = strictly-lower nonzeros in column j)
+//   flops = Σ_j c_j (c_j + 3) / 2   (multiply-adds of the up-looking LDLᵀ)
+struct SymbolicFactorStats {
+    std::size_t nnzL = 0;
+    double flops = 0.0;
+};
+SymbolicFactorStats symbolicFactorStats(const SparseCSR<double>& A,
+                                        const std::vector<std::size_t>& perm);
+// PR #282 spelling of the fill number alone.
+std::size_t symbolicFactorNnz(const SparseCSR<double>& A,
+                              const std::vector<std::size_t>& perm);
+
+// ---------------------------------------------------------------------------
 // Sparse SPD direct solver — up-looking sparse Cholesky (LDLT form), factor
 // once / solve many. Operates on the symmetric SPD matrix given in CSR.
 //   <- Eigen SimplicialLDLT  (the 10 FE/CFD/normal-equation sites)
@@ -602,20 +700,32 @@ private:
 class SparseLDLT {
 public:
     SparseLDLT() = default;
-    explicit SparseLDLT(const SparseCSR<double>& A) { compute(A); }
-    void compute(const SparseCSR<double>& A);
+    explicit SparseLDLT(const SparseCSR<double>& A,
+                        SparseOrdering ord = kDefaultSparseOrdering) {
+        compute(A, ord);
+    }
+    // `ord` selects the fill-reducing ordering; the default is the kernel-wide
+    // measured choice (kDefaultSparseOrdering). Every ordering is a permutation,
+    // so solve() returns the same answer to round-off whichever is used.
+    void compute(const SparseCSR<double>& A,
+                 SparseOrdering ord = kDefaultSparseOrdering);
     bool ok() const { return ok_; }              // false if not SPD
     std::vector<double> solve(const std::vector<double>& b) const;
 
     // Diagnostic (for the large-scale test): number of stored nonzeros in the
     // strictly-lower factor L. Memory footprint is O(nnz(L)), NOT O(n²).
     std::size_t factorNnz() const { return Lx_.size(); }
+    // Which ordering was actually used. Equal to the `ord` argument except for
+    // SparseOrdering::Auto, where it names the candidate that won.
+    SparseOrdering chosenOrdering() const { return chosen_; }
+    // The fill-reducing permutation used (perm[k] = original index at k).
+    const std::vector<std::size_t>& permutation() const { return perm_; }
 
 private:
     // TRUE sparse LDLᵀ. The matrix is reordered by a fill-reducing permutation
-    // (Reverse Cuthill-McKee), symbolically analyzed (elimination tree + column
-    // counts give the exact fill), then factored up-looking. L is stored in
-    // compressed-sparse-COLUMN form (strictly lower, unit diagonal implicit);
+    // (see SparseOrdering above), symbolically analyzed (elimination tree +
+    // column counts give the exact fill), then factored up-looking. L is stored
+    // in compressed-sparse-COLUMN form (strictly lower, unit diagonal implicit);
     // D is the diagonal of the LDLᵀ decomposition of the PERMUTED matrix.
     //
     // perm_[k]  = original index placed at permuted position k  (P: new<-old)
@@ -627,7 +737,20 @@ private:
     std::vector<double>      d_;    // diagonal D of the permuted factorization
     std::size_t n_ = 0;
     bool ok_ = false;
+    SparseOrdering chosen_ = kDefaultSparseOrdering;
 };
+
+// ---------------------------------------------------------------------------
+// Observation seam (diagnostic / test only). When an observer is installed,
+// every SparseLDLT::compute() first calls observer(A, ctx) with the EXACT matrix
+// its caller handed it — so test/sparse_ordering_gate.cpp can capture the real
+// stiffness / conductance matrices the production FEA solvers assemble and
+// measure orderings on them without re-implementing any assembly. nullptr (the
+// default) disables it; the cost when disabled is one atomic load per factor.
+// Install/remove only while no factorization is running on another thread.
+// ---------------------------------------------------------------------------
+using SparseFactorObserver = void (*)(const SparseCSR<double>& A, void* ctx);
+void setSparseLDLTObserver(SparseFactorObserver observer, void* ctx);
 
 // ---------------------------------------------------------------------------
 // Sparse GENERAL (non-symmetric / indefinite) direct solver — TRUE sparse LU

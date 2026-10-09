@@ -21,11 +21,13 @@
 #include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -1223,11 +1225,1349 @@ reverseCuthillMcKee(const std::vector<std::vector<std::size_t>>& adj) {
     return order;
 }
 
+// ---------------------------------------------------------------------------
+// Approximate Minimum Degree (AMD) ordering — T-163.
+//
+// Clean-room implementation of the quotient-graph minimum-degree method of
+// Amestoy, Davis & Duff, "An approximate minimum degree ordering algorithm",
+// SIAM J. Matrix Anal. Appl. 17(4):886-905 (1996), written from the paper's
+// description (no SuiteSparse/CSparse source is copied or vendored).
+//
+// The elimination graph is never formed. Instead the quotient graph keeps
+//   * VARIABLES i (not yet eliminated) with two adjacency lists:
+//       A[i] — variable neighbours, E[i] — adjacent ELEMENTS;
+//   * ELEMENTS e (eliminated pivots) with their variable list L_e (stored in
+//     A[e]); eliminating pivot p merges p's variable neighbours and the L_e of
+//     every element adjacent to p into the new element L_p and ABSORBS those
+//     elements (they are dead from then on).
+// Exact external degrees are too expensive, so each variable i ∈ L_p receives
+// the AMD upper bound
+//     d_i = min( n_remaining − |i|,  d_i(prev) + |L_p \ i|,
+//                |A_i| + |L_p \ i| + Σ_{e ∈ E_i \ p} |L_e \ L_p| ),
+// where |L_e \ L_p| is computed for all touched elements in one sweep. Weights
+// |·| count original variables (supervariables carry nv > 1). Further:
+//   * aggressive element absorption: |L_e \ L_p| = 0  ⇒  L_e ⊆ L_p, absorb e;
+//   * mass elimination: a variable left adjacent ONLY to element p is
+//     eliminated together with p (it creates no new fill);
+//   * supervariable detection: variables of L_p with identical (A, E) lists are
+//     indistinguishable — merged into one weighted supervariable (hashed, then
+//     compared exactly);
+//   * dense rows (degree > max(16, 10·√n)) are removed up front and ordered
+//     last, as in the paper.
+// The pivot is always a variable of minimum approximate degree (bucket lists).
+// Returns perm with perm[k] = original index eliminated at position k.
+// ---------------------------------------------------------------------------
+static std::vector<std::size_t>
+approximateMinimumDegree(const std::vector<std::vector<std::size_t>>& adj) {
+    const std::size_t nn = adj.size();
+    std::vector<std::size_t> perm;
+    perm.reserve(nn);
+    if (nn == 0) return perm;
+    if (nn >= static_cast<std::size_t>(std::numeric_limits<int>::max() / 2)) {
+        // Index range of this implementation exceeded — fall back to identity
+        // rather than overflow (unreachable for any matrix that fits in RAM
+        // with this factorization).
+        for (std::size_t i = 0; i < nn; ++i) perm.push_back(i);
+        return perm;
+    }
+    const int n = static_cast<int>(nn);
+
+    enum : unsigned char { VAR = 0, ELEM = 1, DEAD = 2, MERGED = 3, DENSE = 4, ELIM = 5 };
+    std::vector<unsigned char> st(nn, VAR);
+    std::vector<std::vector<int>> A(nn), E(nn);   // A[e] doubles as L_e for elements
+    std::vector<int> nv(nn, 1), deg(nn, 0);
+    std::vector<int> chainNext(nn, -1), chainTail(nn);
+    for (int i = 0; i < n; ++i) chainTail[i] = i;
+
+    // ---- dense rows: ordered last, removed from the graph ----------------
+    const double denseThr = std::max(16.0, 10.0 * std::sqrt(static_cast<double>(n)));
+    std::vector<int> denseList;
+    for (int i = 0; i < n; ++i)
+        if (static_cast<double>(adj[i].size()) > denseThr) { st[i] = DENSE; denseList.push_back(i); }
+    const int nlive = n - static_cast<int>(denseList.size());
+
+    for (int i = 0; i < n; ++i) {
+        if (st[i] != VAR) continue;
+        A[i].reserve(adj[i].size());
+        for (std::size_t j : adj[i])
+            if (st[j] != DENSE && static_cast<int>(j) != i) A[i].push_back(static_cast<int>(j));
+        deg[i] = static_cast<int>(A[i].size());
+    }
+
+    // ---- degree buckets (doubly linked) ----------------------------------
+    std::vector<int> head(nn + 1, -1), nxt(nn, -1), prv(nn, -1);
+    int mindeg = n;
+    auto bucketInsert = [&](int i) {
+        const int d = deg[i];
+        nxt[i] = head[d]; prv[i] = -1;
+        if (head[d] >= 0) prv[head[d]] = i;
+        head[d] = i;
+        if (d < mindeg) mindeg = d;
+    };
+    auto bucketRemove = [&](int i) {
+        const int d = deg[i];
+        if (prv[i] >= 0) nxt[prv[i]] = nxt[i]; else head[d] = nxt[i];
+        if (nxt[i] >= 0) prv[nxt[i]] = prv[i];
+        nxt[i] = prv[i] = -1;
+    };
+    for (int i = 0; i < n; ++i) if (st[i] == VAR) bucketInsert(i);
+
+    std::vector<int> order;            // principal variables in elimination order
+    order.reserve(nn);
+    std::vector<int> lpMark(nn, 0);    // == step  ⇔  in L_p (or p itself)
+    std::vector<int> wStamp(nn, 0), w(nn, 0);
+    std::vector<int> cmpMark(nn, 0);
+    int cmpTag = 0;
+    std::vector<int> Lp, survivors, asum(nn, 0), esum(nn, 0);
+    std::vector<std::pair<std::uint64_t, int>> hashed;
+    int nelim = 0, step = 0;
+
+    while (nelim < nlive) {
+        // ---- 1. pivot: a variable of minimum approximate degree ----------
+        while (mindeg <= n && head[mindeg] < 0) ++mindeg;
+        if (mindeg > n) break;                       // defensive: graph exhausted
+        const int p = head[mindeg];
+        bucketRemove(p);
+        ++step;
+        nelim += nv[p];
+        order.push_back(p);
+
+        // ---- 2. new element L_p = (A_p ∪ ⋃_{e∈E_p} L_e) \ p; absorb E_p ---
+        Lp.clear();
+        int degp = 0;
+        lpMark[p] = step;
+        for (int j : A[p])
+            if (st[j] == VAR && nv[j] > 0 && lpMark[j] != step) {
+                lpMark[j] = step; Lp.push_back(j); degp += nv[j];
+            }
+        for (int e : E[p]) {
+            if (st[e] != ELEM) continue;
+            for (int j : A[e])
+                if (st[j] == VAR && nv[j] > 0 && lpMark[j] != step) {
+                    lpMark[j] = step; Lp.push_back(j); degp += nv[j];
+                }
+            st[e] = DEAD;                            // absorbed into p
+            std::vector<int>().swap(A[e]);
+        }
+        std::vector<int>().swap(A[p]);
+        std::vector<int>().swap(E[p]);
+        st[p] = ELEM;
+        for (int i : Lp) bucketRemove(i);
+
+        // ---- 3. w(e) = |L_e \ L_p| for every element touching L_p ---------
+        for (int i : Lp)
+            for (int e : E[i]) {
+                if (st[e] != ELEM) continue;
+                if (wStamp[e] != step) { wStamp[e] = step; w[e] = deg[e]; }
+                w[e] -= nv[i];
+            }
+
+        // ---- 4a. prune lists, aggressive absorption, mass elimination ------
+        survivors.clear();
+        for (int i : Lp) {
+            std::vector<int>& Ei = E[i];
+            std::size_t we = 0;
+            int es = 0;
+            for (int e : Ei) {
+                if (st[e] != ELEM) continue;
+                if (w[e] <= 0) {                     // L_e ⊆ L_p: absorb into p
+                    st[e] = DEAD;
+                    std::vector<int>().swap(A[e]);
+                    continue;
+                }
+                es += w[e];
+                Ei[we++] = e;
+            }
+            Ei.resize(we);
+            std::vector<int>& Ai = A[i];
+            std::size_t wa = 0;
+            int as = 0;
+            for (int j : Ai) {
+                if (st[j] != VAR || nv[j] <= 0 || lpMark[j] == step) continue;
+                as += nv[j];
+                Ai[wa++] = j;
+            }
+            Ai.resize(wa);
+            if (Ai.empty() && Ei.empty()) {
+                // adjacent only to p: eliminate now, right after p
+                st[i] = ELIM;
+                nelim += nv[i];
+                degp -= nv[i];
+                order.push_back(i);
+                std::vector<int>().swap(Ai);
+                std::vector<int>().swap(Ei);
+                continue;
+            }
+            asum[i] = as; esum[i] = es;
+            survivors.push_back(i);
+        }
+
+        // ---- 4b. approximate external degrees -----------------------------
+        const int remaining = nlive - nelim;
+        for (int i : survivors) {
+            E[i].push_back(p);
+            const int ext = degp - nv[i];
+            long long d = static_cast<long long>(deg[i]) + ext;
+            d = std::min<long long>(d, static_cast<long long>(asum[i]) + ext + esum[i]);
+            d = std::min<long long>(d, remaining - nv[i]);
+            deg[i] = static_cast<int>(std::max<long long>(d, 0));
+        }
+
+        // ---- 5. supervariable detection among the survivors ----------------
+        hashed.clear();
+        for (int i : survivors) {
+            std::uint64_t h = 0;
+            for (int j : A[i]) h += static_cast<std::uint64_t>(j);
+            for (int e : E[i]) h += static_cast<std::uint64_t>(e);
+            h = h * 1000003u + (static_cast<std::uint64_t>(A[i].size()) << 20)
+                + static_cast<std::uint64_t>(E[i].size());
+            hashed.emplace_back(h, i);
+        }
+        std::sort(hashed.begin(), hashed.end());
+        for (std::size_t a = 0; a < hashed.size();) {
+            std::size_t b = a + 1;
+            while (b < hashed.size() && hashed[b].first == hashed[a].first) ++b;
+            for (std::size_t x = a; x + 1 < b; ++x) {
+                const int i = hashed[x].second;
+                if (nv[i] <= 0) continue;
+                ++cmpTag;
+                for (int j : A[i]) cmpMark[j] = cmpTag;
+                for (int e : E[i]) cmpMark[e] = cmpTag;
+                for (std::size_t y = x + 1; y < b; ++y) {
+                    const int j = hashed[y].second;
+                    if (nv[j] <= 0 || A[j].size() != A[i].size() ||
+                        E[j].size() != E[i].size()) continue;
+                    bool same = true;
+                    for (int q : A[j]) if (cmpMark[q] != cmpTag) { same = false; break; }
+                    if (same)
+                        for (int q : E[j]) if (cmpMark[q] != cmpTag) { same = false; break; }
+                    if (!same) continue;
+                    // merge j into i
+                    nv[i] += nv[j];
+                    deg[i] = std::max(0, deg[i] - nv[j]);
+                    nv[j] = 0;
+                    st[j] = MERGED;
+                    std::vector<int>().swap(A[j]);
+                    std::vector<int>().swap(E[j]);
+                    chainNext[chainTail[i]] = j;
+                    chainTail[i] = chainTail[j];
+                }
+            }
+            a = b;
+        }
+
+        // ---- 6. finalize element p and re-queue the survivors --------------
+        deg[p] = degp;
+        A[p].clear();
+        for (int i : survivors)
+            if (nv[i] > 0) { A[p].push_back(i); bucketInsert(i); }
+    }
+
+    // ---- expand supervariables, then the dense rows -----------------------
+    std::vector<char> placed(nn, 0);
+    for (int pv : order)
+        for (int j = pv; j >= 0; j = chainNext[j])
+            if (!placed[j]) { placed[j] = 1; perm.push_back(static_cast<std::size_t>(j)); }
+    for (int d : denseList)
+        if (!placed[d]) { placed[d] = 1; perm.push_back(static_cast<std::size_t>(d)); }
+    // Defensive completeness: anything not reached (cannot happen for a
+    // consistent quotient graph) is appended so perm is always a permutation.
+    for (int i = 0; i < n; ++i)
+        if (!placed[i]) perm.push_back(static_cast<std::size_t>(i));
+    return perm;
+}
+
+// Postorder an ordering by its elimination tree (Liu). For the permuted pattern
+// P A Pᵀ the etree is computed (path-compressed ancestor walk), then a DFS
+// postorder relabels the nodes so every subtree is contiguous. A postorder is
+// an EQUIVALENT ordering — it yields exactly the same nnz(L) and flop count —
+// but it makes each subtree's columns of L adjacent in memory, which is what
+// the up-looking numeric factorization's column walks need for locality.
+static std::vector<std::size_t>
+postorderByEtree(const std::vector<std::vector<std::size_t>>& adj,
+                 const std::vector<std::size_t>& perm) {
+    const std::size_t n = perm.size();
+    std::vector<std::size_t> iperm(n);
+    for (std::size_t k = 0; k < n; ++k) iperm[perm[k]] = k;
+    const std::size_t NONE = static_cast<std::size_t>(-1);
+    std::vector<std::size_t> parent(n, NONE), ancestor(n, NONE);
+    for (std::size_t k = 0; k < n; ++k) {
+        for (std::size_t oj : adj[perm[k]]) {
+            std::size_t i = iperm[oj];
+            if (i >= k) continue;
+            // climb from i to the root of its current subtree, compressing
+            while (i != NONE && i != k) {
+                const std::size_t next = ancestor[i];
+                ancestor[i] = k;
+                if (next == NONE) { parent[i] = k; break; }
+                i = next;
+            }
+        }
+    }
+    // children lists (head/next), filled in reverse so DFS visits ascending
+    std::vector<std::size_t> head(n, NONE), next(n, NONE);
+    for (std::size_t j = n; j-- > 0;)
+        if (parent[j] != NONE) { next[j] = head[parent[j]]; head[parent[j]] = j; }
+    std::vector<std::size_t> post;
+    post.reserve(n);
+    std::vector<std::size_t> stack;
+    for (std::size_t r = 0; r < n; ++r) {
+        if (parent[r] != NONE) continue;
+        stack.push_back(r);
+        while (!stack.empty()) {
+            const std::size_t v = stack.back();
+            const std::size_t c = head[v];
+            if (c != NONE) { head[v] = next[c]; stack.push_back(c); }
+            else { stack.pop_back(); post.push_back(v); }
+        }
+    }
+    std::vector<std::size_t> out(n);
+    for (std::size_t k = 0; k < n; ++k) out[k] = perm[post[k]];
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Symbolic analysis of P A Pᵀ WITHOUT forming L (T-163).
+//
+//   * elimination tree — Liu, "A compact row storage scheme for Cholesky
+//     factors using elimination trees", ACM TOMS 12(2), 1986 (path-compressed
+//     ancestor walk);
+//   * its postorder;
+//   * exact column counts of L — Gilbert, Ng & Peyton, "An efficient algorithm
+//     to compute row and column counts for sparse Cholesky factorization",
+//     SIAM J. Matrix Anal. Appl. 15(4):1075-1091, 1994. Row i of L is the row
+//     subtree T^i of the etree whose leaves are among {j < i : a_ij ≠ 0}; a
+//     column j gains +1 for every row subtree it is a LEAF of and −1 at the
+//     least common ancestor of consecutive leaves (in postorder) of the same
+//     row subtree, and −1 for each child; summing these deltas up the tree
+//     gives c_j. Leaves are recognised with first-descendant numbers and the
+//     LCAs with a path-compressed disjoint-set forest.
+//
+// Cost O(nnz(A)·α(n)) — independent of nnz(L) — which is what makes it
+// affordable to analyse EVERY candidate ordering before factoring with one.
+// Written from the papers; no third-party source is copied.
+// ---------------------------------------------------------------------------
+constexpr std::size_t kNoNode = static_cast<std::size_t>(-1);
+
+struct PermutedPattern {          // CSR of P A Pᵀ's symmetric pattern, no diagonal
+    std::vector<std::size_t> ptr; // size n+1
+    std::vector<std::size_t> idx; // permuted neighbour indices (both triangles)
+};
+
+PermutedPattern permutePattern(const std::vector<std::vector<std::size_t>>& adj,
+                               const std::vector<std::size_t>& perm) {
+    const std::size_t n = perm.size();
+    std::vector<std::size_t> iperm(n);
+    for (std::size_t k = 0; k < n; ++k) iperm[perm[k]] = k;
+    PermutedPattern P;
+    P.ptr.assign(n + 1, 0);
+    for (std::size_t k = 0; k < n; ++k) P.ptr[k + 1] = P.ptr[k] + adj[perm[k]].size();
+    P.idx.resize(P.ptr[n]);
+    for (std::size_t k = 0; k < n; ++k) {
+        std::size_t q = P.ptr[k];
+        for (std::size_t o : adj[perm[k]]) P.idx[q++] = iperm[o];
+    }
+    return P;
+}
+
+// parent[j] (> j) or kNoNode for a root.
+std::vector<std::size_t> eliminationTree(const PermutedPattern& P, std::size_t n) {
+    std::vector<std::size_t> parent(n, kNoNode), anc(n, kNoNode);
+    for (std::size_t k = 0; k < n; ++k) {
+        for (std::size_t q = P.ptr[k]; q < P.ptr[k + 1]; ++q) {
+            std::size_t i = P.idx[q];
+            if (i >= k) continue;
+            // walk i -> root of its current subtree, re-pointing each node at k
+            while (i != kNoNode && i != k) {
+                const std::size_t up = anc[i];
+                anc[i] = k;
+                if (up == kNoNode) parent[i] = k;
+                i = up;
+            }
+        }
+    }
+    return parent;
+}
+
+// post[t] = node visited t-th by a depth-first postorder of the forest.
+std::vector<std::size_t> etreePostorder(const std::vector<std::size_t>& parent) {
+    const std::size_t n = parent.size();
+    std::vector<std::size_t> head(n, kNoNode), next(n, kNoNode);
+    for (std::size_t j = n; j-- > 0;)
+        if (parent[j] != kNoNode) { next[j] = head[parent[j]]; head[parent[j]] = j; }
+    std::vector<std::size_t> post, stack;
+    post.reserve(n);
+    for (std::size_t r = 0; r < n; ++r) {
+        if (parent[r] != kNoNode) continue;
+        stack.push_back(r);
+        while (!stack.empty()) {
+            const std::size_t v = stack.back();
+            const std::size_t c = head[v];
+            if (c != kNoNode) { head[v] = next[c]; stack.push_back(c); }
+            else { stack.pop_back(); post.push_back(v); }
+        }
+    }
+    return post;
+}
+
+// c_j = number of STRICTLY-LOWER nonzeros in column j of L.
+std::vector<std::size_t> strictColumnCounts(const PermutedPattern& P,
+                                            const std::vector<std::size_t>& parent,
+                                            const std::vector<std::size_t>& post) {
+    const std::size_t n = parent.size();
+    std::vector<std::size_t> firstDesc(n, kNoNode);   // postorder # of first descendant
+    std::vector<std::size_t> lastLeafFirst(n, kNoNode);
+    std::vector<std::size_t> prevLeaf(n, kNoNode);
+    std::vector<std::size_t> setOf(n);
+    std::vector<long long> delta(n, 0);
+    for (std::size_t t = 0; t < n; ++t) {
+        std::size_t j = post[t];
+        delta[j] = (firstDesc[j] == kNoNode) ? 1 : 0;   // an etree leaf
+        for (; j != kNoNode && firstDesc[j] == kNoNode; j = parent[j]) firstDesc[j] = t;
+    }
+    for (std::size_t i = 0; i < n; ++i) setOf[i] = i;
+    for (std::size_t t = 0; t < n; ++t) {
+        const std::size_t j = post[t];
+        if (parent[j] != kNoNode) --delta[parent[j]];
+        for (std::size_t q = P.ptr[j]; q < P.ptr[j + 1]; ++q) {
+            const std::size_t i = P.idx[q];
+            if (i <= j) continue;                       // only a_ij below the diagonal
+            // j is a leaf of row subtree T^i iff none of its descendants was
+            // already seen for row i (their first-descendant numbers are ≥ firstDesc[j]).
+            if (lastLeafFirst[i] != kNoNode && firstDesc[j] <= lastLeafFirst[i]) continue;
+            lastLeafFirst[i] = firstDesc[j];
+            const std::size_t jprev = prevLeaf[i];
+            prevLeaf[i] = j;
+            ++delta[j];
+            if (jprev != kNoNode) {
+                // least common ancestor of (jprev, j) = representative of jprev's set
+                std::size_t r = jprev;
+                while (setOf[r] != r) r = setOf[r];
+                for (std::size_t s = jprev; s != r;) { const std::size_t up = setOf[s]; setOf[s] = r; s = up; }
+                --delta[r];
+            }
+        }
+        if (parent[j] != kNoNode) setOf[j] = parent[j];
+    }
+    for (std::size_t j = 0; j < n; ++j)                 // parent[j] > j: children first
+        if (parent[j] != kNoNode) delta[parent[j]] += delta[j];
+    std::vector<std::size_t> c(n);
+    for (std::size_t j = 0; j < n; ++j) c[j] = static_cast<std::size_t>(delta[j] - 1);
+    return c;
+}
+
+SymbolicFactorStats symbolicStatsOf(const std::vector<std::vector<std::size_t>>& adj,
+                                    const std::vector<std::size_t>& perm) {
+    SymbolicFactorStats s;
+    const std::size_t n = perm.size();
+    if (n == 0) return s;
+    const PermutedPattern P = permutePattern(adj, perm);
+    const std::vector<std::size_t> parent = eliminationTree(P, n);
+    const std::vector<std::size_t> post = etreePostorder(parent);
+    const std::vector<std::size_t> c = strictColumnCounts(P, parent, post);
+    for (std::size_t j = 0; j < n; ++j) {
+        s.nnzL += c[j];
+        const double cj = static_cast<double>(c[j]);
+        s.flops += cj * (cj + 3.0) / 2.0;
+    }
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// Multilevel NESTED DISSECTION (T-163).
+//
+// George (SIAM J. Numer. Anal. 10(2), 1973): find a small vertex SEPARATOR S
+// splitting the graph into A and B with no A–B edge, order A, then B, then S
+// LAST, and recurse into A and B. Fill can then only occur inside A, inside B
+// and in the (dense) separator block — on a 3-D FE mesh that is O(n^{4/3})
+// nonzeros against O(n^{5/3}) for a band/profile ordering.
+//
+// Separators are found the multilevel way (Hendrickson & Leland 1995; Karypis
+// & Kumar, SIAM J. Sci. Comput. 20(1):359-392, 1998), written here from those
+// descriptions:
+//   0. COMPRESS: vertices with identical closed neighbourhoods (the d DOFs of
+//      one FE node) are merged into one weighted vertex, so a node's DOFs are
+//      never split and the graph shrinks d-fold (d² in edges).
+//   1. COARSEN by heavy-edge matching until ~100 vertices remain.
+//   2. On the coarsest graph compute several initial separators: greedy graph
+//      growing (GGGP: grow one side from a random seed, always adding the
+//      boundary vertex that most reduces the edge cut) to half the weight,
+//      edge-FM refinement of that bisection, then BOTH sides' boundary
+//      vertices as a thick separator that the node refinement thins; keep the
+//      best.
+//   3. UNCOARSEN: project the separator to each finer graph and improve it with
+//      a two-sided Fiduccia-Mattheyses node-separator refinement (move a
+//      separator vertex into a side, pulling its neighbours on the other side
+//      into the separator; gain = separator-weight decrease; hill-climb with
+//      rollback to the best state; sides capped at 60 % of the weight). Gains
+//      are kept incrementally from per-vertex side-weight counts.
+//   4. Also try a LEVEL-STRUCTURE separator on the fine graph itself (George &
+//      Liu: the median breadth-first level from a pseudo-peripheral vertex —
+//      a planar cut across the longest dimension of a mesh), refined the same
+//      way; and for heavy graphs (the top of the dissection tree, where a
+//      separator's size costs most fill) repeat the whole multilevel bisection
+//      kNdMultiSeps times. The smallest balanced separator wins.
+//   5. Recurse into each side (each connected component separately); below
+//      kNdLeaf vertices order with AMD.
+// Deterministic: a fixed-seed xorshift generator drives every random choice.
+// Any degenerate split falls back to AMD for that subgraph, so the result is
+// always a valid permutation.
+// ---------------------------------------------------------------------------
+struct NdGraph {
+    int n = 0;
+    std::vector<int> xadj;    // size n+1
+    std::vector<int> adj;     // neighbour lists
+    std::vector<int> ewgt;    // edge weights (parallel to adj)
+    std::vector<int> vwgt;    // vertex weights
+    long long totalW = 0;
+};
+
+struct NdRng {                // xorshift64* — deterministic, platform-independent
+    std::uint64_t s;
+    explicit NdRng(std::uint64_t seed) : s(seed ? seed : 0x9E3779B97F4A7C15ull) {}
+    std::uint64_t next() {
+        s ^= s >> 12; s ^= s << 25; s ^= s >> 27;
+        return s * 2685821657736338717ull;
+    }
+    int below(int m) { return static_cast<int>(next() % static_cast<std::uint64_t>(m)); }
+};
+
+// Tuning measured on the kernel's own FEA matrices against Accelerate's METIS
+// (test/sparse_ordering_gate.cpp): with these values nnz(L) averages ~1.08x
+// METIS's and factor flops ~1.18x, over three seeds and five matrices.
+constexpr int kNdCoarsenTo = 100;   // stop coarsening below this many vertices
+constexpr int kNdLeaf = 120;        // order subgraphs this small with AMD
+constexpr int kNdInitTries = 8;     // initial separators tried on the coarsest graph
+constexpr int kNdPassCoarse = 8;    // node-FM passes on the coarsest graph / level cut
+constexpr int kNdPassFine = 4;      // node-FM passes at each uncoarsening level
+constexpr long long kNdMultiSepWeight = 2000;  // graphs this heavy: several bisections
+constexpr int kNdMultiSeps = 3;     // ... this many, keep the best
+constexpr double kNdMaxSide = 0.6;  // a side may hold at most 60 % of the weight
+
+// Heavy-edge matching -> coarse graph. cmap[v] = coarse vertex containing v.
+NdGraph ndCoarsen(const NdGraph& g, std::vector<int>& cmap, NdRng& rng, long long maxVw) {
+    const int n = g.n;
+    std::vector<int> order(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) order[static_cast<std::size_t>(i)] = i;
+    for (int i = n - 1; i > 0; --i) std::swap(order[static_cast<std::size_t>(i)],
+                                              order[static_cast<std::size_t>(rng.below(i + 1))]);
+    std::vector<int> match(static_cast<std::size_t>(n), -1);
+    for (int v : order) {
+        if (match[static_cast<std::size_t>(v)] != -1) continue;
+        int best = -1, bw = -1;
+        for (int q = g.xadj[static_cast<std::size_t>(v)]; q < g.xadj[static_cast<std::size_t>(v) + 1]; ++q) {
+            const int u = g.adj[static_cast<std::size_t>(q)];
+            if (match[static_cast<std::size_t>(u)] != -1) continue;
+            if (static_cast<long long>(g.vwgt[static_cast<std::size_t>(v)]) + g.vwgt[static_cast<std::size_t>(u)] > maxVw) continue;
+            if (g.ewgt[static_cast<std::size_t>(q)] > bw) { bw = g.ewgt[static_cast<std::size_t>(q)]; best = u; }
+        }
+        if (best < 0) match[static_cast<std::size_t>(v)] = v;
+        else { match[static_cast<std::size_t>(v)] = best; match[static_cast<std::size_t>(best)] = v; }
+    }
+    cmap.assign(static_cast<std::size_t>(n), -1);
+    int nc = 0;
+    std::vector<int> f1, f2;
+    f1.reserve(static_cast<std::size_t>(n)); f2.reserve(static_cast<std::size_t>(n));
+    for (int v = 0; v < n; ++v) {
+        if (cmap[static_cast<std::size_t>(v)] != -1) continue;
+        const int m = match[static_cast<std::size_t>(v)];
+        cmap[static_cast<std::size_t>(v)] = nc;
+        f1.push_back(v);
+        if (m != v) { cmap[static_cast<std::size_t>(m)] = nc; f2.push_back(m); } else f2.push_back(-1);
+        ++nc;
+    }
+    NdGraph c;
+    c.n = nc;
+    c.totalW = g.totalW;
+    c.vwgt.assign(static_cast<std::size_t>(nc), 0);
+    c.xadj.assign(static_cast<std::size_t>(nc) + 1, 0);
+    c.adj.reserve(g.adj.size());
+    c.ewgt.reserve(g.adj.size());
+    std::vector<int> pos(static_cast<std::size_t>(nc), -1);
+    for (int cv = 0; cv < nc; ++cv) {
+        const int start = static_cast<int>(c.adj.size());
+        for (int f : {f1[static_cast<std::size_t>(cv)], f2[static_cast<std::size_t>(cv)]}) {
+            if (f < 0) continue;
+            c.vwgt[static_cast<std::size_t>(cv)] += g.vwgt[static_cast<std::size_t>(f)];
+            for (int q = g.xadj[static_cast<std::size_t>(f)]; q < g.xadj[static_cast<std::size_t>(f) + 1]; ++q) {
+                const int cu = cmap[static_cast<std::size_t>(g.adj[static_cast<std::size_t>(q)])];
+                if (cu == cv) continue;
+                const int p = pos[static_cast<std::size_t>(cu)];
+                if (p >= start) c.ewgt[static_cast<std::size_t>(p)] += g.ewgt[static_cast<std::size_t>(q)];
+                else {
+                    pos[static_cast<std::size_t>(cu)] = static_cast<int>(c.adj.size());
+                    c.adj.push_back(cu);
+                    c.ewgt.push_back(g.ewgt[static_cast<std::size_t>(q)]);
+                }
+            }
+        }
+        c.xadj[static_cast<std::size_t>(cv) + 1] = static_cast<int>(c.adj.size());
+    }
+    return c;
+}
+
+void ndPartWeights(const NdGraph& g, const std::vector<signed char>& where, long long pw[3]) {
+    pw[0] = pw[1] = pw[2] = 0;
+    for (int v = 0; v < g.n; ++v)
+        pw[static_cast<int>(where[static_cast<std::size_t>(v)])] += g.vwgt[static_cast<std::size_t>(v)];
+}
+
+// Two-sided FM refinement of a vertex separator (where: 0/1 = sides, 2 = S).
+// Every move keeps `where` a valid separator: a vertex leaves S for side `to`
+// only together with all of its neighbours on the other side entering S.
+// For each S vertex v, ed0[v]/ed1[v] = weight of its neighbours on side 0/1,
+// kept INCREMENTALLY as vertices move (O(degree) per moved vertex), so the
+// gains VW(v) − ed1[v] (v into side 0) and VW(v) − ed0[v] (v into side 1) are
+// O(1). Max-heaps with lazy deletion; a pass hill-climbs through bad moves and
+// rolls back to the best state it saw (smallest separator; balance first).
+void ndRefineSeparator(const NdGraph& g, std::vector<signed char>& where, long long pw[3],
+                       long long maxSide, int passes) {
+    const int n = g.n;
+    if (n == 0) return;
+    const auto VW = [&](int v) -> long long { return g.vwgt[static_cast<std::size_t>(v)]; };
+    std::vector<long long> ed0(static_cast<std::size_t>(n), 0), ed1(static_cast<std::size_t>(n), 0);
+    std::vector<char> locked(static_cast<std::size_t>(n), 0);
+    struct Change { int v; signed char from; };
+    std::vector<Change> log;
+    std::vector<int> lockedList;
+    using Item = std::pair<long long, int>;
+    std::vector<Item> h0, h1;               // max-heaps: gain into side 0 / side 1
+    const auto computeEd = [&](int v) {
+        long long a = 0, b = 0;
+        for (int q = g.xadj[static_cast<std::size_t>(v)]; q < g.xadj[static_cast<std::size_t>(v) + 1]; ++q) {
+            const int u = g.adj[static_cast<std::size_t>(q)];
+            const signed char wu = where[static_cast<std::size_t>(u)];
+            if (wu == 0) a += VW(u); else if (wu == 1) b += VW(u);
+        }
+        ed0[static_cast<std::size_t>(v)] = a;
+        ed1[static_cast<std::size_t>(v)] = b;
+    };
+    const auto gain = [&](int s, int v) {
+        return VW(v) - (s == 0 ? ed1[static_cast<std::size_t>(v)] : ed0[static_cast<std::size_t>(v)]);
+    };
+    const auto push = [&](int s, int v) {
+        std::vector<Item>& H = s == 0 ? h0 : h1;
+        H.emplace_back(gain(s, v), v);
+        std::push_heap(H.begin(), H.end());
+    };
+    const int limit = std::min(300, std::max(40, n / 50));
+    for (int pass = 0; pass < passes; ++pass) {
+        h0.clear();
+        h1.clear();
+        for (int v = 0; v < n; ++v)
+            if (where[static_cast<std::size_t>(v)] == 2) {
+                computeEd(v);
+                h0.emplace_back(gain(0, v), v);
+                h1.emplace_back(gain(1, v), v);
+            }
+        std::make_heap(h0.begin(), h0.end());
+        std::make_heap(h1.begin(), h1.end());
+        log.clear();
+        lockedList.clear();
+        const auto balancedNow = [&]() { return pw[0] <= maxSide && pw[1] <= maxSide; };
+        bool bestBalanced = balancedNow();
+        long long bestSep = pw[2];
+        long long bestDiff = pw[0] > pw[1] ? pw[0] - pw[1] : pw[1] - pw[0];
+        std::size_t bestLog = 0;
+        int sinceBest = 0;
+        const auto topOf = [&](int s, int& v, long long& gv) -> bool {
+            std::vector<Item>& H = s == 0 ? h0 : h1;
+            while (!H.empty()) {
+                const Item it = H.front();
+                const std::size_t u = static_cast<std::size_t>(it.second);
+                if (where[u] != 2 || locked[u] || gain(s, it.second) != it.first) {
+                    std::pop_heap(H.begin(), H.end());
+                    H.pop_back();
+                    continue;
+                }
+                v = it.second; gv = it.first;
+                return true;
+            }
+            return false;
+        };
+        for (;;) {
+            int v0 = -1, v1 = -1;
+            long long g0 = 0, g1 = 0;
+            const bool h0ok = topOf(0, v0, g0), h1ok = topOf(1, v1, g1);
+            if (!h0ok && !h1ok) break;
+            int to;
+            if (h0ok && h1ok) to = (g0 > g1) ? 0 : (g1 > g0) ? 1 : (pw[0] < pw[1] ? 0 : 1);
+            else to = h0ok ? 0 : 1;
+            int v = to == 0 ? v0 : v1;
+            if (pw[to] + VW(v) > maxSide) {
+                const int o = 1 - to;
+                const bool ho = o == 0 ? h0ok : h1ok;
+                const int vo = o == 0 ? v0 : v1;
+                if (ho && pw[o] + VW(vo) <= maxSide) { to = o; v = vo; }
+                else break;
+            }
+            const int other = 1 - to;
+            // ---- v leaves S for side `to` ---------------------------------------
+            locked[static_cast<std::size_t>(v)] = 1;
+            lockedList.push_back(v);
+            log.push_back({v, 2});
+            where[static_cast<std::size_t>(v)] = static_cast<signed char>(to);
+            pw[to] += VW(v); pw[2] -= VW(v);
+            for (int q = g.xadj[static_cast<std::size_t>(v)]; q < g.xadj[static_cast<std::size_t>(v) + 1]; ++q) {
+                const int w = g.adj[static_cast<std::size_t>(q)];
+                if (where[static_cast<std::size_t>(w)] != 2 || locked[static_cast<std::size_t>(w)]) continue;
+                (to == 0 ? ed0 : ed1)[static_cast<std::size_t>(w)] += VW(v);
+                push(other, w);                 // w's gain into `other` changed
+            }
+            // ---- v's neighbours on the other side enter S -----------------------
+            for (int q = g.xadj[static_cast<std::size_t>(v)]; q < g.xadj[static_cast<std::size_t>(v) + 1]; ++q) {
+                const int u = g.adj[static_cast<std::size_t>(q)];
+                if (where[static_cast<std::size_t>(u)] != other) continue;
+                log.push_back({u, static_cast<signed char>(other)});
+                where[static_cast<std::size_t>(u)] = 2;
+                pw[other] -= VW(u); pw[2] += VW(u);
+                for (int r = g.xadj[static_cast<std::size_t>(u)]; r < g.xadj[static_cast<std::size_t>(u) + 1]; ++r) {
+                    const int w = g.adj[static_cast<std::size_t>(r)];
+                    if (where[static_cast<std::size_t>(w)] != 2) continue;
+                    (other == 0 ? ed0 : ed1)[static_cast<std::size_t>(w)] -= VW(u);
+                    if (!locked[static_cast<std::size_t>(w)]) push(to, w);
+                }
+                computeEd(u);
+                if (!locked[static_cast<std::size_t>(u)]) { push(0, u); push(1, u); }
+            }
+            // ---- keep the best state seen ---------------------------------------
+            const bool bal = balancedNow();
+            const long long diff = pw[0] > pw[1] ? pw[0] - pw[1] : pw[1] - pw[0];
+            bool better = false;
+            if (bal && !bestBalanced) better = true;
+            else if (bal == bestBalanced)
+                better = (pw[2] < bestSep) || (pw[2] == bestSep && diff < bestDiff);
+            if (better) {
+                bestBalanced = bal; bestSep = pw[2]; bestDiff = diff; bestLog = log.size();
+                sinceBest = 0;
+            } else if (++sinceBest > limit) {
+                break;
+            }
+        }
+        // ---- roll back to the best state (ed0/ed1 are recomputed next pass) ------
+        for (std::size_t t = log.size(); t-- > bestLog;) {
+            const Change& c = log[t];
+            const std::size_t cv = static_cast<std::size_t>(c.v);
+            pw[static_cast<int>(where[cv])] -= VW(c.v);
+            where[cv] = c.from;
+            pw[static_cast<int>(c.from)] += VW(c.v);
+        }
+        for (int v : lockedList) locked[static_cast<std::size_t>(v)] = 0;
+        if (bestLog == 0) break;   // the pass found nothing better: converged
+    }
+}
+
+// Initial separator by GREEDY GRAPH GROWING (GGGP, Karypis & Kumar 1998): side
+// 0 grows from `seed`, always taking the side-1 boundary vertex whose move cuts
+// the most edge weight (max-heap, lazy deletion), until it holds half the
+// weight. A few edge-FM passes (hill-climb + rollback to the smallest cut within
+// ±5 % balance) improve the bisection, and then the boundary vertices of BOTH
+// sides become a deliberately thick separator — the node FM that follows thins
+// it, which is how an edge bisection yields a good vertex separator.
+void ndGggpSeparator(const NdGraph& g, int seed, std::vector<signed char>& where) {
+    const int n = g.n;
+    using Item = std::pair<long long, int>;
+    const auto at = [](auto& vec, int i) -> auto& { return vec[static_cast<std::size_t>(i)]; };
+    std::vector<signed char> side(static_cast<std::size_t>(n), 1);
+    std::vector<long long> to0(static_cast<std::size_t>(n), 0), to1(static_cast<std::size_t>(n), 0);
+    for (int v = 0; v < n; ++v)
+        for (int e = at(g.xadj, v); e < at(g.xadj, v + 1); ++e) at(to1, v) += at(g.ewgt, e);
+    long long w0 = 0;
+    const auto gainOf = [&](int v) {          // edge-cut decrease if v switches side
+        return at(side, v) == 1 ? at(to0, v) - at(to1, v) : at(to1, v) - at(to0, v);
+    };
+    std::vector<Item> H;
+    const auto flip = [&](int v, bool pushNbrs, int onlySide) {
+        const int from = at(side, v);
+        at(side, v) = static_cast<signed char>(1 - from);
+        w0 += (from == 1 ? 1 : -1) * static_cast<long long>(at(g.vwgt, v));
+        for (int e = at(g.xadj, v); e < at(g.xadj, v + 1); ++e) {
+            const int u = at(g.adj, e);
+            const long long w = at(g.ewgt, e);
+            if (from == 1) { at(to1, u) -= w; at(to0, u) += w; }
+            else { at(to0, u) -= w; at(to1, u) += w; }
+            if (pushNbrs && (onlySide < 0 || at(side, u) == onlySide)) {
+                H.emplace_back(gainOf(u), u);
+                std::push_heap(H.begin(), H.end());
+            }
+        }
+    };
+    // ---- greedy growing of side 0 ------------------------------------------
+    const long long half = g.totalW / 2;
+    flip(seed, true, 1);
+    while (w0 < half) {
+        int v = -1;
+        while (!H.empty()) {
+            const Item it = H.front();
+            std::pop_heap(H.begin(), H.end());
+            H.pop_back();
+            if (at(side, it.second) == 1 && gainOf(it.second) == it.first) { v = it.second; break; }
+        }
+        for (int u = 0; u < n && v < 0; ++u)        // disconnected remainder
+            if (at(side, u) == 1) v = u;
+        if (v < 0) break;
+        flip(v, true, 1);
+    }
+    // ---- edge-FM passes ----------------------------------------------------------
+    const long long tol = std::max<long long>(1, static_cast<long long>(0.05 * static_cast<double>(g.totalW)));
+    const auto imb = [&](long long a) { const long long d = 2 * a - g.totalW; return d < 0 ? -d : d; };
+    std::vector<char> locked(static_cast<std::size_t>(n), 0);
+    std::vector<int> moved;
+    for (int pass = 0; pass < 6; ++pass) {
+        H.clear();
+        long long cut = 0;
+        for (int v = 0; v < n; ++v) {
+            if (at(side, v) == 0) cut += at(to1, v);
+            if ((at(side, v) == 0 ? at(to1, v) : at(to0, v)) > 0) H.emplace_back(gainOf(v), v);
+        }
+        std::make_heap(H.begin(), H.end());
+        long long bestCut = cut;
+        const bool startBalanced = imb(w0) <= 2 * tol;
+        std::size_t bestLen = 0;
+        moved.clear();
+        while (!H.empty()) {
+            const Item it = H.front();
+            std::pop_heap(H.begin(), H.end());
+            H.pop_back();
+            const int v = it.second;
+            if (at(locked, v) || gainOf(v) != it.first) continue;
+            const long long nw0 = w0 + (at(side, v) == 1 ? 1 : -1) * static_cast<long long>(at(g.vwgt, v));
+            if (imb(nw0) > 2 * tol && imb(nw0) >= imb(w0)) continue;   // would unbalance
+            at(locked, v) = 1;
+            cut -= it.first;
+            flip(v, true, -1);
+            moved.push_back(v);
+            if (imb(w0) <= 2 * tol && (cut < bestCut || (!startBalanced && bestLen == 0))) {
+                bestCut = cut;
+                bestLen = moved.size();
+            }
+            if (moved.size() - bestLen > 50) break;
+        }
+        for (std::size_t k = moved.size(); k-- > bestLen;) flip(moved[k], false, -1);
+        for (int v : moved) at(locked, v) = 0;
+        if (bestLen == 0) break;
+    }
+    where.assign(static_cast<std::size_t>(n), 0);
+    for (int v = 0; v < n; ++v) {
+        const long long ext = at(side, v) == 0 ? at(to1, v) : at(to0, v);
+        at(where, v) = ext > 0 ? 2 : at(side, v);
+    }
+}
+
+// Breadth-first levels of g from `root` into lev (−1 = unreached); returns the
+// number of levels and sets `far` to a lowest-degree vertex of the last level.
+int ndBfsLevels(const NdGraph& g, int root, std::vector<int>& lev, std::vector<int>& queue, int& far) {
+    lev.assign(static_cast<std::size_t>(g.n), -1);
+    queue.clear();
+    queue.push_back(root);
+    lev[static_cast<std::size_t>(root)] = 0;
+    for (std::size_t h = 0; h < queue.size(); ++h) {
+        const int v = queue[h];
+        for (int e = g.xadj[static_cast<std::size_t>(v)]; e < g.xadj[static_cast<std::size_t>(v) + 1]; ++e) {
+            const int u = g.adj[static_cast<std::size_t>(e)];
+            if (lev[static_cast<std::size_t>(u)] < 0) {
+                lev[static_cast<std::size_t>(u)] = lev[static_cast<std::size_t>(v)] + 1;
+                queue.push_back(u);
+            }
+        }
+    }
+    const int last = lev[static_cast<std::size_t>(queue.back())];
+    far = queue.back();
+    int bestDeg = std::numeric_limits<int>::max();
+    for (std::size_t h = queue.size(); h-- > 0;) {
+        const int v = queue[h];
+        if (lev[static_cast<std::size_t>(v)] != last) break;
+        const int d = g.xadj[static_cast<std::size_t>(v) + 1] - g.xadj[static_cast<std::size_t>(v)];
+        if (d < bestDeg) { bestDeg = d; far = v; }
+    }
+    return last + 1;
+}
+
+// LEVEL-STRUCTURE separator (George & Liu, "Computer Solution of Large Sparse
+// Positive Definite Systems", 1981): breadth-first levels from a
+// pseudo-peripheral vertex; the level where the cumulative weight crosses half
+// is the separator, earlier levels side 0, later levels side 1. On a mesh this
+// is a planar cut across its longest extent — often exactly what the
+// multilevel search misses on long, thin parts.
+void ndLevelSeparator(const NdGraph& g, int seed, std::vector<signed char>& where) {
+    std::vector<int> lev, lev2, queue;
+    int far = seed;
+    int nl = ndBfsLevels(g, seed, lev, queue, far);
+    for (int it = 0; it < 8; ++it) {                  // pseudo-peripheral root
+        int far2 = far;
+        const int nl2 = ndBfsLevels(g, far, lev2, queue, far2);
+        if (nl2 <= nl) break;
+        nl = nl2;
+        lev.swap(lev2);
+        far = far2;
+    }
+    std::vector<long long> lw(static_cast<std::size_t>(nl), 0);
+    for (int v = 0; v < g.n; ++v)
+        if (lev[static_cast<std::size_t>(v)] >= 0)
+            lw[static_cast<std::size_t>(lev[static_cast<std::size_t>(v)])] += g.vwgt[static_cast<std::size_t>(v)];
+    const long long half = g.totalW / 2;
+    long long acc = 0;
+    int cut = nl - 1;
+    for (int l = 0; l < nl; ++l) {
+        if (acc + lw[static_cast<std::size_t>(l)] / 2 >= half) { cut = l; break; }
+        acc += lw[static_cast<std::size_t>(l)];
+    }
+    where.assign(static_cast<std::size_t>(g.n), 1);
+    for (int v = 0; v < g.n; ++v) {
+        const int l = lev[static_cast<std::size_t>(v)];
+        if (l >= 0) where[static_cast<std::size_t>(v)] = static_cast<signed char>(l < cut ? 0 : l == cut ? 2 : 1);
+    }
+}
+
+bool ndBetter(const long long a[3], const long long b[3], long long maxSide) {
+    const bool ba = a[0] <= maxSide && a[1] <= maxSide;
+    const bool bb = b[0] <= maxSide && b[1] <= maxSide;
+    if (ba != bb) return ba;
+    if (a[2] != b[2]) return a[2] < b[2];
+    const long long da = a[0] > a[1] ? a[0] - a[1] : a[1] - a[0];
+    const long long db = b[0] > b[1] ? b[0] - b[1] : b[1] - b[0];
+    return da < db;
+}
+
+// ONE multilevel vertex-separator bisection of a CONNECTED graph (coarsen,
+// GGGP initial separators, uncoarsen with node-FM refinement). Returns false if
+// no separator with two non-empty sides was found.
+bool ndNodeBisectMultilevel(const NdGraph& g, std::vector<signed char>& where, NdRng& rng) {
+    const long long maxSide =
+        static_cast<long long>(std::ceil(kNdMaxSide * static_cast<double>(g.totalW)));
+    std::vector<std::unique_ptr<NdGraph>> levels;      // levels[0] = coarsened once
+    std::vector<std::vector<int>> cmaps;               // cmaps[l]: graph(l) -> graph(l+1)
+    const NdGraph* cur = &g;
+    const long long maxVw = std::max<long long>(
+        1, static_cast<long long>(1.5 * static_cast<double>(g.totalW) / kNdCoarsenTo));
+    while (cur->n > kNdCoarsenTo) {
+        std::vector<int> cmap;
+        auto c = std::make_unique<NdGraph>(ndCoarsen(*cur, cmap, rng, maxVw));
+        if (static_cast<double>(c->n) > 0.95 * static_cast<double>(cur->n)) break;   // stalled
+        cmaps.push_back(std::move(cmap));
+        levels.push_back(std::move(c));
+        cur = levels.back().get();
+    }
+    // ---- initial separators on the coarsest graph --------------------------
+    std::vector<signed char> best, trial;
+    long long bestPw[3] = {0, 0, 0};
+    for (int t = 0; t < kNdInitTries; ++t) {
+        ndGggpSeparator(*cur, rng.below(cur->n), trial);
+        long long pw[3];
+        ndPartWeights(*cur, trial, pw);
+        ndRefineSeparator(*cur, trial, pw, maxSide, kNdPassCoarse);
+        if (pw[0] == 0 || pw[1] == 0) continue;
+        if (best.empty() || ndBetter(pw, bestPw, maxSide)) {
+            best = trial;
+            bestPw[0] = pw[0]; bestPw[1] = pw[1]; bestPw[2] = pw[2];
+        }
+    }
+    if (best.empty()) return false;
+    // ---- project back up, refining at every level ---------------------------
+    for (std::size_t l = levels.size(); l-- > 0;) {
+        const NdGraph& fine = (l == 0) ? g : *levels[l - 1];
+        const std::vector<int>& cmap = cmaps[l];
+        std::vector<signed char> fw(static_cast<std::size_t>(fine.n));
+        for (int v = 0; v < fine.n; ++v)
+            fw[static_cast<std::size_t>(v)] = best[static_cast<std::size_t>(cmap[static_cast<std::size_t>(v)])];
+        long long pw[3];
+        ndPartWeights(fine, fw, pw);
+        ndRefineSeparator(fine, fw, pw, maxSide, kNdPassFine);
+        best.swap(fw);
+        bestPw[0] = pw[0]; bestPw[1] = pw[1]; bestPw[2] = pw[2];
+    }
+    where.swap(best);
+    return bestPw[0] > 0 && bestPw[1] > 0;
+}
+
+// The separator a dissection step uses: the best (balanced first, then
+// smallest, then most even) of kNdMultiSeps multilevel bisections for heavy
+// graphs (one for light ones) and the refined level-structure separator.
+// Returns false if none has two non-empty sides.
+bool ndNodeBisect(const NdGraph& g, std::vector<signed char>& where, NdRng& rng) {
+    const long long maxSide =
+        static_cast<long long>(std::ceil(kNdMaxSide * static_cast<double>(g.totalW)));
+    std::vector<signed char> best, trial;
+    long long bestPw[3] = {0, 0, 0};
+    const auto consider = [&]() {
+        long long pw[3];
+        ndPartWeights(g, trial, pw);
+        if (pw[0] == 0 || pw[1] == 0) return;
+        if (best.empty() || ndBetter(pw, bestPw, maxSide)) {
+            best = trial;
+            bestPw[0] = pw[0]; bestPw[1] = pw[1]; bestPw[2] = pw[2];
+        }
+    };
+    const int tries = g.totalW >= kNdMultiSepWeight ? kNdMultiSeps : 1;
+    for (int t = 0; t < tries; ++t)
+        if (ndNodeBisectMultilevel(g, trial, rng)) consider();
+    ndLevelSeparator(g, rng.below(g.n), trial);
+    {
+        long long pw[3];
+        ndPartWeights(g, trial, pw);
+        ndRefineSeparator(g, trial, pw, maxSide, kNdPassCoarse);
+    }
+    consider();
+    if (best.empty()) return false;
+    where.swap(best);
+    return true;
+}
+
+// Induced subgraph of G on `verts` (global ids). `loc` is an all -1 scratch
+// array of size G.n, restored to all -1 on return.
+NdGraph ndInduced(const NdGraph& G, const std::vector<int>& verts, std::vector<int>& loc) {
+    NdGraph h;
+    h.n = static_cast<int>(verts.size());
+    for (int i = 0; i < h.n; ++i) loc[static_cast<std::size_t>(verts[static_cast<std::size_t>(i)])] = i;
+    h.xadj.assign(static_cast<std::size_t>(h.n) + 1, 0);
+    h.vwgt.resize(static_cast<std::size_t>(h.n));
+    for (int i = 0; i < h.n; ++i) {
+        const int v = verts[static_cast<std::size_t>(i)];
+        h.vwgt[static_cast<std::size_t>(i)] = G.vwgt[static_cast<std::size_t>(v)];
+        h.totalW += G.vwgt[static_cast<std::size_t>(v)];
+        for (int q = G.xadj[static_cast<std::size_t>(v)]; q < G.xadj[static_cast<std::size_t>(v) + 1]; ++q) {
+            const int u = loc[static_cast<std::size_t>(G.adj[static_cast<std::size_t>(q)])];
+            if (u >= 0) { h.adj.push_back(u); h.ewgt.push_back(1); }
+        }
+        h.xadj[static_cast<std::size_t>(i) + 1] = static_cast<int>(h.adj.size());
+    }
+    for (int v : verts) loc[static_cast<std::size_t>(v)] = -1;
+    return h;
+}
+
+// Order the vertices of h (local ids, mapped to global by verts) with AMD.
+void ndLeafOrder(const NdGraph& h, const std::vector<int>& verts, int* out) {
+    std::vector<std::vector<std::size_t>> a(static_cast<std::size_t>(h.n));
+    for (int v = 0; v < h.n; ++v)
+        for (int q = h.xadj[static_cast<std::size_t>(v)]; q < h.xadj[static_cast<std::size_t>(v) + 1]; ++q)
+            a[static_cast<std::size_t>(v)].push_back(static_cast<std::size_t>(h.adj[static_cast<std::size_t>(q)]));
+    const std::vector<std::size_t> p = approximateMinimumDegree(a);
+    for (std::size_t k = 0; k < p.size(); ++k) out[k] = verts[p[k]];
+}
+
+// Nested-dissection order of the global vertices `verts` into out[0..|verts|).
+void ndRecurse(const NdGraph& G, const std::vector<int>& verts, int* out,
+               std::vector<int>& loc, NdRng& rng) {
+    const std::size_t m = verts.size();
+    if (m == 0) return;
+    if (m == 1) { out[0] = verts[0]; return; }
+    NdGraph h = ndInduced(G, verts, loc);
+    // ---- connected components are independent: order each on its own --------
+    std::vector<int> comp(m, -1), compStart, compVerts;
+    compVerts.reserve(m);
+    int ncomp = 0;
+    for (std::size_t s = 0; s < m; ++s) {
+        if (comp[s] >= 0) continue;
+        compStart.push_back(static_cast<int>(compVerts.size()));
+        comp[s] = ncomp;
+        std::size_t head = compVerts.size();
+        compVerts.push_back(static_cast<int>(s));
+        while (head < compVerts.size()) {
+            const int v = compVerts[head++];
+            for (int q = h.xadj[static_cast<std::size_t>(v)]; q < h.xadj[static_cast<std::size_t>(v) + 1]; ++q) {
+                const int u = h.adj[static_cast<std::size_t>(q)];
+                if (comp[static_cast<std::size_t>(u)] < 0) {
+                    comp[static_cast<std::size_t>(u)] = ncomp;
+                    compVerts.push_back(u);
+                }
+            }
+        }
+        ++ncomp;
+    }
+    compStart.push_back(static_cast<int>(m));
+    if (ncomp > 1) {
+        // isolated vertices first (they create no fill), then each component
+        int written = 0;
+        for (int c = 0; c < ncomp; ++c) {
+            const int a = compStart[static_cast<std::size_t>(c)], b = compStart[static_cast<std::size_t>(c) + 1];
+            if (b - a == 1) out[written++] = verts[static_cast<std::size_t>(compVerts[static_cast<std::size_t>(a)])];
+        }
+        for (int c = 0; c < ncomp; ++c) {
+            const int a = compStart[static_cast<std::size_t>(c)], b = compStart[static_cast<std::size_t>(c) + 1];
+            if (b - a == 1) continue;
+            std::vector<int> sub;
+            sub.reserve(static_cast<std::size_t>(b - a));
+            for (int t = a; t < b; ++t)
+                sub.push_back(verts[static_cast<std::size_t>(compVerts[static_cast<std::size_t>(t)])]);
+            ndRecurse(G, sub, out + written, loc, rng);
+            written += b - a;
+        }
+        return;
+    }
+    if (m <= static_cast<std::size_t>(kNdLeaf)) { ndLeafOrder(h, verts, out); return; }
+    std::vector<signed char> where;
+    if (!ndNodeBisect(h, where, rng)) { ndLeafOrder(h, verts, out); return; }
+    std::vector<int> A, B, S;
+    for (std::size_t i = 0; i < m; ++i) {
+        const signed char w = where[i];
+        (w == 0 ? A : w == 1 ? B : S).push_back(verts[i]);
+    }
+    h = NdGraph();   // release before recursing
+    std::copy(S.begin(), S.end(), out + (m - S.size()));
+    ndRecurse(G, A, out, loc, rng);
+    ndRecurse(G, B, out + A.size(), loc, rng);
+}
+
+// Step 0 of nested dissection: COMPRESS vertices with identical closed
+// neighbourhoods (the d DOFs of one FE node) into one weighted vertex.
+struct NdCompressed {
+    NdGraph G;
+    std::vector<int> superOf;   // original vertex -> supervertex
+};
+
+NdCompressed ndCompress(const std::vector<std::vector<std::size_t>>& adj) {
+    const std::size_t nn = adj.size();
+    NdCompressed C;
+    std::vector<std::pair<std::uint64_t, std::size_t>> keyed(nn);
+    for (std::size_t i = 0; i < nn; ++i) {
+        std::uint64_t h = static_cast<std::uint64_t>(i) * 0x9E3779B97F4A7C15ull;
+        for (std::size_t j : adj[i]) h += static_cast<std::uint64_t>(j) * 0x9E3779B97F4A7C15ull;
+        h ^= static_cast<std::uint64_t>(adj[i].size()) << 48;
+        keyed[i] = {h, i};
+    }
+    std::sort(keyed.begin(), keyed.end());
+    std::vector<int>& superOf = C.superOf;
+    superOf.assign(nn, -1);
+    std::vector<std::size_t> reps;                 // representative per supervertex
+    const auto sameClosed = [&](std::size_t a, std::size_t b) {
+        // N[a] == N[b]  <=>  b ∈ adj[a] and adj[a] \ {b} == adj[b] \ {a}
+        const auto& A = adj[a];
+        const auto& B = adj[b];
+        if (A.size() != B.size() || !std::binary_search(A.begin(), A.end(), b)) return false;
+        std::size_t ia = 0, ib = 0;
+        while (ia < A.size() || ib < B.size()) {
+            if (ia < A.size() && A[ia] == b) { ++ia; continue; }
+            if (ib < B.size() && B[ib] == a) { ++ib; continue; }
+            if (ia == A.size() || ib == B.size() || A[ia] != B[ib]) return false;
+            ++ia; ++ib;
+        }
+        return true;
+    };
+    for (std::size_t s = 0; s < nn;) {
+        std::size_t e = s + 1;
+        while (e < nn && keyed[e].first == keyed[s].first) ++e;
+        for (std::size_t x = s; x < e; ++x) {
+            const std::size_t i = keyed[x].second;
+            if (superOf[i] >= 0) continue;
+            superOf[i] = static_cast<int>(reps.size());
+            reps.push_back(i);
+            for (std::size_t y = x + 1; y < e; ++y) {
+                const std::size_t j = keyed[y].second;
+                if (superOf[j] < 0 && sameClosed(i, j)) superOf[j] = superOf[i];
+            }
+        }
+        s = e;
+    }
+    const int nc = static_cast<int>(reps.size());
+    NdGraph& G = C.G;
+    G.n = nc;
+    G.vwgt.assign(static_cast<std::size_t>(nc), 0);
+    for (std::size_t i = 0; i < nn; ++i) G.vwgt[static_cast<std::size_t>(superOf[i])] += 1;
+    G.totalW = static_cast<long long>(nn);
+    G.xadj.assign(static_cast<std::size_t>(nc) + 1, 0);
+    std::vector<int> mark(static_cast<std::size_t>(nc), -1);
+    for (int s = 0; s < nc; ++s) {
+        mark[static_cast<std::size_t>(s)] = s;
+        for (std::size_t j : adj[reps[static_cast<std::size_t>(s)]]) {
+            const int t = superOf[j];
+            if (mark[static_cast<std::size_t>(t)] == s) continue;
+            mark[static_cast<std::size_t>(t)] = s;
+            G.adj.push_back(t);
+            G.ewgt.push_back(1);
+        }
+        G.xadj[static_cast<std::size_t>(s) + 1] = static_cast<int>(G.adj.size());
+    }
+    return C;
+}
+
+// Steps 1..5 on the compressed graph, then expand each supervertex (members
+// keep their original relative order). perm[k] = original index at position k.
+std::vector<std::size_t> ndOrderCompressed(const NdCompressed& C, std::size_t nn) {
+    const NdGraph& G = C.G;
+    const int nc = G.n;
+    std::vector<int> all(static_cast<std::size_t>(nc)), order(static_cast<std::size_t>(nc), -1);
+    for (int s = 0; s < nc; ++s) all[static_cast<std::size_t>(s)] = s;
+    std::vector<int> loc(static_cast<std::size_t>(nc), -1);
+    NdRng rng(0x7163ull);
+    ndRecurse(G, all, order.data(), loc, rng);
+    std::vector<std::size_t> memberStart(static_cast<std::size_t>(nc) + 1, 0), members(nn);
+    for (std::size_t i = 0; i < nn; ++i) ++memberStart[static_cast<std::size_t>(C.superOf[i]) + 1];
+    for (int s = 0; s < nc; ++s) memberStart[static_cast<std::size_t>(s) + 1] += memberStart[static_cast<std::size_t>(s)];
+    {
+        std::vector<std::size_t> fillp(memberStart.begin(), memberStart.end() - 1);
+        for (std::size_t i = 0; i < nn; ++i) members[fillp[static_cast<std::size_t>(C.superOf[i])]++] = i;
+    }
+    std::vector<std::size_t> perm;
+    perm.reserve(nn);
+    std::vector<char> placed(nn, 0);
+    for (int s : order) {
+        if (s < 0) continue;
+        for (std::size_t q = memberStart[static_cast<std::size_t>(s)]; q < memberStart[static_cast<std::size_t>(s) + 1]; ++q)
+            if (!placed[members[q]]) { placed[members[q]] = 1; perm.push_back(members[q]); }
+    }
+    // defensive completeness: perm must be a permutation whatever happened above
+    for (std::size_t i = 0; i < nn; ++i)
+        if (!placed[i]) perm.push_back(i);
+    return perm;
+}
+
+// Beyond this size the 32-bit-indexed ND falls back to AMD.
+bool ndFitsIndexRange(std::size_t n) {
+    return n < static_cast<std::size_t>(std::numeric_limits<int>::max() / 4);
+}
+
+static std::vector<std::size_t>
+nestedDissection(const std::vector<std::vector<std::size_t>>& adj) {
+    const std::size_t nn = adj.size();
+    if (nn == 0) return {};
+    if (!ndFitsIndexRange(nn)) return approximateMinimumDegree(adj);
+    return ndOrderCompressed(ndCompress(adj), nn);
+}
+
+// One candidate ordering (never Auto).
+std::vector<std::size_t> orderingOf(const std::vector<std::vector<std::size_t>>& adj,
+                                    SparseOrdering ord) {
+    const std::size_t n = adj.size();
+    switch (ord) {
+    case SparseOrdering::RCM:
+        return reverseCuthillMcKee(adj);
+    case SparseOrdering::AMD:
+        return postorderByEtree(adj, approximateMinimumDegree(adj));
+    case SparseOrdering::NestedDissection:
+        return postorderByEtree(adj, nestedDissection(adj));
+    case SparseOrdering::Natural:
+    case SparseOrdering::Auto:
+        break;
+    }
+    std::vector<std::size_t> perm(n);
+    for (std::size_t k = 0; k < n; ++k) perm[k] = k;
+    return perm;
+}
+
+// ---------------------------------------------------------------------------
+// SparseOrdering::Auto — a COST MODEL, not "try everything" (T-163).
+//
+// Every candidate costs ordering time, and on a small or already well-numbered
+// matrix that time is a large fraction of — or larger than — the factorization
+// it is meant to speed up (measured: nested dissection takes 0.15-0.22 s on a
+// 13.7k-DOF thermal matrix whose factorization takes 0.20 s). So candidates
+// are evaluated in increasing cost and only while they can still pay off; the
+// winner is the evaluated candidate with the fewest exact factor flops (ties:
+// fewer nnz(L)). Calibrated on this kernel's scalar up-looking LDLᵀ (~2.4
+// GFlop/s, i.e. ~0.4 ns per factor flop) on an Apple M-series core:
+//
+//   1. Natural: free. If its factorization is already cheap — at most
+//      kAutoReorderFlopsPerNnz flops per off-diagonal nonzero of A — no
+//      reordering can recover its own cost (RCM + AMD + their symbolic
+//      analyses cost ~0.1 µs ≈ 250 flops per nonzero), so Natural is used.
+//   2. RCM (what shipped) and AMD: O(nnz(A)) each. Keeping RCM in the set makes
+//      the result never need more flops than the shipped ordering whenever any
+//      reordering is considered.
+//   3. Nested dissection: ~1 µs per compressed-graph edge ≈ 2000 factor flops.
+//      Measured ND gains over the best cheap candidate are ~25 % of flops when
+//      it wins, so ND runs only if 0.25 × bestFlops > 2000 × edges, i.e.
+//      bestFlops ≥ kAutoNdFlopsPerEdge × (compressed edges).
+// A faster numeric factorization (supernodal / BLAS) lowers the time per flop
+// and must re-calibrate both constants — test/sparse_ordering_gate.cpp G6
+// fails if the policy starts costing more than it saves.
+// ---------------------------------------------------------------------------
+constexpr double kAutoReorderFlopsPerNnz = 1000.0;
+constexpr double kAutoNdFlopsPerEdge = 8000.0;
+
+std::vector<std::size_t> chooseOrdering(const std::vector<std::vector<std::size_t>>& adj,
+                                        SparseOrdering ord, SparseOrdering& chosen,
+                                        AutoOrderingReport* report = nullptr) {
+    if (ord != SparseOrdering::Auto) { chosen = ord; return orderingOf(adj, ord); }
+    const std::size_t n = adj.size();
+    AutoOrderingReport rep;
+    std::size_t offDiag = 0;
+    for (const auto& a : adj) offDiag += a.size();
+    std::vector<std::size_t> best = orderingOf(adj, SparseOrdering::Natural);
+    SymbolicFactorStats bestS = symbolicStatsOf(adj, best);
+    chosen = SparseOrdering::Natural;
+    rep.naturalFlops = bestS.flops;
+    rep.reorderThresholdFlops = kAutoReorderFlopsPerNnz * static_cast<double>(std::max<std::size_t>(1, offDiag));
+    const auto consider = [&](std::vector<std::size_t>& p, SparseOrdering c) {
+        const SymbolicFactorStats s = symbolicStatsOf(adj, p);
+        if (s.flops < bestS.flops || (s.flops == bestS.flops && s.nnzL < bestS.nnzL)) {
+            best.swap(p);
+            bestS = s;
+            chosen = c;
+        }
+    };
+    if (bestS.flops > rep.reorderThresholdFlops) {
+        rep.evaluatedCheap = true;
+        for (SparseOrdering c : {SparseOrdering::RCM, SparseOrdering::AMD}) {
+            std::vector<std::size_t> p = orderingOf(adj, c);
+            consider(p, c);
+        }
+        rep.bestCheapFlops = bestS.flops;
+        if (ndFitsIndexRange(n)) {
+            const NdCompressed C = ndCompress(adj);
+            rep.compressedEdges = C.G.adj.size();
+            rep.ndThresholdFlops = kAutoNdFlopsPerEdge * static_cast<double>(std::max<std::size_t>(1, rep.compressedEdges));
+            if (bestS.flops >= rep.ndThresholdFlops) {
+                rep.evaluatedNd = true;
+                std::vector<std::size_t> p = postorderByEtree(adj, ndOrderCompressed(C, n));
+                consider(p, SparseOrdering::NestedDissection);
+            }
+        }
+    }
+    rep.chosen = chosen;
+    rep.chosenFlops = bestS.flops;
+    if (report) *report = rep;
+    return best;
+}
+
+std::atomic<SparseFactorObserver> g_ldltObserver{nullptr};
+std::atomic<void*>                g_ldltObserverCtx{nullptr};
+
 }  // namespace
 
-void SparseLDLT::compute(const SparseCSR<double>& A) {
+void setSparseLDLTObserver(SparseFactorObserver observer, void* ctx) {
+    g_ldltObserverCtx.store(ctx);
+    g_ldltObserver.store(observer);
+}
+
+const char* sparseOrderingName(SparseOrdering ord) {
+    switch (ord) {
+    case SparseOrdering::Natural:          return "Natural";
+    case SparseOrdering::RCM:              return "RCM";
+    case SparseOrdering::AMD:              return "AMD";
+    case SparseOrdering::NestedDissection: return "NestedDissection";
+    case SparseOrdering::Auto:             return "Auto";
+    }
+    return "?";
+}
+
+std::vector<std::size_t> fillReducingOrdering(const SparseCSR<double>& A,
+                                              SparseOrdering ord,
+                                              SparseOrdering* chosen,
+                                              AutoOrderingReport* report) {
+    if (A.rows() != A.cols()) return {};
+    SparseOrdering c = ord;
+    std::vector<std::size_t> perm = chooseOrdering(buildAdjacency(A), ord, c, report);
+    if (chosen) *chosen = c;
+    return perm;
+}
+
+SymbolicFactorStats symbolicFactorStats(const SparseCSR<double>& A,
+                                        const std::vector<std::size_t>& perm) {
+    if (A.rows() != A.cols() || perm.size() != A.rows()) return {};
+    return symbolicStatsOf(buildAdjacency(A), perm);
+}
+
+std::size_t symbolicFactorNnz(const SparseCSR<double>& A,
+                              const std::vector<std::size_t>& perm) {
+    return symbolicFactorStats(A, perm).nnzL;
+}
+
+void SparseLDLT::compute(const SparseCSR<double>& A, SparseOrdering ordering) {
+    if (SparseFactorObserver obs = g_ldltObserver.load())
+        obs(A, g_ldltObserverCtx.load());
     const std::size_t n = A.rows();
     n_ = n;
+    chosen_ = ordering;
     ok_ = (A.rows() == A.cols());
     perm_.clear(); iperm_.clear();
     Lp_.clear(); Li_.clear(); Lx_.clear();
@@ -1235,9 +2575,9 @@ void SparseLDLT::compute(const SparseCSR<double>& A) {
     if (!ok_) return;
     if (n == 0) { Lp_.assign(1, 0); ok_ = true; return; }
 
-    // ---- 1. FILL-REDUCING ORDERING (Reverse Cuthill-McKee) ----------------
+    // ---- 1. FILL-REDUCING ORDERING (see SparseOrdering) --------------------
     std::vector<std::vector<std::size_t>> adj = buildAdjacency(A);
-    perm_ = reverseCuthillMcKee(adj);
+    perm_ = chooseOrdering(adj, ordering, chosen_);
     iperm_.assign(n, 0);
     for (std::size_t k = 0; k < n; ++k) iperm_[perm_[k]] = k;
 
