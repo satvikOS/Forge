@@ -21,7 +21,9 @@
 //                       holds what a read handed it while another thread releases
 //                       the handle. conversion-unlocked: a registry call during a
 //                       ~100 ms conversion must not wait for it. destroy-unlocked:
-//                       a payload destructor that calls the registry.
+//                       a payload destructor that calls the registry (through
+//                       release(); on the new API also through a Scope's
+//                       releaseAll()).
 //   new API             lease-outlives-release, stress (8 threads x 1500 mixed
 //                       ops), conversion-counter (0 on native ops; exactly 1 per
 //                       entry, 8 racing threads included), release-during-
@@ -49,6 +51,10 @@
 // edited:  `const TopoDS_Shape& s = reg.get(h);`  (85 sites in src/ and
 // include/) and `f(reg.getNativeSolid(h))` / `f(reg.getNativeMesh(h))`
 // (argument passing).
+//
+// NEGATIVE CONTROLS: run_shape_registry_lifetime_gate.sh --mutations compiles 12
+// one-line mutants of src/ShapeRegistry.cpp into this gate (each removes one
+// guarantee above) and requires the scenario named for it to go RED.
 //
 // usage: shape_registry_lifetime_gate [scenario|all]   — exit 0 iff every PASS.
 
@@ -376,11 +382,9 @@ void conversionOutsideLock() {
 // the registry a question, as a builder that unregisters something would. Under
 // the old release() the entry was erased, and the payload destroyed, while
 // release() still held the one global mutex: a self-deadlock.
-void destroyOutsideLock() {
-  const char* S = "destroy-unlocked";
-  auto& reg = ShapeRegistry::instance();
-  const std::size_t base = reg.liveCount();
-  long seen = -1;
+// A bare native solid whose builder's deleter asks the registry for liveCount()
+// (taking the registry lock) and stores it in `seen`.
+ShapeHandle addSolidThatCallsRegistryOnDestroy(long& seen) {
   auto holder = std::make_shared<SolidHolder>();
   holder->solid.id = 1;
   holder->shell.id = 1;
@@ -393,11 +397,36 @@ void destroyOutsideLock() {
     keep.reset();
   });
   holder.reset();
-  const ShapeHandle h = reg.addNativeSolid(std::move(owner), s);
+  return ShapeRegistry::instance().addNativeSolid(std::move(owner), s);
+}
+
+void destroyOutsideLock() {
+  const char* S = "destroy-unlocked";
+  auto& reg = ShapeRegistry::instance();
+  const std::size_t base = reg.liveCount();
+  long seen = -1;
+  const ShapeHandle h = addSolidThatCallsRegistryOnDestroy(seen);
   reg.release(h);
   check(seen == static_cast<long>(base), S,
         "the payload's destructor ran after release() dropped the lock and saw the entry gone "
         "(liveCount from inside it = " + std::to_string(seen) + ", base " + std::to_string(base) + ")");
+#ifndef GATE_OLD_API
+  // The same contract on the document-close path: Scope::releaseAll() destroys
+  // the entries it leaves unreferenced after dropping the lock, too.
+  long seenScope = -1;
+  {
+    ShapeRegistry::Scope doc;
+    {
+      auto cap = doc.capture();
+      (void)addSolidThatCallsRegistryOnDestroy(seenScope);
+    }
+    doc.releaseAll();
+  }
+  check(seenScope == static_cast<long>(base), S,
+        "via Scope::releaseAll() (document close) too: the destructor ran after the lock was "
+        "dropped (liveCount from inside it = " + std::to_string(seenScope) + ", base " +
+            std::to_string(base) + ")");
+#endif
 }
 
 // ───────────────────────────── NEW-API scenarios ───────────────────────────────

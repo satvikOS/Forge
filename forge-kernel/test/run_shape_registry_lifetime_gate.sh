@@ -3,7 +3,7 @@
 # native->OCCT conversion accounting, and document-close release.
 #
 #   KERNEL_BUILD=<forge-kernel build dir holding libforge_kernel_core.dylib> \
-#     bash forge-kernel/test/run_shape_registry_lifetime_gate.sh
+#     bash forge-kernel/test/run_shape_registry_lifetime_gate.sh [--mutations]
 #
 # Builds test/shape_registry_lifetime_gate.cpp five ways and runs each:
 #
@@ -23,6 +23,15 @@
 #              libforge_kernel_core registry through the real kernel ops and the
 #              real feature-tree compiler (conversion counter = 0 on the native
 #              path; scoped rebuild/close releases every handle).
+#
+# --mutations  NEGATIVE CONTROLS, on top of the above. Each mutant is a COPY of
+#              src/ShapeRegistry.cpp (the worktree source is never touched) with
+#              ONE T-183 guarantee removed by a literal one-anchor substitution,
+#              compiled into the gate under -fsanitize=thread and =address; the
+#              scenario named for it must go RED on both. A mutant whose anchor
+#              is not found exactly once (a stale anchor) or that does not
+#              compile FAILS the gate: it would prove nothing. ~24 builds; two
+#              mutants deadlock by design and are killed at 60 s.
 #
 # The kernel library is NOT instrumented; the registry under test is (it is
 # compiled into the gate). The native builders, occtFromNativeSolid and OCCT
@@ -49,6 +58,10 @@ if [[ -z "${OCCT_PREFIX:-}" ]]; then
 fi
 
 not_run() { echo "NOT_RUN: $*"; echo "VERDICT: NOT_RUN"; exit 2; }
+case "${1:-}" in
+  ""|--mutations) ;;
+  *) not_run "unknown argument '$1' (usage: $0 [--mutations])" ;;
+esac
 
 [[ -d "$KB" ]] || not_run "KERNEL_BUILD '$KB' does not exist"
 LIB=""
@@ -122,7 +135,8 @@ expect_green() {  # binary scenario
   fi
 }
 
-expect_caught() {  # binary scenario how(sanitizer|check): the OLD code must go RED this way
+expect_caught() {  # binary scenario how(sanitizer|check|any) [timeout]: the OLD (or a mutated) registry must go RED this way
+  local on="${CAUGHT_ON:-the old registry}"
   run "$1" "$2" "${4:-}"
   local rep; rep="$(sanitizer_report)"
   local ok=0
@@ -132,9 +146,9 @@ expect_caught() {  # binary scenario how(sanitizer|check): the OLD code must go 
     any)       [[ $RC -ne 0 ]] && ok=1 ;;  # crash, sanitizer, check, or hang (137)
   esac
   if [[ $ok -eq 1 ]]; then
-    say "PASS  $1 $2  RED on the old registry as required (rc=$RC${rep:+, $rep}$( [[ $3 == check ]] && echo ", $(grep -m1 '\[FAIL\]' "$LOG" | sed 's/^ *//')"))"
+    say "PASS  $1 $2  RED on $on as required (rc=$RC${rep:+, $rep}$( [[ $3 == check ]] && echo ", $(grep -m1 '\[FAIL\]' "$LOG" | sed 's/^ *//')"))"
   else
-    say "FAIL  $1 $2  the OLD registry was NOT caught ($3 expected; rc=$RC) — the gate is blind  (log: $LOG)"
+    say "FAIL  $1 $2  $on was NOT caught ($3 expected; rc=$RC) — the gate is blind  (log: $LOG)"
     FAILS=$((FAILS + 1))
   fi
 }
@@ -169,6 +183,67 @@ done
 # ---- the real kernel library --------------------------------------------------
 if build integ -DGATE_INTEGRATION -I"$KDIR/include" "$SRC"; then
   for s in integration-native-path integration-document-close; do expect_green integ "$s"; done
+fi
+
+# ---- negative controls (--mutations) -------------------------------------------
+# mutant <name> <scenario that must go RED> <how: sanitizer|check|any> <anchor> <replacement>
+MUT_NAME=(); MUT_SCEN=(); MUT_HOW=(); MUT_FROM=(); MUT_TO=()
+mutant() { MUT_NAME+=("$1"); MUT_SCEN+=("$2"); MUT_HOW+=("$3"); MUT_FROM+=("$4"); MUT_TO+=("$5"); }
+# the conversion: back under the global lock / memo not kept / not counted / builder not pinned
+mutant convert-under-global-lock conversion-unlocked check \
+  'std::lock_guard<std::mutex> mg(memo->mtx);' 'std::lock_guard<std::mutex> mg(mtx_);'
+mutant memo-not-kept conversion-counter check \
+  'if (!e.occt) e.occt = std::make_shared<OcctMemo>();' 'e.occt = std::make_shared<OcctMemo>();'
+mutant uncounted conversion-counter check \
+  'conversions_.fetch_add(1, std::memory_order_relaxed);' '(void)0;'
+mutant conversion-unpinned release-during-conversion any \
+  'owner = e.owner;' '(void)0;'
+# the leases: the old borrow dressed as a lease (no shared ownership)
+mutant solid-lease-unowned race-native-solid sanitizer \
+  'std::shared_ptr<const native::brep::Solid>(e.owner, e.solid)' \
+  'std::shared_ptr<const native::brep::Solid>(std::shared_ptr<const native::brep::Solid>(), e.solid)'
+mutant mesh-lease-unowned race-native-mesh sanitizer \
+  'return NativeLease<native::mesh::HalfEdgeMesh>(e.mesh);' \
+  'return NativeLease<native::mesh::HalfEdgeMesh>(std::shared_ptr<const native::mesh::HalfEdgeMesh>(std::shared_ptr<const native::mesh::HalfEdgeMesh>(), e.mesh.get()));'
+# destruction under the lock: release() and Scope release
+mutant destroy-under-lock destroy-unlocked any 'dead = std::move(e);' '(void)0;'
+mutant scope-destroy-under-lock destroy-unlocked any 'dead.push_back(std::move(e));' '(void)0;'
+# Scopes: attribution, capture, release, refusal
+mutant no-scope-attribution scope-attribution check 'if (e.scopeRefs > 0) {' 'if (false) {'
+mutant capture-ignored scope check 'if (scope != nullptr) {' 'if (false) {'
+mutant scope-release-leaks scope check 'if (e.refcount == 0 && e.scopeRefs == 0) {' 'if (false) {'
+mutant refusal-frees scope check \
+  'refusedReleases_.fetch_add(1, std::memory_order_relaxed);
+            return;' '--e.scopeRefs;'
+
+# apply_mutant <src> <dst> <anchor> <replacement>: literal, exactly-once substitution.
+apply_mutant() {
+  FROM="$3" TO="$4" perl -0777 -ne '
+    my ($f, $t) = ($ENV{FROM}, $ENV{TO});
+    my $n = () = /\Q$f\E/g;
+    if ($n != 1) { print STDERR "anchor found $n times\n"; exit 1 }
+    s/\Q$f\E/$t/; print;' "$1" > "$2"
+}
+
+if [[ "${1:-}" == "--mutations" ]]; then
+  MDIR="$OUT/mutants"; rm -rf "$MDIR"; mkdir -p "$MDIR"
+  killed=0; total=0
+  for i in "${!MUT_NAME[@]}"; do
+    m="${MUT_NAME[$i]}"
+    if ! apply_mutant "$KDIR/src/ShapeRegistry.cpp" "$MDIR/$m.cpp" "${MUT_FROM[$i]}" "${MUT_TO[$i]}" 2> "$MDIR/$m.apply.log"; then
+      say "FAIL  mutant $m: stale anchor ($(cat "$MDIR/$m.apply.log")) — it cannot prove anything"
+      FAILS=$((FAILS + 1)); continue
+    fi
+    for san in thread address; do
+      name="mutants/$m.${san:0:1}san"; total=$((total + 1))
+      if build "$name" -fsanitize="$san" -I"$KDIR/include" "$SRC" "$MDIR/$m.cpp"; then
+        before=$FAILS
+        CAUGHT_ON="mutant $m" expect_caught "$name" "${MUT_SCEN[$i]}" "${MUT_HOW[$i]}" 60
+        [[ $FAILS -eq $before ]] && killed=$((killed + 1))
+      fi
+    done
+  done
+  say "mutants killed: $killed / $total"
 fi
 
 if [[ $FAILS -eq 0 ]]; then
