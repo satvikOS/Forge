@@ -11,11 +11,22 @@
 #include "forge/ShapeRegistry.hpp"
 #include "forge/NativeShapeAccess.hpp"  // nativeSolidOf — the OCCT-free registry read
 #include "forge/OcctNativeMesh.hpp"   // K5 — native surface mesher (no TKMesh)
+#include "forge/native/Predicates.hpp"  // exact orient3d / insphere (T-035 robust Bowyer-Watson)
+#ifdef FORGE_NATIVE_PROJECTION
+#include "forge/native/geom/NativeProjection.hpp"  // R1 point->surface (T-035 boundary on the CAD surface)
+#endif
 #include <cstdio>
 #include <cstdlib>
 
 #include <BRep_Tool.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepTools.hxx>
+#include <Geom_Curve.hxx>
+#include <Geom_Surface.hxx>
+#include <Geom_Plane.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
+#include <TopoDS_Edge.hxx>
+#include <gp_Vec.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <Bnd_Box.hxx>
 #include <Standard_Handle.hxx>
@@ -279,59 +290,50 @@ inline double vonMisesVoigt(const double s[6]) {
 // =================================================== Bowyer-Watson mesher
 //
 // Indices used during meshing: nodes are stored in a std::vector<Vec3>
-// where [0..nReal-1] are the real boundary points and the last four
+// where [0..nReal-1] are the real points and, while meshing, the last four
 // entries are the super-tet corners.
+//
+// T-035 — ROBUST INSERTION. The previous insertion tested every live tet with a
+// floating-point circumsphere (centre + radius from a 3x3 solve, `<= r^2 + 1e-12`) and
+// dropped any new tet whose circumsphere solve failed. That was tolerable while the
+// boundary samples were chord midpoints, which are never cospherical. Once the samples are
+// put ON the CAD surface they are cospherical by construction (every sample of a sphere lies
+// on one sphere, every sample of a cylinder ring on one circle), and the float test then
+// produced cavities that were not star-shaped: MEASURED on a cylinder r = 0.5, h = 1 at
+// targetEdge 0.15 — 321,464 "tets" from ~650 points, 185,076 of 186,069 boundary faces with
+// an interior vertex (overlapping garbage), and a sphere r = 1 at 0.3 that ran for 10+ minutes.
+// It was not sound before either, only rarer: on the pre-T-035 mesher the gate's validity check
+// (test/fea_tet_surface_conformance_gate.cpp) finds faces shared by more than two tets on the LE10 slab at
+// 0.115 (summed tet volume 3.2230 m^3 against 3.0582 m^3 enclosed by the boundary) and on a
+// sphere r = 1 at 0.1 — overlapping elements that went into the stiffness matrix unremarked.
+//
+// Now:
+//   * every coordinate is snapped to a power-of-two grid fine enough to be invisible (q <=
+//     2^-49 x the largest |coordinate| meshing sees, the super-tet corners at ~32x the model
+//     size: ~1e-13 m on these models), so every coordinate
+//     DIFFERENCE is an exact double and forge::native::orient3d / insphere (exact for exact
+//     differences) give the exact sign — the triangulation's combinatorics can no longer be
+//     corrupted by rounding;
+//   * tets carry face adjacency; a point is located by a randomized visibility walk (exact
+//     orientation), its cavity grown by breadth-first search over tets whose circumsphere
+//     STRICTLY contains it (exact insphere), then SHRUNK until every cavity boundary face is
+//     strictly visible from the point — so every new tet has strictly positive volume and the
+//     result is a valid tetrahedralization even for cospherical input (where Delaunay is not
+//     unique and a cospherical tie is resolved by keeping the old tet);
+//     (MUTATION-TESTED: with forge::native::orient3dNaive / insphereNaive in place of the
+//     exact predicates the gate fails — flat tets on the box, cylinder and sphere, and a
+//     non-manifold cavity on the LE10 slab at 0.075. With the shrink step removed it passes:
+//     with exact predicates the strict-insphere cavity of a Delaunay triangulation is already
+//     star-shaped, so the shrink is the guarantee for the case that should not occur, not a
+//     repair that runs.)
+//   * a point that cannot be inserted (an exact duplicate after snapping) is skipped and
+//     COUNTED on stderr, never silently;
+//   * each insertion costs a walk plus a local cavity, not a scan of every tet ever made.
+// The output node coordinates are the snapped ones (the tets are valid for those).
 
 struct LocalTet {
-    int n[4];           // node indices
-    Vec3   cc;          // circumsphere centre
-    double cr2 = 0.0;   // circumsphere radius²
-    bool   alive = true;
+    int n[4];           // node indices; tetVolume(n[0], n[1], n[2], n[3]) > 0
 };
-
-bool computeCircum(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
-                   Vec3& out, double& r2) {
-    // Solve (P - a)·(P - a) = (P - b)·(P - b) etc → linear in P.
-    // The standard expansion gives 2 (b - a)·P = |b|² − |a|² ⇒
-    //    A·P = rhs with A[i] = (Pi - a) and rhs[i] = (|Pi|² − |a|²)/2.
-    double A[3][3] = {
-        {b.x - a.x, b.y - a.y, b.z - a.z},
-        {c.x - a.x, c.y - a.y, c.z - a.z},
-        {d.x - a.x, d.y - a.y, d.z - a.z},
-    };
-    double rhs[3] = {
-        0.5 * (b.dot(b) - a.dot(a)),
-        0.5 * (c.dot(c) - a.dot(a)),
-        0.5 * (d.dot(d) - a.dot(a)),
-    };
-
-    // Gauss-Jordan solve of 3×3.
-    double M[3][4];
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) M[i][j] = A[i][j];
-        M[i][3] = rhs[i];
-    }
-    for (int i = 0; i < 3; ++i) {
-        int piv = i;
-        double best = std::abs(M[i][i]);
-        for (int k = i + 1; k < 3; ++k) {
-            if (std::abs(M[k][i]) > best) { best = std::abs(M[k][i]); piv = k; }
-        }
-        if (best < kEps) return false;
-        if (piv != i) std::swap(M[i], M[piv]);
-        double inv = 1.0 / M[i][i];
-        for (int j = i; j < 4; ++j) M[i][j] *= inv;
-        for (int k = 0; k < 3; ++k) {
-            if (k == i) continue;
-            double f = M[k][i];
-            for (int j = i; j < 4; ++j) M[k][j] -= f * M[i][j];
-        }
-    }
-    out = {M[0][3], M[1][3], M[2][3]};
-    Vec3 d_ = out - a;
-    r2 = d_.dot(d_);
-    return true;
-}
 
 struct FaceKey {
     int a, b, c;
@@ -352,8 +354,26 @@ struct FaceHash {
     }
 };
 
+// Orientation with tetVolume's sign, exact on snapped input. forge::native::orient3d is
+// positive when its 4th point lies BELOW the plane of the first three seen counter-clockwise,
+// which is the opposite sign of tetVolume.
+inline int orientSign(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d) {
+    return -forge::native::signValue(forge::native::orient3d(a.x, a.y, a.z, b.x, b.y, b.z,
+                                                             c.x, c.y, c.z, d.x, d.y, d.z));
+}
+// > 0 iff e is STRICTLY inside the circumsphere of the positive (tetVolume > 0) tet abcd.
+// forge::native::insphere wants its first four points with orient3d > 0 (tetVolume < 0),
+// hence b before a.
+inline int inSphereSign(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d, const Vec3& e) {
+    return forge::native::signValue(forge::native::insphere(b.x, b.y, b.z, a.x, a.y, a.z,
+                                                            c.x, c.y, c.z, d.x, d.y, d.z,
+                                                            e.x, e.y, e.z));
+}
+
 std::vector<LocalTet>
 bowyerWatson(std::vector<Vec3>& pts) {
+    const int N = static_cast<int>(pts.size());
+    if (N == 0) return {};
     // Wrap with a huge super-tetrahedron containing all points.
     double xmin=+1e30,ymin=+1e30,zmin=+1e30,xmax=-1e30,ymax=-1e30,zmax=-1e30;
     for (auto& p : pts) {
@@ -370,84 +390,200 @@ bowyerWatson(std::vector<Vec3>& pts) {
     // Big enough to contain everything by a healthy factor.
     double s = 32.0 * dmax;
 
-    int N = static_cast<int>(pts.size());
-    pts.push_back({cx - s, cy - s, cz - s}); int s0 = N + 0;
-    pts.push_back({cx + s, cy - s, cz - s}); int s1 = N + 1;
-    pts.push_back({cx,     cy + s, cz - s}); int s2 = N + 2;
-    pts.push_back({cx,     cy,     cz + s}); int s3 = N + 3;
+    // Snap to the grid q = 2^(e-50), 2^e > every |coordinate| meshing will see (the super
+    // corners bound them all). Grid values below 2^e differ by < 2^51 q: exact doubles.
+    const double M = std::max({std::abs(cx) + s, std::abs(cy) + s, std::abs(cz) + s});
+    int e2 = 0;
+    (void)std::frexp(M, &e2);                       // M < 2^e2
+    const double q = std::ldexp(1.0, e2 - 50);
+    auto snap = [q](double v) { return std::nearbyint(v / q) * q; };
+    for (auto& p : pts) { p.x = snap(p.x); p.y = snap(p.y); p.z = snap(p.z); }
+    pts.push_back({snap(cx - s), snap(cy - s), snap(cz - s)});
+    pts.push_back({snap(cx + s), snap(cy - s), snap(cz - s)});
+    pts.push_back({snap(cx),     snap(cy + s), snap(cz - s)});
+    pts.push_back({snap(cx),     snap(cy),     snap(cz + s)});
 
-    std::vector<LocalTet> tets;
+    struct BT {
+        int v[4];
+        int nb[4];                 // nb[j]: the tet across the face opposite v[j]; -1 = none
+        bool alive;
+        unsigned inCav;            // == stamp: in the current cavity
+        unsigned tested;           // == stamp: insphere already evaluated for this point
+    };
+    std::vector<BT> T;
+    T.reserve(static_cast<std::size_t>(N) * 7 + 16);
+    T.push_back({{N, N + 1, N + 2, N + 3}, {-1, -1, -1, -1}, true, 0u, 0u});
     {
-        LocalTet t;
-        t.n[0] = s0; t.n[1] = s1; t.n[2] = s2; t.n[3] = s3;
-        if (!computeCircum(pts[s0], pts[s1], pts[s2], pts[s3], t.cc, t.cr2)) {
-            throw std::runtime_error("forge::fea::tet: super-tet circumsphere failed");
-        }
-        tets.push_back(t);
+        const int o = orientSign(pts[N], pts[N + 1], pts[N + 2], pts[N + 3]);
+        if (o == 0) throw std::runtime_error("forge::fea::tet: degenerate super-tet");
+        if (o < 0) std::swap(T[0].v[0], T[0].v[1]);
     }
+    std::vector<int> freeList, cav, newIds;
+    struct BFace { int c, j, n; };
+    std::vector<BFace> bfaces;
+    struct EdgeRef { int a, b, tet, k; };
+    std::vector<EdgeRef> edges;
 
-    auto inSphere = [&](const LocalTet& t, const Vec3& p) {
-        Vec3 d = p - t.cc;
-        return d.dot(d) <= t.cr2 + 1e-12;
+    // Orientation of tet t with its vertex j replaced by P: > 0 iff P is strictly on the
+    // inner side of t's face j.
+    auto replacedOrient = [&](const BT& t, int j, const Vec3& P) {
+        const Vec3* q4[4] = {&pts[t.v[0]], &pts[t.v[1]], &pts[t.v[2]], &pts[t.v[3]]};
+        q4[j] = &P;
+        return orientSign(*q4[0], *q4[1], *q4[2], *q4[3]);
     };
 
+    std::uint32_t rng = 2463534242u;               // xorshift32, deterministic
+    auto nextRand = [&rng]() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
+    unsigned stamp = 0;
+    int hint = 0;
+    std::size_t duplicates = 0, unlocated = 0, rejected = 0;
+
     for (int pi = 0; pi < N; ++pi) {
-        const Vec3& P = pts[pi];
+        const Vec3 P = pts[pi];
 
-        // 1. Find all "bad" tets whose circumsphere contains P.
-        std::vector<int> bad;
-        bad.reserve(8);
-        for (int i = 0; i < static_cast<int>(tets.size()); ++i) {
-            if (!tets[i].alive) continue;
-            if (inSphere(tets[i], P)) bad.push_back(i);
+        // 1. Locate: randomized visibility walk, then an exhaustive scan if the walk fails.
+        int t = hint;
+        if (t < 0 || t >= static_cast<int>(T.size()) || !T[t].alive) {
+            t = -1;
+            for (int i = 0; i < static_cast<int>(T.size()); ++i) if (T[i].alive) { t = i; break; }
         }
-        if (bad.empty()) continue; // P sits exactly on a face — skip.
-
-        // 2. Collect boundary faces: faces appearing in exactly one bad tet.
-        std::unordered_map<FaceKey, int, FaceHash> faceCount;
-        faceCount.reserve(bad.size() * 4);
-        auto bumpFace = [&](int a, int b, int c) {
-            FaceKey k(a, b, c);
-            auto [it, ins] = faceCount.try_emplace(k, 0);
-            it->second++;
-        };
-        for (int bi : bad) {
-            const LocalTet& t = tets[bi];
-            bumpFace(t.n[1], t.n[2], t.n[3]);
-            bumpFace(t.n[0], t.n[2], t.n[3]);
-            bumpFace(t.n[0], t.n[1], t.n[3]);
-            bumpFace(t.n[0], t.n[1], t.n[2]);
-        }
-        // Kill bad tets.
-        for (int bi : bad) tets[bi].alive = false;
-
-        // 3. For each face with count==1, build a new tet with P.
-        for (auto& kv : faceCount) {
-            if (kv.second != 1) continue;
-            LocalTet nt;
-            nt.n[0] = kv.first.a;
-            nt.n[1] = kv.first.b;
-            nt.n[2] = kv.first.c;
-            nt.n[3] = pi;
-            // Ensure positive volume.
-            double V = tetVolume(pts[nt.n[0]], pts[nt.n[1]], pts[nt.n[2]], pts[nt.n[3]]);
-            if (V < 0.0) std::swap(nt.n[1], nt.n[2]);
-            if (!computeCircum(pts[nt.n[0]], pts[nt.n[1]], pts[nt.n[2]], pts[nt.n[3]],
-                               nt.cc, nt.cr2)) {
-                // Degenerate — skip (alive=false).
-                nt.alive = false;
+        bool found = false;
+        {
+            int prev = -1;
+            const std::size_t maxSteps = T.size() + 64;
+            for (std::size_t step = 0; t >= 0 && step < maxSteps; ++step) {
+                const int start = static_cast<int>(nextRand() & 3u);
+                int go = -1;
+                for (int k = 0; k < 4; ++k) {
+                    const int j = (start + k) & 3;
+                    const int nbj = T[t].nb[j];
+                    if (nbj < 0 || nbj == prev) continue;
+                    if (replacedOrient(T[t], j, P) < 0) { go = j; break; }
+                }
+                if (go < 0) { found = true; break; }
+                prev = t;
+                t = T[t].nb[go];
             }
-            tets.push_back(nt);
         }
+        if (!found) {
+            t = -1;
+            for (int i = 0; i < static_cast<int>(T.size()) && t < 0; ++i) {
+                if (!T[i].alive) continue;
+                bool in = true;
+                for (int j = 0; j < 4 && in; ++j) in = replacedOrient(T[i], j, P) >= 0;
+                if (in) t = i;
+            }
+            if (t < 0) { ++unlocated; continue; }
+        }
+        bool dup = false;
+        for (int k = 0; k < 4; ++k) {
+            const Vec3& w = pts[T[t].v[k]];
+            if (w.x == P.x && w.y == P.y && w.z == P.z) dup = true;
+        }
+        if (dup) { ++duplicates; continue; }
+
+        // 2. Cavity: tets reachable from t whose circumsphere strictly contains P. (A tet
+        //    that contains P in its closed interior always qualifies, so t's star is in.)
+        ++stamp;
+        cav.clear();
+        cav.push_back(t);
+        T[t].inCav = stamp;
+        T[t].tested = stamp;
+        for (std::size_t i = 0; i < cav.size(); ++i) {
+            const int c = cav[i];
+            for (int j = 0; j < 4; ++j) {
+                const int n = T[c].nb[j];
+                if (n < 0 || T[n].tested == stamp) continue;
+                T[n].tested = stamp;
+                if (inSphereSign(pts[T[n].v[0]], pts[T[n].v[1]], pts[T[n].v[2]], pts[T[n].v[3]], P) > 0) {
+                    T[n].inCav = stamp;
+                    cav.push_back(n);
+                }
+            }
+        }
+        // 3. Star-shape it: drop any tet (never t) with a boundary face P does not strictly see.
+        for (bool changed = true; changed;) {
+            changed = false;
+            for (int c : cav) {
+                if (c == t || T[c].inCav != stamp) continue;
+                for (int j = 0; j < 4; ++j) {
+                    const int n = T[c].nb[j];
+                    if (n >= 0 && T[n].inCav == stamp) continue;
+                    if (replacedOrient(T[c], j, P) <= 0) { T[c].inCav = 0; changed = true; break; }
+                }
+            }
+        }
+        cav.erase(std::remove_if(cav.begin(), cav.end(), [&](int c) { return T[c].inCav != stamp; }),
+                  cav.end());
+        bfaces.clear();
+        bool visible = true;
+        for (int c : cav) {
+            for (int j = 0; j < 4; ++j) {
+                const int n = T[c].nb[j];
+                if (n >= 0 && T[n].inCav == stamp) continue;
+                if (replacedOrient(T[c], j, P) <= 0) visible = false;
+                bfaces.push_back({c, j, n});
+            }
+        }
+        if (!visible) { for (int c : cav) T[c].inCav = 0; ++rejected; continue; }
+
+        // 4. Re-triangulate: one new tet per cavity boundary face, apex P.
+        newIds.clear();
+        edges.clear();
+        for (const BFace& f : bfaces) {
+            BT nt = T[f.c];                       // by value: T may reallocate below
+            nt.v[f.j] = pi;
+            nt.nb[0] = nt.nb[1] = nt.nb[2] = nt.nb[3] = -1;
+            nt.nb[f.j] = f.n;
+            nt.alive = true;
+            nt.inCav = 0;
+            nt.tested = 0;
+            int id;
+            if (!freeList.empty()) { id = freeList.back(); freeList.pop_back(); T[id] = nt; }
+            else { id = static_cast<int>(T.size()); T.push_back(nt); }
+            if (f.n >= 0) {
+                for (int k = 0; k < 4; ++k) if (T[f.n].nb[k] == f.c) { T[f.n].nb[k] = id; break; }
+            }
+            for (int k = 0; k < 4; ++k) {
+                if (k == f.j) continue;
+                int a = -1, b = -1;
+                for (int m = 0; m < 4; ++m) {
+                    if (m == f.j || m == k) continue;
+                    if (a < 0) a = nt.v[m]; else b = nt.v[m];
+                }
+                if (a > b) std::swap(a, b);
+                edges.push_back({a, b, id, k});
+            }
+            newIds.push_back(id);
+        }
+        std::sort(edges.begin(), edges.end(), [](const EdgeRef& x, const EdgeRef& y) {
+            return x.a != y.a ? x.a < y.a : x.b < y.b;
+        });
+        for (std::size_t i = 0; i < edges.size(); i += 2) {
+            if (i + 1 >= edges.size() || edges[i].a != edges[i + 1].a || edges[i].b != edges[i + 1].b ||
+                (i + 2 < edges.size() && edges[i + 2].a == edges[i].a && edges[i + 2].b == edges[i].b)) {
+                throw std::runtime_error("forge::fea::tet: Bowyer-Watson cavity boundary is not a closed 2-manifold");
+            }
+            T[edges[i].tet].nb[edges[i].k] = edges[i + 1].tet;
+            T[edges[i + 1].tet].nb[edges[i + 1].k] = edges[i].tet;
+        }
+        for (int c : cav) { T[c].alive = false; T[c].inCav = 0; freeList.push_back(c); }
+        hint = newIds.empty() ? hint : newIds.front();
     }
 
-    // 4. Strip any tet that still touches a super-corner.
+    if (duplicates + unlocated + rejected > 0) {
+        std::fprintf(stderr, "[feaTet] Bowyer-Watson skipped %zu of %d points (%zu exact duplicates after "
+                             "snapping, %zu unlocated, %zu without a star-shaped cavity)\n",
+                     duplicates + unlocated + rejected, N, duplicates, unlocated, rejected);
+    }
+
+    // 5. Strip any tet that still touches a super-corner.
     std::vector<LocalTet> out;
-    out.reserve(tets.size());
-    for (auto& t : tets) {
+    out.reserve(T.size());
+    for (const auto& t : T) {
         if (!t.alive) continue;
-        if (t.n[0] >= N || t.n[1] >= N || t.n[2] >= N || t.n[3] >= N) continue;
-        out.push_back(t);
+        if (t.v[0] >= N || t.v[1] >= N || t.v[2] >= N || t.v[3] >= N) continue;
+        out.push_back({{t.v[0], t.v[1], t.v[2], t.v[3]}});
     }
     // Trim super-tet corners from points buffer.
     pts.resize(N);
@@ -764,11 +900,16 @@ void assembleMe(double rho, double V, std::array<double, 144>& Me) {
 // Walks all FACE TopoDS entities, asks BRepMesh for triangulations, and
 // returns the unique vertex list + triangle index list.  Vertices are
 // merged within `mergeTol` (typically 1e-6 * bbox diagonal).
+//
+// `triFace` (optional, T-035) receives, per triangle, the index of the face it came from
+// in TopExp_Explorer(shape, TopAbs_FACE) order — the order buildCadGeometry() uses — so
+// the boundary refinement can put every point it adds back ON that face's geometry.
 
 void extractTrianglesAndVertices(const TopoDS_Shape& shape,
                                  double mergeTol,
                                  std::vector<Vec3>& uniqueVerts,
-                                 std::vector<std::array<int, 3>>& triangles) {
+                                 std::vector<std::array<int, 3>>& triangles,
+                                 std::vector<int>* triFace = nullptr) {
     // Spatial hash for vertex merging.
     auto key = [&](const Vec3& v) {
         double inv = 1.0 / mergeTol;
@@ -811,7 +952,9 @@ void extractTrianglesAndVertices(const TopoDS_Shape& shape,
         return id;
     };
 
+    int faceIndex = -1;
     for (TopExp_Explorer e(shape, TopAbs_FACE); e.More(); e.Next()) {
+        ++faceIndex;
         const TopoDS_Face& F = TopoDS::Face(e.Current());
         TopLoc_Location loc;
         Handle(Poly_Triangulation) tri = ::BRep_Tool::Triangulation(F, loc);
@@ -834,9 +977,412 @@ void extractTrianglesAndVertices(const TopoDS_Shape& shape,
             std::array<int, 3> t{nodeMap[a], nodeMap[b], nodeMap[c]};
             if (t[0] == t[1] || t[1] == t[2] || t[0] == t[2]) continue;
             triangles.push_back(t);
+            if (triFace) triFace->push_back(faceIndex);
         }
     }
 }
+
+// =========================================================================== //
+//  T-035 — boundary samples ON the CAD geometry                                //
+// =========================================================================== //
+//
+// MEASURED DEFECT (test/fea_tet_surface_conformance_gate.cpp, the NAFEMS LE10 slab,
+// t = 0.6, pre-T-035 mesher; deviations against the true ellipsoids):
+//
+//     targetEdge                          0.30     0.20     0.15     0.115    0.075
+//     outer-surface vertex max |dev| (m)  0.272    0.203    0.0701   0.0701   0.0701   <- frozen
+//     curved facet sag max (m)            0.193    0.143    0.0602   0.0681   0.0523   <- frozen
+//     LE10 mid-plane trace worst |dz| (m) 0        0.060    0.100    0.129    0.120    <- grows
+//     top-face area error (m^2)          -0.674   -0.371   -0.200   -0.194   -0.189    <- frozen
+//     LE10 sigma_yy error at D (%)        63.7     35.3     33.6     31.7     31.6     <- frozen
+//
+// densifyBoundaryRecursive() bisects the CHORDS of the surface tessellation and keeps the
+// chord midpoints. Subdividing a flat facet only ever produces points on that facet, so the
+// sag of the ORIGINAL tessellation is frozen into every finer mesh. The tessellation is made
+// at angDefl = 0.5 rad: a 0.25 rad half-angle on the outer ellipse's 2.33 m minimum radius
+// of curvature is a ~0.072 m sagitta — the scale of the frozen 0.070 m outer deviation above,
+// and of the frozen 0.2 m^2 the top face is short by (a polygon inscribed with that sag).
+//
+// refineBoundaryOnCad() splits with the same longest-edge rule and the same stopping
+// lengths, but puts every new point back ON the geometry:
+//   * a point on a tessellation edge shared by triangles of TWO faces (a crease, or a smooth
+//     seam between faces) goes onto the CAD EDGE CURVE the two faces share, so it is on both;
+//   * any other new point (edge midpoint, leaf barycentre) goes onto its face's surface,
+//     through the in-house R1 projector bounded to the face's UV box;
+//   * a point on a PLANAR face, or on an edge between two planar faces, is exact already.
+// A projection that fails, or that would move the point more than half the edge it splits
+// (a chord's sag is below that for any arc under 180 degrees, so a larger move landed on some
+// other part of the surface), keeps the chord point and is COUNTED (FORGE_FEA_TET_PROFILE=1).
+//
+// The split stays a BISECTION, so refinement is NESTED: halving targetEdge cuts every edge
+// longer than minLen into exactly twice as many pieces and keeps every earlier edge sample. The
+// price is that the boundary spacing is a staircase in targetEdge (an edge of length L ends at
+// L / 2^k, k the least with L / 2^k <= minLen): a step of less than 2x can leave a region
+// unrefined. MEASURED on the LE10 slab with projection: curved facet sag 0.002749 m at both
+// 0.15 and 0.115, the mid-plane trace 0.0751 m at both 0.20 and 0.15, while the tet count rose
+// ~2x per step. An n-section (cut into ceil(L / minLen) parts) was tried and measured: it does
+// not remove the staircase either (n is an integer: L = 0.39 m is cut into 3 at both 0.15 and
+// 0.115), and it loses the node row a bisected edge keeps at its midpoint — on LE10 the
+// mid-plane trace went from 7.5e-5 m to 0.1275 m at 0.115 and the error from 18.0 % to 19.2 %.
+// So convergence is asserted across ratio-2 steps (test/fea_tet_surface_conformance_gate.cpp).
+//
+// The interior lattice is unchanged except that a lattice point closer than kKeepOut *
+// targetEdge to the refined boundary triangulation is not inserted: it would sit between the
+// boundary samples and the surface and, once the outside tets are carved away, become a
+// boundary vertex off the geometry (a step). The keep-out alone was measured to change
+// nothing (2026-09-10, max |dev| identical at every level) because the frozen deviation was
+// the chord sag; with the samples on the geometry it is what keeps lattice points off it —
+// MUTATION-TESTED: without it 7 lattice vertices are exposed on the LE10 slab at 0.15 (inner
+// surface vertex deviation 2.1e-4 m instead of 2.3e-8 m) and 12 on LE1 at 0.09.
+
+constexpr double kKeepOut = 0.5;   // interior lattice keep-out from the boundary, x targetEdge
+
+bool feaTetProfileEnabled() {
+    static const bool on = [] {
+        const char* e = std::getenv("FORGE_FEA_TET_PROFILE");
+        return e && *e && *e != '0';
+    }();
+    return on;
+}
+
+struct CadFace {
+    Handle(Geom_Surface) surf;              // GLOBAL frame (BRep_Tool::Surface applies the location)
+    double u1 = 0.0, u2 = 0.0, v1 = 0.0, v2 = 0.0;   // the face's UV box (BRepTools::UVBounds)
+    bool planar = false;
+    bool ok = false;
+};
+struct CadEdge {
+    Handle(Geom_Curve) crv;                 // GLOBAL frame (BRep_Tool::Curve applies the location)
+    double f = 0.0, l = 0.0;
+    bool ok = false;
+};
+struct CadGeometry {
+    std::vector<CadFace> faces;                 // TopExp_Explorer(FACE) order == extractor order
+    std::vector<CadEdge> edges;                 // unique edges (IsSame)
+    std::vector<std::vector<int>> faceEdges;    // face -> its edge ids
+};
+
+CadGeometry buildCadGeometry(const TopoDS_Shape& shape) {
+    CadGeometry g;
+    std::vector<TopoDS_Edge> uniq;
+    std::unordered_map<const void*, std::vector<int>> byTShape;
+    for (TopExp_Explorer fe(shape, TopAbs_FACE); fe.More(); fe.Next()) {
+        const TopoDS_Face& F = TopoDS::Face(fe.Current());
+        CadFace cf;
+        try {
+            cf.surf = BRep_Tool::Surface(F);
+            if (!cf.surf.IsNull()) {
+                BRepTools::UVBounds(F, cf.u1, cf.u2, cf.v1, cf.v2);
+                Handle(Geom_Surface) basis = cf.surf;
+                if (auto tr = Handle(Geom_RectangularTrimmedSurface)::DownCast(basis); !tr.IsNull())
+                    basis = tr->BasisSurface();
+                cf.planar = !Handle(Geom_Plane)::DownCast(basis).IsNull();
+                cf.ok = cf.u2 > cf.u1 && cf.v2 > cf.v1;
+            }
+        } catch (...) {
+            cf.ok = false;
+        }
+        std::vector<int> ids;
+        for (TopExp_Explorer ee(F, TopAbs_EDGE); ee.More(); ee.Next()) {
+            const TopoDS_Edge& E = TopoDS::Edge(ee.Current());
+            auto& bucket = byTShape[E.TShape().get()];
+            int id = -1;
+            for (int c : bucket) if (uniq[c].IsSame(E)) { id = c; break; }
+            if (id < 0) {
+                id = static_cast<int>(uniq.size());
+                uniq.push_back(E);
+                bucket.push_back(id);
+                CadEdge ce;
+                try {
+                    double f = 0.0, l = 0.0;
+                    Handle(Geom_Curve) c = BRep_Tool::Curve(E, f, l);
+                    if (!c.IsNull() && l > f) { ce.crv = c; ce.f = f; ce.l = l; ce.ok = true; }
+                } catch (...) {
+                    ce.ok = false;
+                }
+                g.edges.push_back(ce);
+            }
+            if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+        }
+        g.faces.push_back(cf);
+        g.faceEdges.push_back(std::move(ids));
+    }
+    return g;
+}
+
+// Nearest point on an edge's 3-D curve: a coarse scan of [f, l], then Newton on
+// g(t) = C'(t).(C(t) - P), clamped to the edge's own range.
+bool projectOntoCurve(const CadEdge& e, const Vec3& p, Vec3& out, double& dist) {
+    if (!e.ok) return false;
+    try {
+        constexpr int kScan = 48;
+        double bestT = e.f, bestD = std::numeric_limits<double>::max();
+        for (int i = 0; i <= kScan; ++i) {
+            const double t = e.f + (e.l - e.f) * (static_cast<double>(i) / kScan);
+            const gp_Pnt c = e.crv->Value(t);
+            const double d = (Vec3{c.X(), c.Y(), c.Z()} - p).norm();
+            if (d < bestD) { bestD = d; bestT = t; }
+        }
+        double t = bestT;
+        for (int it = 0; it < 30; ++it) {
+            gp_Pnt C;
+            gp_Vec d1, d2;
+            e.crv->D2(t, C, d1, d2);
+            const Vec3 r{C.X() - p.x, C.Y() - p.y, C.Z() - p.z};
+            const Vec3 v1{d1.X(), d1.Y(), d1.Z()}, v2{d2.X(), d2.Y(), d2.Z()};
+            double h = v1.dot(v1) + v2.dot(r);
+            if (!(h > 1e-300)) h = v1.dot(v1);
+            if (!(h > 1e-300)) break;
+            const double tn = std::min(e.l, std::max(e.f, t - v1.dot(r) / h));
+            const bool done = std::abs(tn - t) <= 1e-15 * std::max(1.0, e.l - e.f);
+            t = tn;
+            if (done) break;
+        }
+        const gp_Pnt c = e.crv->Value(t);
+        out = Vec3{c.X(), c.Y(), c.Z()};
+        dist = (out - p).norm();
+        return std::isfinite(dist);
+    } catch (...) {
+        return false;
+    }
+}
+
+// Nearest point on a face's surface within the face's UV box. Uses the in-house R1 projector
+// (no TKGeomAlgo); a build without it has nothing to project with, and the caller keeps the
+// chord point — exactly the pre-T-035 behaviour, and counted.
+bool projectOntoFace(const CadFace& f, const Vec3& p, Vec3& out, double& dist) {
+#ifdef FORGE_NATIVE_PROJECTION
+    if (!f.ok) return false;
+    try {
+        const auto r = forge::occtproj::projectPointOnSurface(gp_Pnt(p.x, p.y, p.z), f.surf,
+                                                              f.u1, f.u2, f.v1, f.v2);
+        if (!r.IsDone() || r.NbPoints() < 1) return false;
+        const gp_Pnt& q = r.NearestPoint();
+        out = Vec3{q.X(), q.Y(), q.Z()};
+        dist = (out - p).norm();
+        return std::isfinite(dist);
+    } catch (...) {
+        return false;
+    }
+#else
+    (void)f; (void)p; (void)out; (void)dist;
+    return false;
+#endif
+}
+
+struct SurfaceRefineStats {
+    std::size_t added = 0;          // new boundary points actually inserted
+    bool capped = false;            // the budget bound the refinement (REPORTED, never silent)
+    std::size_t onFace = 0, onCrease = 0, planarExact = 0, unprojected = 0;
+};
+
+// Longest-edge bisection of the surface tessellation — the rule, stopping lengths, depth and
+// budget of densifyBoundaryRecursive — with every new point ON the CAD geometry (see the block
+// comment above). `pts` holds the tessellation vertices `triangles` index; `tryAdd(p)` appends
+// p to the point set unless a point already sits within the merge tolerance. Corners are read
+// BY VALUE per triangle: tryAdd may grow the vector `pts` refers to. `leaves` receives the
+// refined surface triangles (for the interior keep-out).
+template <class AddFn>
+void refineBoundaryOnCad(const std::vector<Vec3>& pts,
+                         const std::vector<std::array<int, 3>>& triangles,
+                         const std::vector<int>& triFace,
+                         const CadGeometry& cad,
+                         AddFn&& tryAdd,
+                         double minLen, double minArea,
+                         std::size_t budget, int maxDepth,
+                         std::vector<std::array<Vec3, 3>>& leaves,
+                         SurfaceRefineStats& st) {
+    const int nFaces = static_cast<int>(cad.faces.size());
+    auto faceOf = [&](std::size_t ti) -> int {
+        const int f = ti < triFace.size() ? triFace[ti] : -1;
+        return (f >= 0 && f < nFaces) ? f : -1;
+    };
+
+    // Tessellation edge -> the first two distinct faces whose triangles use it.
+    auto ekey = [](int a, int b) -> std::uint64_t {
+        if (a > b) std::swap(a, b);
+        return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(a)) << 32) |
+               static_cast<std::uint32_t>(b);
+    };
+    std::unordered_map<std::uint64_t, std::array<int, 2>> edgeFaces;
+    edgeFaces.reserve(triangles.size() * 2);
+    for (std::size_t ti = 0; ti < triangles.size(); ++ti) {
+        const int f = faceOf(ti);
+        for (int k = 0; k < 3; ++k) {
+            auto [it, ins] = edgeFaces.try_emplace(ekey(triangles[ti][k], triangles[ti][(k + 1) % 3]),
+                                                   std::array<int, 2>{f, -1});
+            if (!ins && it->second[0] != f && it->second[1] < 0) it->second[1] = f;
+        }
+    }
+    // A crease = an unordered pair of faces; its candidates are the CAD edges both share.
+    std::map<std::pair<int, int>, int> creaseId;
+    std::vector<std::vector<int>> creaseCands;
+    std::vector<std::pair<int, int>> creaseFaces;
+    auto tagOf = [&](int a, int b) -> int {
+        auto it = edgeFaces.find(ekey(a, b));
+        if (it == edgeFaces.end() || it->second[0] < 0 || it->second[1] < 0) return -1;
+        const int fa = std::min(it->second[0], it->second[1]);
+        const int fb = std::max(it->second[0], it->second[1]);
+        auto [ci, ins] = creaseId.try_emplace({fa, fb}, static_cast<int>(creaseCands.size()));
+        if (ins) {
+            std::vector<int> cands;
+            for (int e : cad.faceEdges[fa])
+                if (cad.edges[e].ok &&
+                    std::find(cad.faceEdges[fb].begin(), cad.faceEdges[fb].end(), e) != cad.faceEdges[fb].end())
+                    cands.push_back(e);
+            creaseCands.push_back(std::move(cands));
+            creaseFaces.push_back({fa, fb});
+        }
+        return ci->second;
+    };
+
+    auto onGeometry = [&](const Vec3& raw, double maxMove, int face, int crease) -> Vec3 {
+        if (crease >= 0) {
+            const auto [fa, fb] = creaseFaces[crease];
+            if (cad.faces[fa].planar && cad.faces[fb].planar) { ++st.planarExact; return raw; }  // a line
+            double bestD = std::numeric_limits<double>::max();
+            Vec3 best = raw;
+            for (int e : creaseCands[crease]) {
+                Vec3 q;
+                double d = 0.0;
+                if (projectOntoCurve(cad.edges[e], raw, q, d) && d < bestD) { bestD = d; best = q; }
+            }
+            if (bestD <= maxMove) { ++st.onCrease; return best; }
+            ++st.unprojected;
+            return raw;
+        }
+        if (face >= 0) {
+            if (cad.faces[face].planar) { ++st.planarExact; return raw; }
+            Vec3 q;
+            double d = 0.0;
+            if (projectOntoFace(cad.faces[face], raw, q, d) && d <= maxMove) { ++st.onFace; return q; }
+        }
+        ++st.unprojected;
+        return raw;
+    };
+
+    struct Item { Vec3 v[3]; int depth; int tag[3]; };   // tag[k]: edge (v[k], v[k+1])
+    std::vector<Item> stack;
+    stack.reserve(256);
+    for (std::size_t ti = 0; ti < triangles.size(); ++ti) {
+        const int face = faceOf(ti);
+        const auto& T = triangles[ti];
+        stack.push_back({{pts[T[0]], pts[T[1]], pts[T[2]]}, 0,
+                         {tagOf(T[0], T[1]), tagOf(T[1], T[2]), tagOf(T[2], T[0])}});
+        while (!stack.empty()) {
+            const Item it = stack.back();
+            stack.pop_back();
+            const Vec3 &A = it.v[0], &B = it.v[1], &C = it.v[2];
+            const double len[3] = {(B - A).norm(), (C - B).norm(), (A - C).norm()};
+            // Same tie-break as densifyBoundaryRecursive: ab, then bc, then ca.
+            int k = 2;
+            if (len[0] >= len[1] && len[0] >= len[2]) k = 0;
+            else if (len[1] >= len[2]) k = 1;
+            const double longest = len[k];
+            if (longest > minLen && it.depth < maxDepth) {
+                if (st.added >= budget) {
+                    st.capped = true;
+                    leaves.push_back({A, B, C});
+                    continue;
+                }
+                const Vec3 P0 = it.v[k], P1 = it.v[(k + 1) % 3], P2 = it.v[(k + 2) % 3];
+                const int t01 = it.tag[k], t12 = it.tag[(k + 1) % 3], t20 = it.tag[(k + 2) % 3];
+                // The midpoint is a function of the edge alone ((P0 + P1) * 0.5 is commutative),
+                // so the triangle on the other side of the edge makes the identical split and the
+                // refined surface stays conforming.
+                const Vec3 m = onGeometry((P0 + P1) * 0.5, 0.5 * longest, face, t01);
+                if (tryAdd(m)) ++st.added;
+                stack.push_back({{P0, m, P2}, it.depth + 1, {t01, -1, t20}});
+                stack.push_back({{m, P1, P2}, it.depth + 1, {t01, t12, -1}});
+            } else {
+                leaves.push_back({A, B, C});
+                const double area = 0.5 * (B - A).cross(C - A).norm();
+                if (area > minArea) {
+                    if (st.added < budget) {
+                        const Vec3 q = onGeometry((A + B + C) * (1.0 / 3.0), 0.5 * longest, face, -1);
+                        if (tryAdd(q)) ++st.added;
+                    } else {
+                        st.capped = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Closest point on triangle abc to p (Ericson, Real-Time Collision Detection, 5.1.5).
+Vec3 closestOnTriangle(const Vec3& p, const Vec3& a, const Vec3& b, const Vec3& c) {
+    const Vec3 ab = b - a, ac = c - a, ap = p - a;
+    const double d1 = ab.dot(ap), d2 = ac.dot(ap);
+    if (d1 <= 0.0 && d2 <= 0.0) return a;
+    const Vec3 bp = p - b;
+    const double d3 = ab.dot(bp), d4 = ac.dot(bp);
+    if (d3 >= 0.0 && d4 <= d3) return b;
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) return a + ab * (d1 / (d1 - d3));
+    const Vec3 cp = p - c;
+    const double d5 = ab.dot(cp), d6 = ac.dot(cp);
+    if (d6 >= 0.0 && d5 <= d6) return c;
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) return a + ac * (d2 / (d2 - d6));
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0)
+        return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    const double denom = 1.0 / (va + vb + vc);
+    return a + ab * (vb * denom) + ac * (vc * denom);
+}
+
+// Uniform bucket grid over the refined boundary triangles: "is p within r of the boundary?"
+// without a B-rep classifier call.
+class BoundaryProximity {
+public:
+    BoundaryProximity(const std::vector<std::array<Vec3, 3>>& tris, double cell)
+        : tris_(tris), inv_(1.0 / std::max(cell, 1e-30)) {
+        for (std::size_t t = 0; t < tris.size(); ++t) {
+            const Vec3& a = tris[t][0];
+            const Vec3& b = tris[t][1];
+            const Vec3& c = tris[t][2];
+            const Key lo = key({std::min({a.x, b.x, c.x}), std::min({a.y, b.y, c.y}), std::min({a.z, b.z, c.z})});
+            const Key hi = key({std::max({a.x, b.x, c.x}), std::max({a.y, b.y, c.y}), std::max({a.z, b.z, c.z})});
+            for (long long i = lo[0]; i <= hi[0]; ++i)
+                for (long long j = lo[1]; j <= hi[1]; ++j)
+                    for (long long k = lo[2]; k <= hi[2]; ++k)
+                        cells_[Key{i, j, k}].push_back(static_cast<int>(t));
+        }
+    }
+    bool within(const Vec3& p, double r) const {
+        const Key lo = key(p - Vec3{r, r, r}), hi = key(p + Vec3{r, r, r});
+        const double r2 = r * r;
+        for (long long i = lo[0]; i <= hi[0]; ++i)
+            for (long long j = lo[1]; j <= hi[1]; ++j)
+                for (long long k = lo[2]; k <= hi[2]; ++k) {
+                    auto it = cells_.find(Key{i, j, k});
+                    if (it == cells_.end()) continue;
+                    for (int t : it->second) {
+                        const Vec3 q = closestOnTriangle(p, tris_[t][0], tris_[t][1], tris_[t][2]);
+                        if ((q - p).normSquared() < r2) return true;
+                    }
+                }
+        return false;
+    }
+
+private:
+    using Key = std::array<long long, 3>;
+    struct KeyHash {
+        std::size_t operator()(const Key& k) const noexcept {
+            std::uint64_t h = 1469598103934665603ull;
+            for (auto v : k) { h ^= static_cast<std::uint64_t>(v); h *= 1099511628211ull; }
+            return static_cast<std::size_t>(h);
+        }
+    };
+    Key key(const Vec3& v) const {
+        return {static_cast<long long>(std::floor(v.x * inv_)), static_cast<long long>(std::floor(v.y * inv_)),
+                static_cast<long long>(std::floor(v.z * inv_))};
+    }
+    const std::vector<std::array<Vec3, 3>>& tris_;
+    double inv_;
+    std::unordered_map<Key, std::vector<int>, KeyHash> cells_;
+};
 
 } // anonymous namespace
 
@@ -879,11 +1425,14 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
 
     std::vector<Vec3> bndPts;
     std::vector<std::array<int, 3>> triangles;
-    extractTrianglesAndVertices(shape, mergeTol, bndPts, triangles);
+    std::vector<int> triFace;
+    extractTrianglesAndVertices(shape, mergeTol, bndPts, triangles, &triFace);
 
     if (bndPts.empty() || triangles.empty()) {
         throw std::runtime_error("forge::fea::tet::meshShape: BRepMesh produced no triangles");
     }
+
+    std::size_t nSurfPts = 0;   // [0, nSurfPts) of bndPts are boundary samples; the rest lattice
 
     // 2b. Densify seeds.
     //
@@ -893,9 +1442,12 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
     // we explicitly seed:
     //   (a) surface points: subdivide every triangle edge whose length
     //       exceeds 1.25 * targetEdge into one extra midpoint, plus the
-    //       triangle barycenter if its area is large.
+    //       triangle barycenter if its area is large — every such point
+    //       put back ON the CAD face / edge it belongs to (T-035,
+    //       refineBoundaryOnCad).
     //   (b) interior points: regular grid spaced by targetEdge inside
-    //       the AABB, classified IN by BRepClass3d_SolidClassifier.
+    //       the AABB, classified IN by BRepClass3d_SolidClassifier, and
+    //       kept at least kKeepOut * targetEdge off the boundary (T-035).
     //
     // De-duplication uses a spatial hash with cell size = mergeTol.
     {
@@ -937,11 +1489,13 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
         // triangle list to avoid iterating new points).
         const double minLen = 1.25 * targetEdge;
         const double minArea = 0.5 * targetEdge * targetEdge;
-        std::size_t bndAdded = 0;
-        bool bndCapped = false;
-        densifyBoundaryRecursive(bndPts, triangles, tryAdd, minLen, minArea,
-                                 static_cast<std::size_t>(seedBudget), 40,
-                                 bndAdded, bndCapped);
+        const CadGeometry cad = buildCadGeometry(shape);
+        std::vector<std::array<Vec3, 3>> leaves;
+        SurfaceRefineStats rst;
+        refineBoundaryOnCad(bndPts, triangles, triFace, cad, tryAdd, minLen, minArea,
+                            static_cast<std::size_t>(seedBudget), 40, leaves, rst);
+        const bool bndCapped = rst.capped;
+        nSurfPts = bndPts.size();
         if (bndCapped) {
             std::fprintf(stderr,
                          "[feaTet] boundary densification hit its budget (%d points) at "
@@ -957,16 +1511,29 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
         double dx = (xmax - xmin) / (nx + 1);
         double dy = (ymax - ymin) / (ny + 1);
         double dz = (zmax - zmin) / (nz + 1);
+        const double keepOut = kKeepOut * targetEdge;
+        const BoundaryProximity nearBoundary(leaves, targetEdge);
+        std::size_t latticeIn = 0, latticeKeptOut = 0;
         for (int ix = 1; ix <= nx; ++ix) {
             for (int iy = 1; iy <= ny; ++iy) {
                 for (int iz = 1; iz <= nz; ++iz) {
                     Vec3 p{xmin + ix * dx, ymin + iy * dy, zmin + iz * dz};
+                    if (nearBoundary.within(p, keepOut)) { ++latticeKeptOut; continue; }
                     gp_Pnt gp(p.x, p.y, p.z);
                     classifier.Perform(gp, mergeTol);
                     if (classifier.State() != TopAbs_IN) continue;
-                    tryAdd(p);
+                    if (tryAdd(p)) ++latticeIn;
                 }
             }
+        }
+        if (feaTetProfileEnabled()) {
+            std::fprintf(stderr,
+                         "[feaTet] targetEdge=%.6g boundary: %zu tessellation verts, +%zu refined "
+                         "(on face %zu, on crease %zu, planar-exact %zu, UNPROJECTED %zu)%s; "
+                         "lattice: %zu inserted, %zu within the %.3g keep-out\n",
+                         targetEdge, bndPts.size() - rst.added - latticeIn, rst.added, rst.onFace,
+                         rst.onCrease, rst.planarExact, rst.unprojected, rst.capped ? " CAPPED" : "",
+                         latticeIn, latticeKeptOut, keepOut);
         }
     }
 
@@ -993,6 +1560,28 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
             gp_Pnt p(c.x, c.y, c.z);
             classifier.Perform(p, Precision::Confusion());
             if (classifier.State() == TopAbs_IN) kept.push_back(t);
+        }
+        if (feaTetProfileEnabled() && !kept.empty()) {
+            // Boundary recovery census: a face of the carved mesh that lies on its boundary
+            // and has a LATTICE vertex is a lattice point exposed on the surface (a step).
+            std::unordered_map<FaceKey, int, FaceHash> fc;
+            fc.reserve(kept.size() * 4);
+            for (const auto& t : kept) {
+                const int* n = t.n;
+                for (const FaceKey& k : {FaceKey(n[1], n[2], n[3]), FaceKey(n[0], n[2], n[3]),
+                                         FaceKey(n[0], n[1], n[3]), FaceKey(n[0], n[1], n[2])})
+                    ++fc[k];
+            }
+            std::size_t bFaces = 0, exposed = 0;
+            const int ns = static_cast<int>(nSurfPts);
+            for (const auto& kv : fc) {
+                if (kv.second != 1) continue;
+                ++bFaces;
+                if (kv.first.a >= ns || kv.first.b >= ns || kv.first.c >= ns) ++exposed;
+            }
+            std::fprintf(stderr, "[feaTet] carve: %zu of %zu Delaunay tets kept; %zu boundary faces, "
+                                 "%zu with an exposed lattice vertex\n",
+                         kept.size(), bw.size(), bFaces, exposed);
         }
         if (!kept.empty()) {
             // Build nodes — use the union of points referenced by kept tets.
