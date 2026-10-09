@@ -78,8 +78,8 @@ const native::brep::Solid* nativeSolidOf(ShapeHandle h) {
     // lookups raise and catch a C++ exception on what is meant to become the
     // kernel's interchange read would be paying for a branch with a throw.
     if (reg.kindOf(h) != ShapeKind::NativeSolid) return nullptr;
-    // A BORROW by contract (header): valid while the handle is. T-183 follow-up:
-    // a lease-returning sibling for callers that may race a release.
+    // A BORROW by contract (header): valid while the handle is. A caller that
+    // may race a release takes nativeSolidLease() (below) instead.
     return reg.getNativeSolid(h).share().get();
   } catch (...) {
     return nullptr;
@@ -103,6 +103,53 @@ const native::mesh::HalfEdgeMesh* nativeMeshOf(ShapeHandle h) {
   (void)h;
   return nullptr;
 #endif
+}
+
+// ── the owning siblings (T-261) ──────────────────────────────────────────────
+// The SAME lookups as the borrows above — same kind check, kept for the same
+// cost reason, same never-throw refusal — except that the registry's lease is
+// RETURNED instead of being unwrapped and dropped. That one difference is the
+// whole fix: the caller now co-owns the payload, so a release on another thread
+// between this return and the caller's last read frees nothing it is reading.
+//
+// A release that lands between kindOf() and getNativeSolid() makes the second
+// call throw ("invalid handle"); the catch answers an empty lease, which is the
+// truth by then — the handle names nothing.
+
+NativeLease<native::brep::Solid> nativeSolidLease(ShapeHandle h) {
+#ifdef FORGE_NATIVE_BREP
+  try {
+    const ShapeRegistry& reg = ShapeRegistry::instance();
+    if (reg.kindOf(h) != ShapeKind::NativeSolid) return {};
+    return reg.getNativeSolid(h);
+  } catch (...) {
+    return {};
+  }
+#else
+  (void)h;
+  return {};
+#endif
+}
+
+NativeLease<native::mesh::HalfEdgeMesh> nativeMeshLease(ShapeHandle h) {
+#ifdef FORGE_NATIVE_BREP
+  try {
+    const ShapeRegistry& reg = ShapeRegistry::instance();
+    if (reg.kindOf(h) != ShapeKind::NativeMesh) return {};
+    return reg.getNativeMesh(h);
+  } catch (...) {
+    return {};
+  }
+#else
+  (void)h;
+  return {};
+#endif
+}
+
+NativeShapeLease nativeShapeLease(ShapeHandle h) {
+  // The facade is built over the solid lease and keeps it: the Shape views the
+  // topology, the lease beside it pins the builder that owns that topology.
+  return NativeShapeLease(nativeSolidLease(h));
 }
 
 }  // namespace forge

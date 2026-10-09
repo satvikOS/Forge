@@ -66,6 +66,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include "forge/NativeLease.hpp"
 #include "forge/ShapeHandle.hpp"
 
 #include <TopoDS_Shape.hxx>
@@ -86,42 +87,9 @@ namespace forge {
 // OCCT-typed surface on top of it, and every existing includer of this file keeps
 // working because it is included below.
 
-// [[clang::lifetimebound]] on an accessor of a temporary lease makes clang warn
-// (-Wdangling) when its result outlives the lease — i.e. an unpinned borrow.
-#if defined(__has_cpp_attribute)
-#if __has_cpp_attribute(clang::lifetimebound)
-#define FORGE_LIFETIMEBOUND [[clang::lifetimebound]]
-#endif
-#endif
-#ifndef FORGE_LIFETIMEBOUND
-#define FORGE_LIFETIMEBOUND
-#endif
-
-// A read lease on a native payload: shared ownership, read-only access. Holding
-// one keeps the payload alive however many times its handle is released; the
-// payload dies with the last lease or entry that shares it.
-template <class T>
-class NativeLease {
-public:
-    NativeLease() = default;
-    explicit NativeLease(std::shared_ptr<const T> p) noexcept : p_(std::move(p)) {}
-
-    // Source compatibility with the reference-returning accessors this replaced:
-    // `f(reg.getNativeSolid(h))` binds f's `const T&` through here and the
-    // temporary lease pins the payload until f returns.
-    operator const T&() const noexcept FORGE_LIFETIMEBOUND { return *p_; }
-
-    const T& operator*() const noexcept FORGE_LIFETIMEBOUND { return *p_; }
-    const T* operator->() const noexcept { return p_.get(); }
-    const T* get() const noexcept FORGE_LIFETIMEBOUND { return p_.get(); }
-    explicit operator bool() const noexcept { return static_cast<bool>(p_); }
-
-    // The underlying shared ownership, for a caller that must store it.
-    const std::shared_ptr<const T>& share() const noexcept { return p_; }
-
-private:
-    std::shared_ptr<const T> p_;
-};
+// NativeLease<T> (and FORGE_LIFETIMEBOUND) live in forge/NativeLease.hpp, which
+// names no OCCT type, so the OCCT-free seam (forge/NativeShapeAccess.hpp) can
+// return the same lease the registry does (T-261). Included above.
 
 class ShapeRegistry {
 public:

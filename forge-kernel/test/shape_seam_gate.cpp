@@ -33,6 +33,14 @@
 //   S5  the counts are read THROUGH the seam.  A scratch builder with different
 //       dimensions is alive at the same time, and mutation 5 proves the gate
 //       would notice if the numbers came from it instead.
+//   S6  THE LEASES (T-261), the same OCCT-free include path: nativeSolidLease()
+//       and nativeShapeLease() keep the registered builder alive after its
+//       handle is released, and it dies when the last lease goes.  Measured
+//       with a weak_ptr to the builder -- a number, not a use-after-free.  The
+//       borrow (nativeSolidOf) is asked the same question and does NOT pin:
+//       that is the defect the leases exist for, shown without reading freed
+//       memory.  (The concurrent version, under ASan/TSan, is
+//       run_native_access_lease_gate.sh.)
 //
 // MUTATIONS (--mutate N).  Each replaces ONE production step with the defect it
 // guards against, deterministically and without UB:
@@ -42,6 +50,10 @@
 //   3  lookup answers NULL for a valid native handle.            (S1/S3 fail)
 //   4  release leaves the entry in the registry.                 (S4 must fail)
 //   5  the topology counts are taken from the scratch builder.   (S5 must fail)
+//   6  nativeSolidLease's answer is replaced by a NON-OWNING lease around the
+//      borrow -- the pre-T-261 contract dressed as a lease.       (S6 must fail)
+//   7  nativeShapeLease's facade is detached from its pin (a lease
+//      that views the solid and owns nothing).                  (S6 must fail)
 //
 // Pure C++20 + the kernel library.  No test framework, no OCCT header.
 #include "forge/NativeShapeAccess.hpp"
@@ -106,6 +118,27 @@ static shape::Shape lookupShape(ShapeHandle h, brep::Solid* pretend) {
         return shape::Shape();
     }
     return forge::nativeShapeOf(h);
+}
+
+// S6's two leases, each behind one indirection for mutations 6 and 7.
+static forge::NativeLease<brep::Solid> leaseSolid(ShapeHandle h) {
+    if (g_mutation == 6) {
+        // DEFECT: the right pointer, no shared ownership: the borrow, renamed.
+        return forge::NativeLease<brep::Solid>(std::shared_ptr<const brep::Solid>(
+            std::shared_ptr<const brep::Solid>(), forge::nativeSolidOf(h)));
+    }
+    return forge::nativeSolidLease(h);
+}
+
+static forge::NativeShapeLease leaseShape(ShapeHandle h) {
+    if (g_mutation == 7) {
+        // DEFECT: a facade over the solid with a pin that owns nothing.
+        const forge::NativeShapeLease real = forge::nativeShapeLease(h);
+        return forge::NativeShapeLease(forge::NativeLease<brep::Solid>(
+            std::shared_ptr<const brep::Solid>(std::shared_ptr<const brep::Solid>(),
+                                               real.solid().get())));
+    }
+    return forge::nativeShapeLease(h);
 }
 
 static void releaseHandle(ShapeHandle h) {
@@ -227,6 +260,65 @@ int main(int argc, char** argv) {
           "after release the handle is gone from the registry");
     check(forge::nativeShapeOf(h).isNull(),
           "and the seam answers NULL for it");
+
+    // ── S6: the leases pin, the borrow does not ──────────────────────────────
+    // Each sub-check registers a FRESH box, drops the caller's own reference,
+    // and watches the builder through a weak_ptr: expired() is the number that
+    // says whether anything still owns it. Nothing below reads through a
+    // pointer whose owner may be gone.
+    std::printf("[S6] a lease keeps the body alive past its handle; a borrow does not\n");
+    auto freshBox = [](std::weak_ptr<brep::TopologyBuilder>& watch) {
+        auto b = std::make_shared<brep::TopologyBuilder>();
+        brep::Solid* bs = b->buildBox({0, 0, 0}, {2, 3, 4});
+        watch = b;
+        return forge::addNativeSolidShape(std::move(b), bs);
+    };
+    {
+        std::weak_ptr<brep::TopologyBuilder> watch;
+        const ShapeHandle hb = freshBox(watch);
+        const brep::Solid* borrowed = forge::nativeSolidOf(hb);
+        check(borrowed != nullptr && !watch.expired(), "a fresh box is registered and owned");
+        forge::releaseShape(hb);
+        check(watch.expired(),
+              "the BORROW pins nothing: release frees the body the pointer still names "
+              "(why the leases exist)");
+    }
+    {
+        std::weak_ptr<brep::TopologyBuilder> watch;
+        const ShapeHandle hl = freshBox(watch);
+        forge::NativeLease<brep::Solid> lease = leaseSolid(hl);
+        const bool got = check(static_cast<bool>(lease), "nativeSolidLease() answers a lease");
+        forge::releaseShape(hl);
+        check(!forge::shapeHandleKnown(hl), "the leased handle is released");
+        const bool pinned = check(!watch.expired(),
+              "nativeSolidLease(): the body OUTLIVES its handle while the lease is held");
+        if (got && pinned) {
+            std::size_t faces = 0;
+            for (const brep::Shell* sh : lease->shells) faces += sh ? sh->faces.size() : 0;
+            check(faces == 6, "and still reads as the 6-face box", "got " + std::to_string(faces));
+        }
+        lease = forge::NativeLease<brep::Solid>();
+        check(watch.expired(), "it dies with the last lease (no leak)");
+    }
+    {
+        std::weak_ptr<brep::TopologyBuilder> watch;
+        const ShapeHandle hs = freshBox(watch);
+        forge::NativeShapeLease sl = leaseShape(hs);
+        const bool got = check(!sl.isNull() && sl.shape().isSolid(),
+                               "nativeShapeLease() answers a SOLID facade");
+        forge::releaseShape(hs);
+        const bool pinned = check(!watch.expired(),
+              "nativeShapeLease(): the topology OUTLIVES its handle while the lease is held");
+        if (got && pinned) {
+            const std::size_t nf = shape::Explorer(sl.shape(), shape::ShapeType::FACE).count();
+            check(nf == 6, "and the facade still walks 6 faces", "got " + std::to_string(nf));
+        }
+        sl = forge::NativeShapeLease();
+        check(watch.expired(), "it dies with the last lease (no leak)");
+    }
+    check(!forge::nativeSolidLease(h), "nativeSolidLease(released handle) is empty");
+    check(forge::nativeShapeLease(h).isNull(), "nativeShapeLease(released handle) is null");
+    check(!forge::nativeSolidLease(bogus), "nativeSolidLease(unknown handle) is empty");
 
     return verdict();
 }

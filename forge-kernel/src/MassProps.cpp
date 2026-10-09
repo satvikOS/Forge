@@ -23,7 +23,8 @@
 // REPRESENTATION CUT, STEP 1 (2026-09-16) — the two native branches below no
 // longer reach the native payload through ShapeRegistry. They read it through
 // the OCCT-free seam, forge/NativeShapeAccess.hpp: shapeKind() for the dispatch
-// (ShapeHandle.hpp), nativeSolidOf() / nativeMeshOf() for the bodies. Neither
+// (ShapeHandle.hpp), nativeSolidLease() / nativeMeshLease() for the bodies (T-261:
+// owning leases; they were borrows, nativeSolidOf() / nativeMeshOf()). Neither
 // header names an OCCT type, so the native half of this file is now expressed
 // entirely in native nouns.
 //
@@ -43,7 +44,7 @@
 //        is outside this change's write set. Deleting the fallback to make the
 //        number look better would change what the kernel computes.
 #ifdef FORGE_NATIVE_BREP
-#include "forge/NativeShapeAccess.hpp"         // nativeSolidOf / nativeMeshOf — no OCCT
+#include "forge/NativeShapeAccess.hpp"         // nativeSolidLease / nativeMeshLease — no OCCT
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/MassProps.hpp"
 #include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
@@ -68,8 +69,11 @@ MassProperties massProperties(ShapeHandle h) {
         // caller in the tree reads either string.
         const ShapeKind k = shapeKind(h);
         if (k == ShapeKind::NativeSolid) {
-            const forge::native::brep::Solid* s = nativeSolidOf(h);
-            if (s == nullptr) {
+            // T-261: a LEASE, held for the whole integration. The borrow this
+            // replaces (nativeSolidOf) was valid only while the handle was, and a
+            // release on another thread mid-integration freed what was being read.
+            const auto s = nativeSolidLease(h);
+            if (!s) {
                 // Faithful to getNativeSolid(), which REFUSED by throwing rather
                 // than let a native handle take the OCCT route. Unreachable
                 // today (addNativeSolid rejects a null solid, so no NativeSolid
@@ -84,8 +88,8 @@ MassProperties massProperties(ShapeHandle h) {
             return out;
         }
         if (k == ShapeKind::NativeMesh) {
-            const forge::native::mesh::HalfEdgeMesh* m = nativeMeshOf(h);
-            if (m == nullptr) {
+            const auto m = nativeMeshLease(h);  // T-261: held, as above
+            if (!m) {
                 throw std::runtime_error(
                     "forge::massProperties — NativeMesh handle with no native mesh");
             }
