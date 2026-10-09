@@ -81,11 +81,26 @@ python3 "$GEN" --check >/dev/null || fail "the restored header does not match th
 
 # ── B. build the gate ────────────────────────────────────────────────────────
 BIN="$WORK/op_constraint_bridge_test"
+# ── ★ ONE clang++ INVOCATION NAMING 47 UNITS IS A SERIAL COMPILE ────────────
+# The driver compiles them one after another however many cores the runner has.
+# MEASURED on merged head 29070823 this step was 86 s of the forge::ui job's
+# 2,858 s, and all nine of its mutations are switches inside the binary
+# (--mutate N), so the whole 86 s is ONE build. Compiling the units in parallel
+# under forge-nproc changes nothing about what is compiled, with what flags, or
+# in what order they are linked: the mutations still run against a binary built
+# from these exact sources.
+. "$ROOT/tools/gates/forge_cxx_cache.sh"
+FCC_CXX="$CXX"
 # shellcheck disable=SC2086
-if ! $CXX $FLAGS $INC ui/src/*.cpp ui/test/op_constraint_bridge_test.cpp -o "$BIN" \
-     2>"$WORK/build.err"; then
+FCC_CFLAGS=($FLAGS $INC)
+FCC_LDFLAGS=()
+FCC_SRCS=(ui/src/*.cpp ui/test/op_constraint_bridge_test.cpp)
+FCC_CACHE="$WORK/objcache"
+FCC_JOBS="$(fcc_jobs)"
+if ! fcc_build "$BIN" "$WORK/build.err"; then
   echo "[op-constraint] BUILD FAIL"; tail -30 "$WORK/build.err"; exit 1
 fi
+echo "[op-constraint] built with JOBS=$FCC_JOBS: compiled $FCC_COMPILED unit(s), reused $FCC_REUSED"
 
 # ── B1. the clean run ────────────────────────────────────────────────────────
 if "$BIN" >"$WORK/clean.out" 2>&1; then
