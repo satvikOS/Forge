@@ -240,13 +240,100 @@ M3 now survives. The guard decides every near-degenerate visibility question wit
 wider than the snap's reach, and every wrong sign the naive orientation gives lies inside that
 band, so those errors no longer reach the mesh. The slab meshes come out with the same tet
 counts as with exact predicates. The only symptom left is one point that the walk could not
-locate (LE1 at 0.09, 1 of 3367 points). The mesher reports it on stderr, but the public
-`Mesh` has no field for it, so the gate cannot see it. The exact predicates are kept: they
+locate (LE1 at 0.09, 1 of 3367 points). The mesher reported it on stderr only, and the public
+`Mesh` had no field for it, so the gate could not see it. The exact predicates are kept: they
 are what guarantees that the location walk and the cavity's closed boundary are correct.
+
+**T-256 closed this gap.** `Mesh` now carries the Bowyer-Watson insertion census
+(`bwInputPoints`, `bwInsertedPoints`, `bwSkippedDuplicate`, `bwSkippedUnlocated`,
+`bwSkippedNoCavity`, `bwFailed`), and the gate asserts on every mesh that every point was
+inserted. M3 is now killed: `LE1 edge 0.090: Bowyer-Watson inserted every point (3366 of 3367;
+... 1 unlocated ...)`, verdict FAIL (`~/.forge-program/evidence/T-256/mutation_M3.log`).
+
+## Sliver removal (T-253)
+
+The T-035 meshes are valid, but they are Delaunay meshes, and Delaunay meshes keep
+**slivers**: four nearly coplanar, nearly cocircular vertices. Such a tet has a good
+circumradius-to-edge ratio and almost no volume. Here they come from cospherical sampling by
+construction. The cylinder's samples lie on rings. The LE1 slab's top and bottom faces are
+sampled at the same (x, y), so every quad through the thickness is a near-rectangle. The
+lattice is cubic. One sliver is enough to ruin the conditioning of the whole solve.
+
+`improveSlivers()` (in `src/FeaTet.cpp`) runs on the carved tet set, before the nodes are
+numbered. It uses four operations:
+
+1. **Edge removal** on an interior edge whose ring has at most 8 tets (the 3-2 flip is the
+   n = 3 case). The ring polygon is re-triangulated with the O(n^3) dynamic programme that
+   maximises the minimum quality of the new tets (Shewchuk 2002). This operation does most
+   of the work.
+2. **2-3 flip** on an interior face.
+3. **Smoothing of an interior (lattice) vertex** that belongs to a tet still bad after the
+   flips. The vertex moves to its neighbours' centroid or along a compass search, snapped
+   to the Bowyer-Watson grid, and only if the worst tet of its star improves.
+4. **Removal of a flat cap**: a tet with radius ratio below 0.02 and exactly two boundary
+   faces, where the surface is flat across their common edge (interior dihedral at least
+   150 degrees). The cap is removed only if its opposite edge is not already a boundary
+   edge and no vertex would be orphaned. This is a surface edge flip: the boundary
+   vertices stay where they are, on the geometry.
+
+Every operation must raise the minimum quality of the tets it touches. So the global
+minimum never falls, and the loop terminates. Every new or moved tet must be exactly
+positively oriented, so the result is still a valid tetrahedralization; the gate checks
+this at every level. The whole step takes at most 81 ms on the gate's meshes (cylinder at
+0.075). `FORGE_FEA_TET_IMPROVE=0` turns it off for A/B runs.
+
+The gate now reports, for every level, the minimum radius ratio and the number of tets
+below 0.02. It asserts that this number is 0 on the LE10 slab, the LE1 slab and the
+primitives. It also asserts that LE1 at 0.09 converges in at most 4638 CG iterations,
+one tenth of the 46,381 measured after T-035.
+
+Measured on the same library build with the step off and on (T-035 meshes otherwise
+unchanged; evidence `~/.forge-program/evidence/T-253/`):
+
+| Mesh | Tets < 0.02, before -> after | Min radius ratio, before -> after | CG iterations, before -> after |
+|---|---|---|---|
+| LE1 0.17 / 0.12 / 0.09 | 4 / 4 / 16 -> 0 / 0 / 0 | 3.8e-7 / 6.4e-10 / 1.35e-11 -> 0.122 / 0.118 / 0.078 | 2739 / 6437 / **46381** -> 422 / 528 / **666** |
+| LE10 0.30 / 0.20 / 0.15 / 0.115 / 0.075 | 14 / 109 / 210 / 23 / 792 -> 0 | 3.1e-5 / 1.6e-8 / 2.5e-6 / 2.6e-4 / 6.2e-7 -> 0.151 / 0.025 / 0.023 / 0.151 / 0.032 | 210 / 1403 / 1099 / 1165 / 1620 -> 188 / 335 / 441 / 556 / 829 |
+| Cylinder 0.3 / 0.15 / 0.075 | 80 / 511 / 2473 -> 0 | 1.1e-4 / 6.1e-6 / 3.8e-7 -> 0.062 / 0.065 / 0.033 | |
+| Sphere 0.4 / 0.2 / 0.1 | 0 -> 0 | 0.312 / 0.161 / 0.045 -> 0.312 / 0.161 / 0.152 | |
+| Box 0.2 / 0.1 | 0 -> 0 | 0.064 / 0.144 -> 0.182 / 0.265 | |
+| fea_smoke cantilever | 0 -> 0 | 0.104 -> 0.149 | 1819 -> 1776 |
+| Slender box 0.2 x 0.01 x 0.01 | 56 -> 0 | 0.013 -> 0.086 | |
+
+LE1 at 0.09 now needs 70x fewer CG iterations. The NAFEMS errors are reported, not
+asserted. LE1 is unchanged (-26.04 / -17.43 / -9.22 %). LE10 moved slightly closer to the
+target (42.9 / 30.1 / 19.5 / 16.4 / 8.9 % against 43.5 / 31.6 / 22.2 / 16.9 / 9.3 %).
+
+**The cost of removing caps.** A removed cap is replaced on the surface by the other
+diagonal of a near-planar quad, which lies slightly inside it. Removing the opposite edge
+instead would keep the outer diagonal, but that is not possible: on the cylinder at 0.15,
+all 355 caps were removed, 290 of them because that edge's ring has no valid
+re-triangulation at all and the other 65 because it has only a worse one. On the LE10
+slab the curved facet sag is unchanged at every level. On the cylinder (0.3 / 0.15 / 0.075)
+the facet sag goes from 6.9e-3 / 1.7e-3 / 4.4e-4 m to 6.9e-3 / 2.5e-3 / 6.4e-4 m, and the
+volume error from -0.83 / -0.15 / -0.030 % to -0.98 / -0.33 / -0.065 %. Both still converge
+at the same order, and the gate's convergence checks still pass.
+
+Mutation proofs for T-253 (each built in a separate build directory, run, then reverted
+and `cmp`-verified):
+
+| Mutant | Result |
+|---|---|
+| `FORGE_FEA_TET_IMPROVE=0` (no sliver removal: the T-035 meshes, every level line identical to T-035's) | Killed, 12 RED: no-sliver on all 5 slab levels, all 3 LE1 levels and all 3 cylinder levels; LE1 0.09 CG 46381 > 4638 |
+| M10: no edge removal | Killed on LE1: 3 / 2 / 8 slivers left (min 6.7e-6), CG 4932 > 4638. Prim and surface still pass: caps, smoothing and 2-3 flips cover them |
+| M8: no flat-cap removal | Killed: cylinder 5 / 98 / 403 slivers left; slab 1 / 6 / 56 / 170 at 0.30 / 0.20 / 0.15 / 0.075 |
+| M9: no interior smoothing | Killed: cylinder at 0.075 (1 left, 0.019); slab at 0.15 (1, 7.4e-4) and 0.075 (6, 2.9e-4) |
+
+M8 and M9 were first run with a harness that did not force the mutated file to recompile
+(GNU make 3.81 judged the object up to date), so they appeared to survive. Those runs are
+kept, marked invalid, under `evidence/T-253/invalid_mutant_runs/`. The harness now deletes
+the object before each build and checks that the build log shows `FeaTet.cpp` being
+recompiled.
 
 ## What this does not fix (measured, open)
 
-- **Geometric slivers and solver conditioning (T-253).** CG iterations for LE1 at
+- **Geometric slivers and solver conditioning: fixed by T-253** (section above). As found
+  by T-035: CG iterations for LE1 at
   0.17 / 0.12 / 0.09 are 2739 / 6437 / 46381; before T-035 they were 1310 / 1079 / 25736.
   The flattest tets are boundary slivers on the curved faces, not rounding artifacts:
   four samples on two near-vertical generators of the RZ = 30 ellipsoid, with 6V/Lmax^3

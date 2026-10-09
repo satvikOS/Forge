@@ -59,6 +59,10 @@
 //   NUMERICALLY FLAT tet (checkNotFlat: min 6V / Lmax^3 >= kFlatFloor), and (T-256) to have
 //   INSERTED EVERY POINT the mesher handed its Bowyer-Watson fill (checkAllInserted: no
 //   duplicate, unlocated or cavity-rejected point; Mesh::bwInputPoints/bwInsertedPoints).
+//   T-253: every level REPORTS its min radius ratio and its count of SLIVERS (radius ratio
+//   3 r_in / R < kSliverRR = 0.02), and the LE10 slab, the LE1 slab and the primitives
+//   ASSERT that count is 0 (checkNoSliver); LE1 at targetEdge 0.09 asserts CG <= 4638
+//   iterations, 10x below the 46,381 measured after T-035. NAFEMS errors stay REPORTED.
 //
 // Usage: fea_tet_surface_conformance_gate [surface|le10|le1|prim|le11|quality|all]   (default all)
 //   FORGE_FEA_GATE_EDGES="0.3,0.2,..." overrides the Part S / LE10 sweep (diagnostics only;
@@ -172,11 +176,13 @@ std::vector<BFace> tetBoundaryFaces(const tet::Mesh& m) {
 // 321,464 overlapping "tets" on a cylinder r 0.5 at targetEdge 0.15; no assertion here caught
 // it before this check existed.
 double radiusRatio(const P3& a, const P3& b, const P3& c, const P3& d);
+constexpr double kSliverRR = 0.02;   // a tet of radius ratio below this is a SLIVER (checkNoSliver)
 
 struct Validity {
     std::size_t overShared = 0, nonManifoldEdges = 0, boundaryFaces = 0, inverted = 0;
     double tetVolume = 0, enclosedVolume = 0;
-    double minRadiusRatio = 1;   // element quality, REPORTED (geometric slivers are T-253)
+    double minRadiusRatio = 1;   // element quality: REPORTED; slivers ASSERTED by checkNoSliver (T-253)
+    std::size_t slivers = 0;     // tets of radius ratio < kSliverRR
     double minRelVolume = 1;     // min 6|V| / (longest edge)^3: ASSERTED by checkNotFlat
     // T-256: the mesher's Bowyer-Watson insertion census, copied off the Mesh; ASSERTED by
     // checkAllInserted.
@@ -207,7 +213,9 @@ Validity meshValidity(const tet::Mesh& m) {
         const double v6 = ux * (vy * wz - vz * wy) - uy * (vx * wz - vz * wx) + uz * (vx * wy - vy * wx);
         if (!(v6 > 0)) ++v.inverted;
         v.tetVolume += std::abs(v6) / 6.0;
-        v.minRadiusRatio = std::min(v.minRadiusRatio, radiusRatio(nodeP(m, t.a), nodeP(m, t.b), nodeP(m, t.c), nodeP(m, t.d)));
+        const double rr = radiusRatio(nodeP(m, t.a), nodeP(m, t.b), nodeP(m, t.c), nodeP(m, t.d));
+        v.minRadiusRatio = std::min(v.minRadiusRatio, rr);
+        if (rr < kSliverRR) ++v.slivers;
         const P3 q[4] = {nodeP(m, t.a), nodeP(m, t.b), nodeP(m, t.c), nodeP(m, t.d)};
         double l2 = 0;
         for (int i = 0; i < 4; ++i)
@@ -286,6 +294,19 @@ void checkAllInserted(const std::string& label, const Validity& v) {
                   v.bwFailed ? "; THREW" : "");
     check(v.bwInput > 0 && !v.bwFailed && v.bwDuplicate == 0 && v.bwUnlocated == 0 && v.bwNoCavity == 0 &&
               v.bwInserted == v.bwInput, b);
+}
+
+// No SLIVER (T-253): every tet's radius ratio 3 r_in / R (1 regular, 0 flat) >= kSliverRR.
+// A sliver is the Delaunay failure mode — four nearly coplanar, nearly cocircular vertices:
+// a good circumradius-to-edge ratio and almost no volume — and one is enough to wreck the
+// conditioning of the whole solve. MEASURED after T-035 (no sliver removal): LE1 16 slivers
+// at 0.09, min 1.35e-11, CG 46,381 iterations; the LE10 slab 792 at 0.075; the cylinder
+// 2473 at 0.075. checkNotFlat (relative volume, rounding level) cannot see a geometric sliver.
+void checkNoSliver(const std::string& label, const Validity& v) {
+    char b[200];
+    std::snprintf(b, sizeof b, "%s: no sliver (%zu tets of radius ratio < %.2g; min radius ratio %.3g)",
+                  label.c_str(), v.slivers, kSliverRR, v.minRadiusRatio);
+    check(v.slivers == 0 && v.minRadiusRatio >= kSliverRR, b);
 }
 
 // Area and UNIT outward normal (flipped away from the apex) — triAreaOutwardNormal.
@@ -572,7 +593,7 @@ SurfaceLevel measureSurface(const tet::Mesh& m, const Classified& c, double t, d
         V += std::abs(v6) / 6.0;
         const double rr = radiusRatio(a, b, cc, d);
         s.minRadiusRatio = std::min(s.minRadiusRatio, rr);
-        if (rr < 0.02) ++s.slivers;
+        if (rr < kSliverRR) ++s.slivers;
     }
     s.volErrPct = (V - exactVolume(t)) / exactVolume(t) * 100.0;
     s.valid = meshValidity(m);
@@ -940,6 +961,7 @@ int main(int argc, char** argv) {
                                         ": valid tetrahedralization (" + validityText(s.valid) + ")");
                 checkNotFlat("edge " + std::to_string(s.edge).substr(0, 5), s.valid);
                 checkAllInserted("edge " + std::to_string(s.edge).substr(0, 5), s.valid);
+                checkNoSliver("edge " + std::to_string(s.edge).substr(0, 5), s.valid);
                 std::snprintf(b, sizeof b, "edge %.4g: every curved-boundary vertex on its ellipsoid (max |dev| %.3g <= %.0e m)",
                               s.edge, s.vertMax, kOnGeometry);
                 check(s.vertMax <= kOnGeometry, b);
@@ -966,6 +988,7 @@ int main(int argc, char** argv) {
                                             ": valid tetrahedralization (" + validityText(l.valid) + ")");
                     checkNotFlat("LE10 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
                     checkAllInserted("LE10 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
+                    checkNoSliver("LE10 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
                 }
             }
         }
@@ -990,10 +1013,10 @@ int main(int argc, char** argv) {
             L1.push_back(l);
             std::printf("[le-level] case=LE1 edge=%.4g nodes=%zu tets=%zu sigma=%.4f target=92.7 errPct=%.2f "
                         "probe=(%.3f,%.3f,%.3f) outerNodes=%zu outerFaces=%zu outerWorstDev2D=%.4g loadedArea=%.5f "
-                        "resultantErr=%.3e converged=%d cgIters=%d meshMs=%.0f solveMs=%.0f minRadiusRatio=%.3g minRelVolume=%.3g\n",
+                        "resultantErr=%.3e converged=%d cgIters=%d meshMs=%.0f solveMs=%.0f minRadiusRatio=%.3g slivers=%zu minRelVolume=%.3g\n",
                         e, l.nodes, l.tets, l.sigma / 1e6, l.errPct, l.probe.x, l.probe.y, l.probe.z, l.d.outerNodes,
                         l.d.outerFaces, l.d.outerWorstDev2D, l.d.loadedArea, l.d.resultantErr, l.converged ? 1 : 0,
-                        l.cgIters, ms, l.solveMs, l.valid.minRadiusRatio, l.valid.minRelVolume);
+                        l.cgIters, ms, l.solveMs, l.valid.minRadiusRatio, l.valid.slivers, l.valid.minRelVolume);
             std::fflush(stdout);
         }
         std::printf("\n--- PART L: LE1 elliptic membrane, sigma_yy at D(2,0) [REPORTED, not asserted] ---\n");
@@ -1014,6 +1037,12 @@ int main(int argc, char** argv) {
                                     ": valid tetrahedralization (" + validityText(l.valid) + ")");
             checkNotFlat("LE1 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
             checkAllInserted("LE1 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
+            checkNoSliver("LE1 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
+            if (std::abs(l.edge - 0.09) < 1e-12) {
+                std::snprintf(b, sizeof b, "LE1 edge 0.09: CG converged in %d <= 4638 iterations (46,381 after T-035, before "
+                                           "sliver removal: >= 10x fewer)", l.cgIters);
+                check(l.converged && l.cgIters <= 4638, b);
+            }
             std::snprintf(b, sizeof b, "LE1 edge %.4g: every curved-boundary vertex on its ellipsoid (max |dev| %.3g <= %.0e m)",
                           l.edge, l.curvedMaxDev, kOnGeometry);
             check(l.curvedMaxDev <= kOnGeometry, b);
@@ -1044,8 +1073,8 @@ int main(int argc, char** argv) {
                     }
                 const double vErr = std::abs(V - a * b * c) / (a * b * c);
                 const Validity bv = meshValidity(m);
-                std::printf("[prim-level] shape=box edge=%.3g nodes=%zu tets=%zu volRelErr=%.3e worstPlaneDist=%.3e shell=%d minRadiusRatio=%.3g minRelVolume=%.3g\n",
-                            e, m.nodes.size(), m.tets.size(), vErr, worst, m.shellTetsOnly ? 1 : 0, bv.minRadiusRatio, bv.minRelVolume);
+                std::printf("[prim-level] shape=box edge=%.3g nodes=%zu tets=%zu volRelErr=%.3e worstPlaneDist=%.3e shell=%d minRadiusRatio=%.3g slivers=%zu minRelVolume=%.3g\n",
+                            e, m.nodes.size(), m.tets.size(), vErr, worst, m.shellTetsOnly ? 1 : 0, bv.minRadiusRatio, bv.slivers, bv.minRelVolume);
                 char msg[200];
                 std::snprintf(msg, sizeof msg, "box edge %.3g: exact (volume rel err %.2e <= 1e-9, boundary vertices on the faces %.2e <= 1e-9, solid)",
                               e, vErr, worst);
@@ -1054,6 +1083,7 @@ int main(int argc, char** argv) {
                                    validityText(bv) + ")");
                 checkNotFlat("box edge " + std::to_string(e).substr(0, 5), bv);
                 checkAllInserted("box edge " + std::to_string(e).substr(0, 5), bv);
+                checkNoSliver("box edge " + std::to_string(e).substr(0, 5), bv);
             }
         }
         struct Spec { const char* name; int kind; double R, H; std::vector<double> edges; };
@@ -1069,8 +1099,8 @@ int main(int argc, char** argv) {
                 const double Vx = sp.kind == 1 ? kPi * sp.R * sp.R * sp.H : 4.0 / 3.0 * kPi * sp.R * sp.R * sp.R;
                 PrimLevel L = measurePrim(m, e, sp.kind, sp.R, sp.H, Vx);
                 P.push_back(L);
-                std::printf("[prim-level] shape=%s edge=%.3g tets=%zu curvedVerts=%zu vertMax=%.3e facetSag=%.3e volRelErr=%+.3e shell=%d minRadiusRatio=%.3g minRelVolume=%.3g\n",
-                            sp.name, e, L.tets, L.curved, L.vertMax, L.facetSag, L.volErr, L.shell ? 1 : 0, L.valid.minRadiusRatio, L.valid.minRelVolume);
+                std::printf("[prim-level] shape=%s edge=%.3g tets=%zu curvedVerts=%zu vertMax=%.3e facetSag=%.3e volRelErr=%+.3e shell=%d minRadiusRatio=%.3g slivers=%zu minRelVolume=%.3g\n",
+                            sp.name, e, L.tets, L.curved, L.vertMax, L.facetSag, L.volErr, L.shell ? 1 : 0, L.valid.minRadiusRatio, L.valid.slivers, L.valid.minRelVolume);
             }
             std::vector<double> vm, fs;
             for (const auto& L : P) { vm.push_back(L.vertMax); fs.push_back(L.facetSag); }
@@ -1086,6 +1116,7 @@ int main(int argc, char** argv) {
                                         ": valid tetrahedralization (" + validityText(L.valid) + ")");
                 checkNotFlat(std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5), L.valid);
                 checkAllInserted(std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5), L.valid);
+                checkNoSliver(std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5), L.valid);
             }
         }
     }
@@ -1115,9 +1146,9 @@ int main(int argc, char** argv) {
     if (doQ) {
         std::printf("\n--- PART Q: element quality, the fea_smoke cantilever (static) ---------------\n");
         const Cantilever c = solveCantilever();
-        std::printf("[quality-level] shape=cantilever edge=0.002 nodes=%zu tets=%zu meshMs=%.0f minRadiusRatio=%.3g minRelVolume=%.3g "
+        std::printf("[quality-level] shape=cantilever edge=0.002 nodes=%zu tets=%zu meshMs=%.0f minRadiusRatio=%.3g slivers=%zu minRelVolume=%.3g "
                     "fixed=%zu tip=%zu converged=%d cgIters=%d solveMs=%.0f maxDisp=%.3f um maxVM=%.2f MPa\n",
-                    c.nodes, c.tets, c.meshMs, c.valid.minRadiusRatio, c.valid.minRelVolume, c.fixedN, c.tipN, c.converged ? 1 : 0,
+                    c.nodes, c.tets, c.meshMs, c.valid.minRadiusRatio, c.valid.slivers, c.valid.minRelVolume, c.fixedN, c.tipN, c.converged ? 1 : 0,
                     c.cgIters, c.solveMs, c.maxDisp * 1e6, c.maxVM / 1e6);
         check(!c.shell && c.valid.ok(), "cantilever: solid, valid tetrahedralization (" + validityText(c.valid) + ")");
         checkNotFlat("cantilever", c.valid);
@@ -1144,8 +1175,8 @@ int main(int argc, char** argv) {
             const tet::Mesh m = tet::meshShapeFromHandle(h, 0.004);
             forge::ShapeRegistry::instance().release(h);
             const Validity v = meshValidity(m);
-            std::printf("[quality-level] shape=slender-box edge=0.004 nodes=%zu tets=%zu minRadiusRatio=%.3g minRelVolume=%.3g\n",
-                        m.nodes.size(), m.tets.size(), v.minRadiusRatio, v.minRelVolume);
+            std::printf("[quality-level] shape=slender-box edge=0.004 nodes=%zu tets=%zu minRadiusRatio=%.3g slivers=%zu minRelVolume=%.3g\n",
+                        m.nodes.size(), m.tets.size(), v.minRadiusRatio, v.slivers, v.minRelVolume);
             check(!m.shellTetsOnly && v.ok(), "slender box: solid, valid tetrahedralization (" + validityText(v) + ")");
             checkNotFlat("slender box", v);
             checkAllInserted("slender box", v);
