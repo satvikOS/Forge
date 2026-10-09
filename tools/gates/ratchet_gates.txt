@@ -1,0 +1,26 @@
+# ratchet_gates.txt — the forge.gate_result/v1 RATCHET REGISTRY (T-185).
+#
+# A ratchet asserts "no worse than the pinned set of known misses". It can NEVER
+# accept (tools/gates/gate_result.sh). But `kind` is declared by whoever writes the
+# record, so that rule held only for ratchets that SAID they were ratchets.
+# MEASURED at 14f4a277: `gate_result.sh run --gate kernel.s0_conformance --kind hard`
+# over "[s0-ratchet] pass=70 fail=5" recorded acceptance=true, `validate` passed it
+# and `verdict` printed ACCEPTED -- five known conformance failures, accepted.
+#
+# Every gate id below is a ratchet, whoever writes its record:
+#   * `emit` / `run` refuse to record it under any other kind;
+#   * `validate` (and so `verdict` and release_gate_results.sh) REJECTS a record
+#     that names it under any other kind, however that record was produced.
+# Independently, `run` refuses --kind other than ratchet for a COMMAND that names a
+# *ratchet* script, so an unregistered id cannot launder a ratchet either.
+#
+# CONVERTING A RATCHET TO A HARD GATE is the one legitimate way off this list: when
+# its pinned set has reached zero, delete its line here in a reviewed change, in the
+# same change that flips its CI step to --kind hard. That is a decision, never a side
+# effect of a number reaching 0.
+#
+# This file is FAIL-CLOSED: gate_result.sh refuses to emit or validate without it.
+#
+# Format: <gate id> <the script that IS the ratchet>   (whitespace-separated; '#' comments)
+kernel.s0_conformance     forge-kernel/test/ft/s0_ratchet.sh
+kernel.nafems_accuracy    forge-kernel/test/fea_nafems_ratchet.sh

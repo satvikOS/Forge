@@ -751,8 +751,34 @@ jobs:
       # toolkits too, and one brew formula carries both.
       - name: Install OCCT
         run: brew install opencascade
-      - name: s0 ratchet
-        run: bash forge-kernel/test/ft/s0_ratchet.sh
+      - name: s0 ratchet (recorded as forge.gate_result/v1 -- a ratchet NEVER accepts)
+        # Same command, same exit code: `gate_result.sh run` tees the ratchet's
+        # output, exits with ITS rc, and appends one record. T-185: this ratchet
+        # is GREEN at 5 known failures, and the release path used to read that
+        # green as "the kernel is correct". The record says PASSED (nothing got
+        # worse) with known_misses=5 and acceptance=false (it is not accepted).
+        # MEASURED locally on b609b41d: rc 0, pass=70 fail=5, acceptance=false.
+        shell: bash
+        env:
+          FORGE_GATE_RESULTS: ${{ runner.temp }}/gate-results/s0_conformance.jsonl
+        run: |
+          bash tools/gates/gate_result.sh run --gate kernel.s0_conformance --kind ratchet \
+            --known-misses-from '^\[s0-ratchet\] pass=[0-9]+ fail=([0-9]+)' \
+            --input forge-kernel/test/ft/s0_ratchet.sh \
+            --input forge-kernel/test/ft/s0_conformance_baseline.txt \
+            --input forge-kernel/test/ft/build_s0_acceptance.sh \
+            --input forge-kernel/test/ft/s0_acceptance_test.cpp \
+            --input forge-kernel/src/ft/FeatureTreeCompiler.cpp \
+            --log "$RUNNER_TEMP/gate-results/s0_conformance.log" \
+            -- bash forge-kernel/test/ft/s0_ratchet.sh
+      - name: publish the s0 verdict record (desktop-release reads it for this commit)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: gate-results-s0
+          path: ${{ runner.temp }}/gate-results/
+          if-no-files-found: warn
+          retention-days: 30
       # SECTION is the fourth OCCT boolean and the only one of the four whose
       # result is not a body: FUSE/CUT/COMMON return a solid, SECTION returns the
       # curve where two bodies' faces cross. forge::ft's kindOf() ends in
@@ -890,6 +916,17 @@ jobs:
         # once. forge-desktop has its own registration check, but that one
         # enumerates *_gate.cpp CMake targets, so a *_gate.sh was invisible to it.
         run: bash forge-desktop/test/update_apply_refuses_gate.sh
+
+      - name: the signature PRIMITIVE refuses what it cannot attribute (10 checks)
+        # The step above names this gate in its comment ("update_signature_gate.sh
+        # proves the verification primitive") -- and until T-185 that COMMENT was
+        # the gate's only "wiring": the shell-gate registration ratchet counted a
+        # comment as an invocation, so a SECURITY gate that had never run read as
+        # wired. Real openssl keypairs, real signatures, the verifier compiled with
+        # the public half baked in; both directions for every rule. macOS-only by
+        # construction (BSD sed -i '', /usr/bin/openssl). MEASURED locally: 10/10
+        # PASS in 3.1 s.
+        run: bash forge-desktop/test/update_signature_gate.sh
 
   guardian:
     name: Forge Guardian single-instance gate (macOS, 11 mutations)
@@ -2511,6 +2548,20 @@ jobs:
         # ratcheting an OCCT count on a .node nothing rebuilds.
         shell: bash
         run: bash forge-kernel/test/orphan_source_ratchet.sh forge-kernel/build-app
+
+      - name: can Forge still OPEN and SAVE a real CAD file (624 checks + 5 mutations)
+        # forge-desktop/test/run_file_exchange_gate.sh had NEVER run in CI. Its only
+        # "wiring" was a COMMENT in run_file_dialog_gate.sh ("Globbed, not listed,
+        # for the reason run_file_exchange_gate.sh gives"), which the shell-gate
+        # registration ratchet read as an invocation until T-185 taught it that a
+        # comment is not wiring. It drives forge::ui's command registry and
+        # forge::io against the libforge_kernel_core.dylib built just above (its
+        # default FORGE_KERNEL_BUILD_DIR is forge-kernel/build-app), no window.
+        # --mutations breaks the write five ways and requires each to be caught.
+        # MEASURED locally on b609b41d: 624 checks, 0 failed; mutations 1-5 caught
+        # (11/11/25/86/101 checks red); 61 s wall.
+        shell: bash
+        run: bash forge-desktop/test/run_file_exchange_gate.sh --mutations
 
       - name: ★ OCCT ledger on the artifact the APP links (not the .node)
         # The ledger was ratcheted on forge-kernel/build/Release/forge-kernel.node --
