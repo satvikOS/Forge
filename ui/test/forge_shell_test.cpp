@@ -203,7 +203,12 @@ int main() {
   // All three are document-level File commands that emit no feature-IR, so they
   // belong here for the same reason the other four do. 26 + 2 + 1 = 29, and the
   // gate below re-derives it from the live registry rather than trusting this.
-  CHECK_EQ_INT(app.shellCommands, 29);
+  //
+  // 30 since T-230: file.export_drawing, the Drawing workspace's way out. It is
+  // document-level, emits no feature-IR and writes a copy beside the document,
+  // exactly as file.export_gcode does, and is disabled in a shell with no
+  // drawing source for the same reason. 29 + 1 = 30.
+  CHECK_EQ_INT(app.shellCommands, 30);
   CHECK(shell.registry().contains("file.import_step"));
   CHECK(shell.registry().contains("file.export_step"));
   // They must be DISABLED with no exchange installed, rather than failing when

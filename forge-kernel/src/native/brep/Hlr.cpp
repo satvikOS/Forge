@@ -990,6 +990,11 @@ std::vector<SilhouetteCurve> computeMeshSilhouettes(
                 if (!sameNurbsSurface(sa, sb, opt.smoothTol)) continue;
                 double da = vdot(fnorm(fa), N);
                 double db = vdot(fnorm(fb), N);
+                // Rounding noise on an EDGE-ON facet is not a side of the view: read
+                // it as the exact 0 the straddle test already files as "away" (see
+                // HlrOptions::edgeOnDot). Both edge-on -> no straddle, as for exact 0.
+                if (std::fabs(da) <= opt.edgeOnDot) da = 0.0;
+                if (std::fabs(db) <= opt.edgeOnDot) db = 0.0;
                 if ((da <= 0.0) == (db <= 0.0)) continue;   // no straddle -> interior
                 SilhouetteCurve sc;
                 sc.poly3d = sampleEdge(e, opt.samplesPerEdge);

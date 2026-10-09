@@ -257,6 +257,9 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
+    # T-230: the drawing's view projection through the kernel's native HLR. In
+    # BOTH this library and its sanitizer twin, because ForgeFrame.cpp calls it.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core PUBLIC
@@ -717,6 +720,21 @@ target_link_libraries(forge_desktop_drawing_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_drawing_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ---------------------------------------------------- the DRAWING EXPORT gate
+# T-230. HEADLESS: File > Save the Drawing dispatched through the ONE registry on
+# the app's own part, the SVG and DXF read back and every view's lines compared
+# with the part's hand-derived dimensions at the chosen scale -- placement by
+# projection angle, hidden edges of the bore, the title block's scale -- then a
+# dimension and the hole's location are edited and the drawing must follow.
+# `--mutate 1..9` each break one link, through a DrawingSource the gate installs
+# in front of the frame's own -- the application carries no mutation switch.
+add_executable(forge_desktop_drawing_export_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/drawing_export_gate.cpp")
+target_compile_options(forge_desktop_drawing_export_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_drawing_export_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_drawing_export_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # ---------------------------------------------------- the SIMULATION gate
 # The Restraints and Loads panels, against a real solve of a real cantilever and
 # the Euler-Bernoulli deflection for it. `--mutate 1..6` breaks the SET-UP the
@@ -899,6 +917,9 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
+    # T-230: the drawing's view projection through the kernel's native HLR. In
+    # BOTH this library and its sanitizer twin, because ForgeFrame.cpp calls it.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core_asan PUBLIC
@@ -1130,6 +1151,14 @@ foreach(_dm RANGE 1 6)
     add_test(NAME forge_desktop_drawing_mutation_${_dm}
              COMMAND forge_desktop_drawing_gate --mutate ${_dm})
     set_tests_properties(forge_desktop_drawing_mutation_${_dm} PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_drawing_export_gate COMMAND forge_desktop_drawing_export_gate)
+# Same WILL_FAIL idiom: a mutation that starts exiting zero is one whose defect
+# the gate no longer detects. Do not "fix" that by removing the property.
+foreach(_de RANGE 1 9)
+    add_test(NAME forge_desktop_drawing_export_mutation_${_de}
+             COMMAND forge_desktop_drawing_export_gate --mutate ${_de})
+    set_tests_properties(forge_desktop_drawing_export_mutation_${_de} PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_file_exchange_gate COMMAND forge_desktop_file_exchange_gate)
 add_test(NAME forge_desktop_file_dialog_gate COMMAND forge_desktop_file_dialog_gate)

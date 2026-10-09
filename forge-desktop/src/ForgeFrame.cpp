@@ -16,6 +16,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <sys/stat.h>
@@ -31,6 +32,7 @@
 // the kernel itself performs, so the Open and the rebuild cannot disagree about
 // what a STEP file is. The header declares no kernel type.
 #include "CalculatorHost.hpp"
+#include "DrawingHost.hpp"
 #include "FileExchangeHost.hpp"
 #include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
@@ -38,6 +40,7 @@
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/Drawing.hpp"
+#include "forge/ui/DrawingExport.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -496,6 +499,9 @@ std::size_t ForgeFrame::wirePartCommands() {
   // has a frame has it, including every headless gate. A seam wired only in
   // main.cpp is a seam no gate exercises.
   shell_.setMachineProgramSource(this);
+  // AND THE THIRD (T-230): the drawing sheet, for file.export_drawing. Here and
+  // not in main.cpp for the same reason -- every headless gate has a frame.
+  shell_.setDrawingSource(this);
   note("Part tools ready: " + std::to_string(added));
 
   // ── EVERY COMMAND GETS A KEY, and this is the only moment that can do it ──
@@ -8591,7 +8597,9 @@ void ForgeFrame::showOnlyBody(std::uint32_t bodyIndex) {
 const ForgeFrame::DrawingLayout& ForgeFrame::drawingLayout() {
   const forge::ui::TitleBlockData& t = drawing_.titleBlock();
   const std::size_t tris = scene_.triangleCount();
-  if (drawingLayoutBuilt_ && drawingTriangles_ == tris && drawingSheetId_ == t.sheetId &&
+  const std::size_t builds = scene_.builds();
+  if (drawingLayoutBuilt_ && drawingTriangles_ == tris && drawingBuilds_ == builds &&
+      drawingSheetId_ == t.sheetId &&
       drawingProjection_ == t.projection && drawingScaleMode_ == t.scaleMode &&
       drawingFixedScale_ == t.fixedScale) {
     return drawingLayout_;
@@ -8623,6 +8631,7 @@ const ForgeFrame::DrawingLayout& ForgeFrame::drawingLayout() {
   drawingLayout_ = std::move(out);
   drawingLayoutBuilt_ = true;
   drawingTriangles_ = tris;
+  drawingBuilds_ = builds;
   drawingSheetId_ = t.sheetId;
   drawingProjection_ = t.projection;
   drawingScaleMode_ = t.scaleMode;
@@ -9940,6 +9949,85 @@ bool ForgeFrame::hasMachineProgram() {
   // workspace. So it reports what the panels have already computed, and the
   // command is greyed until an operation has actually been set up.
   return camPlan_.ok && !camPlan_.program.empty();
+}
+
+// ── forge::ui::DrawingSource (T-230) ────────────────────────────────────────
+bool ForgeFrame::hasDrawing() {
+  // Reports what is already known and computes nothing (it is an enabled
+  // predicate): the last rebuild produced a body, and the sheet the title block
+  // names is one this build knows.
+  return scene_.triangleCount() > 0 && rebuildError_.empty() &&
+         forge::ui::findSheetSize(drawing_.titleBlock().sheetId) != nullptr;
+}
+
+bool ForgeFrame::drawingSheet(forge::ui::DrawingSheetContent& out) {
+  out = forge::ui::DrawingSheetContent{};
+  const DrawingLayout& layout = drawingLayout();
+  if (layout.sheet == nullptr) {
+    out.advice = "Choose a sheet size in the Title Block tab and the drawing can be saved.";
+    return false;
+  }
+  if (!layout.modelBuilt || !layout.scale.ok) {
+    out.advice = "There is nothing built to draw yet. Add a feature to the part and its views "
+                 "can be saved.";
+    return false;
+  }
+  // ONE BODY, OR NO DRAWING. The scale and the title block's part size come from
+  // the body the scene holds (builtProgram_); the views are projected from the
+  // document's program. Those are the same program after every successful
+  // rebuild -- and if they ever are not (a statement the kernel refused stays in
+  // the document while the last good body stays on screen), a sheet stitched
+  // from both would print one part's views under the other's scale. Refused.
+  const std::string program = partDoc_.irProgram();
+  if (program != builtProgram_) {
+    out.advice = "The part on screen is not the part the feature tree describes yet. Fix the "
+                 "step the feature tree marks as failed and save the drawing again.";
+    return false;
+  }
+  const forge::ui::TitleBlockData& t = drawing_.titleBlock();
+
+  forge::desktop::DrawingProjectionRequest request;
+  request.irProgram = program;
+  request.inputFile = scene_.inputFile();
+  // The projection group the scale was chosen for (projectionGroupSize sizes
+  // front + top + side), in the order DrawingSheetContent documents.
+  request.views = {forge::ui::NamedView::Front, forge::ui::NamedView::Top,
+                   forge::ui::NamedView::Right};
+
+  forge::desktop::DrawingProjectionResult projected =
+      forge::desktop::projectDrawingViews(request);
+  if (!projected.ok) {
+    if (!projected.detail.empty()) {
+      shell_.log().warning("Drawing", "The drawing views could not be made.", projected.detail);
+    }
+    out.advice = projected.blocker;
+    return false;
+  }
+  {
+    // MEASURED, every time: this work runs on the thread that dispatched the
+    // command, and the log is where a slow save can be traced to its phase.
+    char timing[256];
+    std::snprintf(timing, sizeof(timing),
+                  "compile %.0f ms; native import %.0f ms (%zu faces); views %.0f ms at "
+                  "curve tessellation %zu, %zu samples per edge (%zu edges classified)",
+                  projected.compileMs, projected.importMs, projected.nativeFaces,
+                  projected.viewsMs, projected.curveTess, projected.samplesPerEdge,
+                  projected.edgesClassified);
+    shell_.log().info("Drawing", "Drew the part's views for the drawing.", timing);
+  }
+
+  out.sheet = *layout.sheet;
+  out.scale = layout.scale.scale;
+  out.projection = t.projection;
+  out.views = std::move(projected.views);
+  out.titleBlock = titleBlockRows();
+  for (const forge::ui::Annotation& a : drawing_.annotations()) {
+    out.notes.push_back(std::string(forge::ui::annotationLabel(a.kind)) + ": " + a.text);
+  }
+  for (const forge::ui::FeatureControlFrame& f : drawing_.frames()) {
+    out.notes.push_back(forge::ui::describeFcf(f));
+  }
+  return true;
 }
 
 bool ForgeFrame::machineProgram(forge::ui::MachineProgram& out) {

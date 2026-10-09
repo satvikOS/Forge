@@ -41,6 +41,13 @@
 
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <gp_Vec.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -62,6 +69,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <vector>
 
@@ -178,6 +186,99 @@ static TopoDS_Shape makeLoftBarrel(const std::vector<double>& radii,
     return gen.Shape();
 }
 
+// ---- EDGE-ON FACET BAND (T-230): the mesh-silhouette straddle vs rounding noise ----
+// A prism of a "D" profile (a cubic B-spline arch closed by a chord), swept along
+// kPrismDir. Its arched wall imports as NURBS facets that are ALL parallel to the
+// sweep, so seen ALONG it (the "TOP" lines below) every facet is edge-on:
+// dot(n, N) is exactly 0, the wall's outline is its two boundary curves, and
+// there is NO silhouette to find. The facet normals are computed from corner
+// differences, so their dots come out as rounding noise of either sign, and the
+// straddle test used to read that noise as sign changes. MEASURED on the Forge
+// app's own starting part before the fix: 19411 spurious silhouettes in its top
+// view, 36.5 s of HLR instead of 2.3 s. Asserted here on a fixture with no other
+// tilt in it: silhouettes ON and OFF must collect the SAME edges and the same ink.
+// The SIDE view (along -X) is the positive control: there the same wall has a
+// real silhouette across the arch, and turning the pass off must lose it.
+// OBLIQUE on purpose: along an axis the corner coordinates come out exact and
+// every edge-on dot is an exact 0 (measured: 4096 of 4096), which the old test
+// already handled. Along (5, 7, 13) the facet corners are rounded, so the dots of
+// the edge-on wall are the noise the app's part produced.
+static const gp_Vec kPrismDir(5.0, 7.0, 13.0);
+
+static TopoDS_Shape makeSplinePrism() {
+    // A "D": a clamped cubic B-spline arch from (-20,0) to (20,0) (peak y = 15),
+    // closed by the straight chord back along y = 0.
+    TColgp_Array1OfPnt poles(1, 4);
+    poles.SetValue(1, gp_Pnt(-20.0, 0.0, 0.0));
+    poles.SetValue(2, gp_Pnt(-20.0, 20.0, 0.0));
+    poles.SetValue(3, gp_Pnt(20.0, 20.0, 0.0));
+    poles.SetValue(4, gp_Pnt(20.0, 0.0, 0.0));
+    TColStd_Array1OfReal knots(1, 2);
+    TColStd_Array1OfInteger mults(1, 2);
+    knots.SetValue(1, 0.0); knots.SetValue(2, 1.0);
+    mults.SetValue(1, 4); mults.SetValue(2, 4);
+    Handle(Geom_BSplineCurve) arch = new Geom_BSplineCurve(poles, knots, mults, 3);
+    BRepBuilderAPI_MakeWire mw;
+    mw.Add(BRepBuilderAPI_MakeEdge(arch).Edge());
+    mw.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(20.0, 0.0, 0.0), gp_Pnt(-20.0, 0.0, 0.0)).Edge());
+    BRepBuilderAPI_MakeFace mf(mw.Wire(), Standard_True);
+    return BRepPrimAPI_MakePrism(mf.Face(), kPrismDir).Shape();
+}
+
+static void edgeOnCase() {
+    std::printf("\n--- SPLINE PRISM (D profile: cubic B-spline arch + chord, h15): edge-on facet band ---\n");
+    TopoDS_Shape prism = makeSplinePrism();
+    forge::ImportResult imp = forge::importOcctSolid(prism);
+    if (!imp.ok) std::printf("  import declined: %s\n", imp.reason.c_str());
+    check(imp.ok && imp.solid != nullptr, "import ok");
+    if (!imp.ok || imp.solid == nullptr) return;
+    // The fixture must actually put NURBS facets in front of the pass, and the
+    // MEASURED noise census says what the straddle test is being protected from.
+    std::size_t nurbs = 0, exactZero = 0, noise = 0;
+    for (const Shell* sh : imp.solid->shells) {
+        for (const Face* f : sh->faces) {
+            if (!f->surface || f->surface->kind != SurfaceKind::Nurbs) continue;
+            ++nurbs;
+            const Loop* lp = f->outerLoop;
+            if (!lp || !lp->first || lp->coedgeCount < 3) continue;
+            const Coedge* c = lp->first;
+            Vec3 q[3];
+            for (int i = 0; i < 3; ++i) {
+                const Vertex* o = c->originVertex();
+                q[i] = Vec3{o->point.x, o->point.y, o->point.z};
+                c = c->next;
+            }
+            const Vec3 n = vcross(vsub(q[1], q[0]), vsub(q[2], q[0]));
+            if (!(vlen(n) > 0.0)) continue;
+            const double d = std::fabs(vdot(vnorm(n), vnorm(Vec3{-5.0, -7.0, -13.0})));
+            if (d == 0.0) ++exactZero;
+            else if (d <= 1e-9) ++noise;
+        }
+    }
+    std::printf("  NURBS facets=%zu   top-view dot: exactly 0 on %zu, noise (0,1e-9] on %zu\n",
+                nurbs, exactZero, noise);
+    check(nurbs > 0, "the wall imports as NURBS facets (the mesh-silhouette path is exercised)");
+
+    HlrOptions on;                      // the defaults, mesh silhouettes ON
+    HlrOptions off; off.meshSilhouette = false;
+    const Vec3 top{-5.0, -7.0, -13.0}, side{-1.0, 0.0, 0.0};
+    const HlrResult tOn = hiddenLineRemoval(*imp.solid, top, on);
+    const HlrResult tOff = hiddenLineRemoval(*imp.solid, top, off);
+    const AB a = natSummary(tOn, 1e-7), b = natSummary(tOff, 1e-7);
+    std::printf("  TOP   silhouettes ON : edges=%u V=%.6f H=%.6f\n", tOn.totalEdges, a.vLen, a.hLen);
+    std::printf("  TOP   silhouettes OFF: edges=%u V=%.6f H=%.6f\n", tOff.totalEdges, b.vLen, b.hLen);
+    check(tOn.ok && tOff.ok && tOn.totalEdges == tOff.totalEdges,
+          "top view: an edge-on wall adds NO facet silhouette (same edge count ON and OFF)");
+    check(relClose(a.vLen, b.vLen, 1e-12) && relClose(a.hLen, b.hLen, 1e-12),
+          "top view: the same visible and hidden ink ON and OFF");
+
+    const HlrResult fOn = hiddenLineRemoval(*imp.solid, side, on);
+    const HlrResult fOff = hiddenLineRemoval(*imp.solid, side, off);
+    std::printf("  SIDE  silhouettes ON : edges=%u   OFF: edges=%u\n", fOn.totalEdges, fOff.totalEdges);
+    check(fOn.ok && fOff.ok && fOn.totalEdges > fOff.totalEdges,
+          "side view (positive control): the wall's real silhouette is still found");
+}
+
 int main() {
     std::printf("=== NATIVE HLR feature-edge suppression  vs  OCCT 7.9.3  (importOcctSolid A/B) ===\n");
 
@@ -208,6 +309,8 @@ int main() {
            loft, Vec3{-1, -1, -1}, 2, 0.0);
     abCase("LOFT barrel(r15-25-15,h60) top(-Z)  [MEASURE facet silhouette along-axis]",
            loft, Vec3{0, 0, -1}, 2, 0.0);
+
+    edgeOnCase();
 
     std::printf("\n=== %d / %d ASSERTED checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;

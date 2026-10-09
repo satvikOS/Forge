@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "PartFile.hpp"
+#include "forge/ui/DrawingExport.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MachineProgram.hpp"
@@ -107,6 +108,10 @@ constexpr Row kRows[] = {
     // honest default name either.
     {"file.export_gcode", FileDialogMode::Save, PathRole::Required, "Save the Machine Program",
      "Export"},
+    // The Drawing workspace's egress (T-230). Required for the same reason: a
+    // drawing has no honest default file name either.
+    {"file.export_drawing", FileDialogMode::Save, PathRole::Required, "Save the Drawing",
+     "Export"},
 };
 
 // The filters and the default suffix for one row. Kept beside the table rather
@@ -128,6 +133,17 @@ void fillFormats(const std::string& id, FileDialogPolicy& out) {
     f.extensions = forge::ui::machineProgramExtensions();
     out.filters.push_back(f);
     const std::vector<std::string>& exts = forge::ui::machineProgramExtensions();
+    if (!exts.empty() && out.mode == FileDialogMode::Save) out.defaultExtension = exts.front();
+    return;
+  }
+  if (id == "file.export_drawing") {
+    // READ from forge::ui for the reason the machine program's row gives: one
+    // owner of what a drawing file is called. Not an ExchangeFormat either.
+    FileFilter f;
+    f.label = "Drawing";
+    f.extensions = forge::ui::drawingExtensions();
+    out.filters.push_back(f);
+    const std::vector<std::string>& exts = forge::ui::drawingExtensions();
     if (!exts.empty() && out.mode == FileDialogMode::Save) out.defaultExtension = exts.front();
     return;
   }

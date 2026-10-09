@@ -11,7 +11,8 @@
 #
 #     bash forge-desktop/test/run_panel_probe.sh
 #
-# Exit 0 iff every one of the six commands' requests is accepted by AppKit.
+# Exit 0 iff every file command's request is accepted by AppKit -- every command
+# forge::desktop::fileDialogCommandIds() names, walked, not listed.
 #
 # ── 2026-09-13: IT DID NOT LINK, AND HAD NOT FOR SOME TIME ───────────────────
 # "Undefined symbols: forge::ui::machineProgramExtensions()". FileDialog.cpp
@@ -30,6 +31,17 @@
 # document's file destroyed that file. This probe measures AppKit and
 # FileDialog.cpp, NOT ForgeFrame's seed producer, so it confirms the mechanism
 # and not the fix; forge_desktop_save_target_gate measures the fix, on bytes.
+# ── 2026-10-09 (T-230): IT DID NOT COMPILE, THEN DID NOT LINK -- AGAIN ─────
+# panel_probe.mm still called fileDialogRequestFor(id, seed, out) after 2b5e61d3
+# (2026-09-13) made the SeedContext argument required, so the probe had not
+# compiled since that commit, the same day as the note above. Fixed, it then
+# stopped at the linker: FileDialog.cpp now reaches forge::ui::pathIsOccupied and
+# pathNamesSameFile, which live in ForgeShell.cpp, and ForgeShell.cpp reaches
+# most of forge::ui. MEASURED after this change: GREEN, 48 checks, 10 of 10 file
+# commands (file.export_drawing among them). That is the second time this
+# hand-kept TU list fell behind FileDialog.cpp's needs, so it is no longer a
+# list: the probe links ALL of ui/src, the same set run_ui.sh compiles. Slower
+# to build (it is run by hand); impossible to fall behind.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,8 +60,7 @@ c++ -std=c++20 -O1 -Wall -Wextra -Werror \
     -o "$OUT" \
     "$HERE/panel_probe.mm" \
     "$DESKTOP/src/FileDialog.cpp" \
-    "$ROOT/ui/src/FileExchange.cpp" \
-    "$ROOT/ui/src/MachineProgram.cpp" \
+    "$ROOT"/ui/src/*.cpp \
     -framework AppKit -framework Foundation -framework UniformTypeIdentifiers
 rc=$?
 if [ "$rc" -ne 0 ]; then

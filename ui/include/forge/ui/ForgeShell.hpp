@@ -21,6 +21,7 @@
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/DrawingExport.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/KeymapAudit.hpp"
@@ -286,6 +287,17 @@ class ForgeShell {
   // What the last file.export_gcode wrote, or why it did not.
   const MachineProgramReport& lastMachineProgram() const noexcept { return lastMachineProgram_; }
 
+  // ── the DRAWING-EGRESS seam (T-230) ─────────────────────────────────────
+  // A FOURTH seam on the same pattern: a 2-D drawing is neither the document's
+  // geometry (FileExchange) nor a posted program (MachineProgramSource). It is
+  // the drawing sheet the Drawing workspace lays out, with views projected from
+  // the part, and a build with no kernel answers "none" by leaving
+  // file.export_drawing disabled instead of failing when it is pressed.
+  void setDrawingSource(DrawingSource* source) noexcept { drawingSource_ = source; }
+  DrawingSource* drawingSource() const noexcept { return drawingSource_; }
+  // What the last file.export_drawing wrote, or why it did not.
+  const DrawingExportReport& lastDrawingExport() const noexcept { return lastDrawingExport_; }
+
   // ── the document seam ───────────────────────────────────────────────────
   // Install the owner of the real document. Pass nullptr to detach. The counters
   // are refreshed from the host immediately, and again after every dispatch.
@@ -529,6 +541,16 @@ class ForgeShell {
   bool machineProgramAvailable() const noexcept;
   void refuseMachineProgram(CommandContext& ctx, MachineProgramRefusal refusal,
                             const std::string& path, const std::string& advice);
+  // file.export_drawing (T-230). Separate from both of the above for the reason
+  // DrawingExport.hpp gives.
+  void runExportDrawing(CommandContext& ctx);
+  bool drawingAvailable() const noexcept;
+  void refuseDrawing(CommandContext& ctx, DrawingExportRefusal refusal, const std::string& path,
+                     const std::string& advice);
+  // writeTarget's two Copy refusals, routed to the closed set of the command
+  // that asked: a drawing refusal is not a machine-program refusal.
+  void refuseCopyTarget(CommandContext& ctx, const std::string& id, bool bound,
+                        const std::string& path);
 
   CommandRegistry registry_;
   SelectionService selection_;
@@ -546,6 +568,8 @@ class ForgeShell {
   ExchangeReport lastExchange_;
   MachineProgramSource* machineProgramSource_ = nullptr;
   MachineProgramReport lastMachineProgram_;
+  DrawingSource* drawingSource_ = nullptr;
+  DrawingExportReport lastDrawingExport_;
   // ★ See consentToReplace(). SPENT BY run() ON EVERY DISPATCH, asked for or
   //   not, so it cannot outlive the gesture that minted it.
   std::string consentedPath_;
