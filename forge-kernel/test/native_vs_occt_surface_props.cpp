@@ -67,7 +67,11 @@
 #include "forge/native/brep/Curve.hpp"
 #include "forge/native/brep/Surface.hpp"
 
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <GC_MakeArcOfEllipse.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Ellipse.hxx>
@@ -601,6 +605,30 @@ static void probeEdge(const char* label, const TopoDS_Edge& edge) {
     rowEnd(r);
 }
 
+// An ADDITIONAL fixture that ALSO runs the production entry point (as the frozen
+// rows do) — for faces taken off a real solid, where the face's own trim window
+// and orientation are whatever the modelling operation produced.
+static void compareFaceWithClassa(const char* label, const TopoDS_Face& face) {
+    const std::size_t r = rowBegin(label, false);
+    compareFaceImpl(label, face, 5);
+    g_rows[r].bridgeOk = g_lastBridgeOk;
+    g_rows[r].bridgeReason = g_lastBridgeReason;
+    g_rows[r].bridgeForm = g_lastBridgeForm;
+    classaFaceCheck(label, face, r);
+    rowEnd(r);
+}
+
+// The first face of `s` whose Geom_ surface has dynamic type `dynType`; a null
+// face if there is none (the caller FAILS on that, never skips).
+static TopoDS_Face faceOfType(const TopoDS_Shape& s, const char* dynType) {
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        Handle(Geom_Surface) g = BRep_Tool::Surface(f);
+        if (!g.IsNull() && g->DynamicType()->Name() == std::string(dynType)) return f;
+    }
+    return TopoDS_Face();
+}
+
 static Handle(Geom_Surface) surfaceOfType(const TopoDS_Shape& s, const char* dynType) {
     for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
         Handle(Geom_Surface) g = BRep_Tool::Surface(TopoDS::Face(ex.Current()));
@@ -988,6 +1016,100 @@ int main() {
             new Geom_SurfaceOfLinearExtrusion(pa, gp_Dir(-0.3, 0.5, 0.81));
         compareFace("EXTRUSION(parabola profile, OBLIQUE direction)",
                     BRepBuilderAPI_MakeFace(ex, -2.5, 3.0, 0.0, 2.0, 1e-6).Face());
+    }
+
+    // ── EXTRUSION FACES OFF A REAL PRISM (T-151) ───────────────────────────────
+    // Every extrusion above is a face MADE from a bare Geom_ surface over a
+    // window this file chose. A modelling operation hands the bridge something
+    // else: BRepPrimAPI_MakePrism's side face, with the u-window, the basis
+    // trim and the face ORIENTATION the sweep produced. The D-profile's basis is
+    // an elliptical ARC (a Geom_TrimmedCurve over a sub-range of the ellipse), so
+    // the u-window is not the conic's natural [0, 2pi) — the case where a wrong
+    // parameter origin would show; the third draws that arc the other way, so
+    // the basis is a REVERSED ellipse. The production entry point is run on all
+    // three.
+    {
+        const gp_Ax2 ax(gp_Pnt(0.2, -0.3, 0.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+        TopoDS_Edge el = BRepBuilderAPI_MakeEdge(gp_Elips(ax, 3.0, 1.25)).Edge();
+        TopoDS_Face prof = BRepBuilderAPI_MakeFace(BRepBuilderAPI_MakeWire(el).Wire()).Face();
+        TopoDS_Shape prism = BRepPrimAPI_MakePrism(prof, gp_Vec(0.6, -0.4, 2.5)).Shape();
+        TopoDS_Face side = faceOfType(prism, "Geom_SurfaceOfLinearExtrusion");
+        if (side.IsNull()) {
+            ++g_fail;
+            std::printf("  [FAIL] the elliptic prism has no extrusion side face\n");
+        } else {
+            std::printf("   [fixture] elliptic prism side face orientation = %s\n",
+                        side.Orientation() == TopAbs_REVERSED ? "REVERSED" : "FORWARD");
+            // Every fixture above is a FORWARD face, so none of them can tell a
+            // bridge that (wrongly) folds the FACE's orientation into the
+            // SURFACE's normal from one that does not. LProp ignores the face
+            // orientation; so must the bridge. This row only proves that if the
+            // sweep really did hand back a REVERSED face — asserted, not assumed.
+            ckBool("the elliptic prism side face is REVERSED (else no fixture here "
+                   "can see a face-orientation / surface-normal confusion)",
+                   side.Orientation() == TopAbs_REVERSED, true);
+            compareFaceWithClassa("PRISM side face (ellipse, OBLIQUE sweep)", side);
+        }
+    }
+    {
+        const gp_Elips E(gp_Ax2(gp_Pnt(-0.4, 0.1, 0.3), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 2.5, 1.5);
+        Handle(Geom_TrimmedCurve) arc = GC_MakeArcOfEllipse(E, 0.35, 2.65, Standard_True).Value();
+        TopoDS_Edge ea = BRepBuilderAPI_MakeEdge(arc).Edge();
+        TopoDS_Edge chord = BRepBuilderAPI_MakeEdge(arc->EndPoint(), arc->StartPoint()).Edge();
+        TopoDS_Wire w = BRepBuilderAPI_MakeWire(ea, chord).Wire();
+        TopoDS_Face prof = BRepBuilderAPI_MakeFace(w).Face();
+        TopoDS_Shape prism = BRepPrimAPI_MakePrism(prof, gp_Vec(0.0, 0.5, 3.0)).Shape();
+        TopoDS_Face side = faceOfType(prism, "Geom_SurfaceOfLinearExtrusion");
+        if (side.IsNull()) {
+            ++g_fail;
+            std::printf("  [FAIL] the D-profile prism has no extrusion side face\n");
+        } else {
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(side, u0, u1, v0, v1);
+            std::printf("   [fixture] D-prism side face u-window [%.4f, %.4f] orientation = %s\n",
+                        u0, u1, side.Orientation() == TopAbs_REVERSED ? "REVERSED" : "FORWARD");
+            ckBool("the D-prism side face's u-window is a SUB-range of the ellipse "
+                   "(else this fixture proves nothing the full one does not)",
+                   u0 > 0.3 && u1 < 2.7, true);
+            compareFaceWithClassa("PRISM side face (elliptical ARC, trimmed basis)", side);
+        }
+    }
+    // The same D-profile with the arc drawn the OTHER WAY (Sense = false): the
+    // trimmed curve then stores an already-REVERSED copy of the ellipse, whose
+    // parameter is not the original's. readGeomCurve unwraps the trim on the
+    // claim that this is parameter-preserving; a bridge that read the ORIGINAL
+    // ellipse's frame at this u would return the MIRROR point across the major
+    // axis (the reversed conic's C(u) is the original's C(-u)).
+    {
+        const gp_Elips E(gp_Ax2(gp_Pnt(0.3, -0.2, -0.1), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 2.5, 1.5);
+        Handle(Geom_TrimmedCurve) arc = GC_MakeArcOfEllipse(E, 0.35, 2.65, Standard_False).Value();
+        TopoDS_Edge ea = BRepBuilderAPI_MakeEdge(arc).Edge();
+        TopoDS_Edge chord = BRepBuilderAPI_MakeEdge(arc->EndPoint(), arc->StartPoint()).Edge();
+        TopoDS_Wire w = BRepBuilderAPI_MakeWire(ea, chord).Wire();
+        TopoDS_Face prof = BRepBuilderAPI_MakeFace(w).Face();
+        TopoDS_Shape prism = BRepPrimAPI_MakePrism(prof, gp_Vec(0.4, 0.0, 2.0)).Shape();
+        TopoDS_Face side = faceOfType(prism, "Geom_SurfaceOfLinearExtrusion");
+        if (side.IsNull()) {
+            ++g_fail;
+            std::printf("  [FAIL] the reversed-sense D-profile prism has no extrusion side face\n");
+        } else {
+            Handle(Geom_SurfaceOfLinearExtrusion) sx =
+                Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(BRep_Tool::Surface(side));
+            Handle(Geom_Curve) basis = sx->BasisCurve();
+            while (Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(basis))
+                basis = tc->BasisCurve();
+            Handle(Geom_Ellipse) be = Handle(Geom_Ellipse)::DownCast(basis);
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(side, u0, u1, v0, v1);
+            std::printf("   [fixture] reversed-sense D-prism side face u-window [%.4f, %.4f] "
+                        "orientation = %s, basis ellipse axis z = %+.0f\n",
+                        u0, u1, side.Orientation() == TopAbs_REVERSED ? "REVERSED" : "FORWARD",
+                        be.IsNull() ? 0.0 : be->Position().Direction().Z());
+            ckBool("the reversed-sense D-prism's basis is an ellipse whose axis is FLIPPED "
+                   "(else this fixture proves nothing the forward arc does not)",
+                   !be.IsNull() && be->Position().Direction().Z() < 0.0, true);
+            compareFaceWithClassa("PRISM side face (elliptical ARC, REVERSED sense)", side);
+        }
     }
 
     // ═══════════════ THE PER-KIND TABLE ════════════════════════════════════

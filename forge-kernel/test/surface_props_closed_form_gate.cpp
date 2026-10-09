@@ -1386,7 +1386,7 @@ static void gateExtrusion() {
                 const SurfProps pi_ = surfaceProps(in, u, v);
                 ckVecNear("extr(circle, reversed) normal is the INWARD radial" + at,
                           pi_.normal, er * -1.0, 1e-14);
-                ckExact("extr(circle, reversed) K == 0", pi_.kGauss, 0.0);
+                ckExact("extr(circle, reversed) K == 0" + at, pi_.kGauss, 0.0);
                 ckNear("extr(circle, reversed) H == +1/(2r)  [TEXTBOOK]" + at,
                        pi_.kMean, 1.0 / (2.0 * r), 1.0 / r);
                 ckNear("extr(circle, reversed) kMin == 0" + at, pi_.kMin, 0.0, 1.0 / r);
