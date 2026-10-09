@@ -44,9 +44,13 @@ cleanup() {
   for p in $PLANTED; do rm -f -- "$JOBS_DIR/$p"; done
   rm -f "$O1" "$O2" "$O2.un" "$O3" "$O4" "$VICT" 2>/dev/null
   [[ -n $PRIV ]] && rm -rf "$PRIV"
-  kill -9 $WD 2>/dev/null
+  kill -TERM $WD 2>/dev/null          # TERM, not KILL: the watchdog reaps its own sleep
 }
-{ sleep 120; print -u2 "[actuator] WALL-CLOCK EXCEEDED"; kill -TERM $$ } &!
+# (the watchdog's sleep is its own child and is reaped with it: a KILLed watchdog used to
+# orphan `sleep N`, which held the caller's stdout pipe open until it expired)
+{ trap 'kill $wsp 2>/dev/null; exit 0' TERM
+  sleep 240 & wsp=$!; wait $wsp                                  # includes one sensor build
+  print -u2 "[actuator] WALL-CLOCK EXCEEDED"; kill -TERM $$ } &!
 WD=$!
 trap cleanup EXIT
 trap 'exit 143' TERM INT
@@ -155,6 +159,110 @@ if [[ -n $ROOTPID ]]; then
 else
   print "  SKIP  other-uid refusal: no root-owned process found (NOT a pass)"
 fi
+
+print "== ACT-1: a protected name with a SPACE, with the REAL sensor beside the governor =="
+# Review 2026-10-08 ACT-1: `pidinfo` prints comm= percent-encoded (Claude%20Helper), the
+# governor matched `Claude Helper*` against that and signalled every Claude helper --
+# but only with the sensor installed, which this suite never ran. So: build the real
+# sensor, and a victim whose process name is exactly "Claude Helper" (a compiled
+# binary: p_comm is the executable's name, and a copied /bin/sleep is killed by code
+# signing). Both are this suite's own; nothing else is ever signalled.
+SB="$FORGE_HEALTH_DIR/.act_sensor"; mkdir -p "$SB"
+O5=$(mktemp); O6=$(mktemp)
+cat > "$SB/victim.c" <<'C'
+#include <signal.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <string.h>
+#include <stdlib.h>
+static const char* out;
+static void h(int s) { int fd = open(out, O_WRONLY | O_APPEND | O_CREAT, 0600);
+  if (fd >= 0) { const char* m = s == SIGUSR1 ? "USR1\n" : "TERM\n"; write(fd, m, strlen(m)); close(fd); }
+  if (s == SIGTERM) _exit(0); }
+int main(int c, char** v) { out = c > 1 ? v[1] : "/dev/null"; int life = c > 2 ? atoi(v[2]) : 60;
+  signal(SIGUSR1, h); signal(SIGTERM, h); for (int i = 0; i < life * 10; i++) usleep(100000); return 0; }
+C
+if zsh "${0:A:h}/sensor/build.sh" --out "$SB" >"$SB/build.log" 2>&1 && [[ -x $SB/forge-guardian-sensor ]] \
+   && xcrun clang -O1 -o "$SB/Claude Helper" "$SB/victim.c" >>"$SB/build.log" 2>&1; then
+  "$SB/Claude Helper" "$O5" 60 & HP=$!; print $HP >> "$PIDS"
+  sleep 0.4
+  plant helper.job "$HP" helper 9 1 $EPOCHSECONDS
+  SAVED_SENSOR_BIN=$SENSOR_BIN
+  SENSOR_BIN=$SB/forge-guardian-sensor
+  print "  pidinfo: $("$SENSOR_BIN" pidinfo $HP)"
+  B=$(grep -c "REFUSED to signal protected pid=$HP " "$LOG" 2>/dev/null)
+  signal_job "$JOBS_DIR/helper.job" USR1 >/dev/null 2>&1; r=$?
+  sleep 0.5
+  chk "sensor path: signal_job refuses 'Claude Helper'"            1 "$r"
+  chk "  ...the refusal is logged as protected"                    1 "$(( $(grep -c "REFUSED to signal protected pid=$HP " "$LOG" 2>/dev/null) - ${B:-0} ))"
+  chk "  ...the helper received nothing and is alive"              "alive:" "$(kill -0 $HP 2>/dev/null && print alive || print DEAD):$(cat $O5 2>/dev/null)"
+  SENSOR_BIN=""
+  signal_job "$JOBS_DIR/helper.job" USR1 >/dev/null 2>&1; r=$?
+  sleep 0.3
+  chk "control, ps path: refused too"                              "1:" "$r:$(cat $O5 2>/dev/null)"
+  # protected=1 alone protects: a pidinfo that names an ordinary process but says
+  # protected=1 (a list entry the governor's own copy might lack, another uid, ...).
+  spawn "$O6"; PV=$REPLY; sleep 0.4
+  plant pflag.job "$PV" pflag 9 1 $EPOCHSECONDS
+  for flag in 1 0; do
+    print -r -- "#!/bin/zsh
+[[ \$1 == pidinfo ]] || exit 2; p=\$2
+out=\$(LC_ALL=C ps -o ppid=,uid=,lstart= -p \$p 2>/dev/null); w=(\${=out})
+(( \${#w} >= 7 )) || { print \"pid=\$p identity=dead\"; exit 0; }
+zmodload zsh/datetime; LC_ALL=C strftime -r -s t '%a %b %d %H:%M:%S %Y' \"\$w[3] \$w[4] \$w[5] \$w[6] \$w[7]\"
+print \"pid=\$p ppid=\$w[1] pstart=\$t uid=\$w[2] protected=$flag comm=ordinary-victim identity=alive\"" > "$SB/pidinfo-stub-$flag"
+    chmod +x "$SB/pidinfo-stub-$flag"
+  done
+  SENSOR_BIN="$SB/pidinfo-stub-1"; signal_job "$JOBS_DIR/pflag.job" USR1 >/dev/null 2>&1; r=$?; sleep 0.4
+  chk "pidinfo protected=1 on an ordinary name: refused"           "1:" "$r:$(cat $O6 2>/dev/null)"
+  chk "  ...as protected (not for some other reason)"              1 "$(grep -c "REFUSED to signal protected pid=$PV " "$LOG" 2>/dev/null)"
+  SENSOR_BIN="$SB/pidinfo-stub-0"; signal_job "$JOBS_DIR/pflag.job" USR1 >/dev/null 2>&1; r=$?; sleep 0.4
+  chk "  control: the same stub with protected=0 is signalled"     "0:USR1" "$r:$(head -1 $O6 2>/dev/null)"
+  SENSOR_BIN=$SAVED_SENSOR_BIN
+  kill -9 $HP $PV 2>/dev/null
+else
+  chk "built the real sensor and a 'Claude Helper' victim (see $SB/build.log)" built FAILED
+  sed -n '1,20p' "$SB/build.log" 2>/dev/null | sed 's/^/    /'
+fi
+
+print "== ACT-3: a non-canonical pid in an envelope is invalid: never signalled, reaped =="
+spawn "$O3.pad"; PADV=$REPLY; sleep 0.4
+plant pad.job "0$PADV" padded-pid 9 1 $EPOCHSECONDS
+signal_job "$JOBS_DIR/pad.job" USR1 >/dev/null 2>&1; r=$?; sleep 0.4
+chk "pid=0$PADV: signal_job refuses"                               1 "$r"
+chk "  ...the process behind the padded number received nothing"   "" "$(cat $O3.pad 2>/dev/null)"
+touch -t $(date -v-1M +%Y%m%d%H%M.%S) "$JOBS_DIR/pad.job"
+reap_dead_jobs
+chk "  ...and the envelope is reaped as invalid"                   0 "$(ls $JOBS_DIR/pad.job 2>/dev/null | wc -l | tr -d ' ')"
+kill -9 $PADV 2>/dev/null
+
+print "== R7: an envelope over 64 KiB is unverifiable -- kept and counted, never signalled =="
+spawn "$O4.big"; BIGV=$REPLY; sleep 0.4
+{ print "pid=$BIGV"; print "name=longargs"; print "priority=9"; print "can_restart=1"; print "peak_gb=20"; print "gpu=0"
+  print "started=$EPOCHSECONDS"; print -n "cmd="; head -c 70000 /dev/zero | tr '\0' a; print; } > "$JOBS_DIR/big.job"
+PLANTED+=(big.job)
+reap_dead_jobs
+chk "a live job's 70 KB envelope is NOT reaped"                    1 "$(ls $JOBS_DIR/big.job 2>/dev/null | wc -l | tr -d ' ')"
+chk "  ...it is counted in registered_jobs"                         1 "$(( O_JOBS >= 1 ))"
+chk "  ...and its declared 20 GiB reservation is counted"          1 "$(( ENV_RESERVED_MILLI >= 20000 ))"
+signal_job "$JOBS_DIR/big.job" TERM >/dev/null 2>&1; r=$?; sleep 0.4
+chk "  ...but it is never signalled (unverifiable)"                "1:alive:" "$r:$(kill -0 $BIGV 2>/dev/null && print alive || print DEAD):$(cat $O4.big 2>/dev/null)"
+kill -9 $BIGV 2>/dev/null; sleep 0.3
+reap_dead_jobs
+chk "  ...once its pid is dead, the oversize envelope is reaped"   0 "$(ls $JOBS_DIR/big.job 2>/dev/null | wc -l | tr -d ' ')"
+
+print "== R1: a FIFO named *.job never blocks a reader =="
+mkfifo "$JOBS_DIR/424242.job"
+( read_envelope "$JOBS_DIR/424242.job"; print "rc=$?" ) > "$O1.fifo" 2>&1 & RP=$!; print $RP >> "$PIDS"
+for i in {1..20}; do kill -0 $RP 2>/dev/null || break; sleep 0.1; done
+if kill -0 $RP 2>/dev/null; then kill -9 $RP 2>/dev/null; FR=BLOCKED; else FR=$(<"$O1.fifo"); fi
+chk "read_envelope on a FIFO returns at once, refusing it"          "rc=1" "$FR"
+( reap_dead_jobs; shed_list; print "done ${#SHED_LIST}" ) > "$O1.fifo" 2>&1 & RP=$!; print $RP >> "$PIDS"
+for i in {1..20}; do kill -0 $RP 2>/dev/null || break; sleep 0.1; done
+if kill -0 $RP 2>/dev/null; then kill -9 $RP 2>/dev/null; FR=BLOCKED; else FR=$(<"$O1.fifo"); FR=${FR%% *}; fi
+chk "the reaper and shed_list pass over it"                          done "$FR"
+chk "  ...and leave it alone (never opened, never deleted)"          1 "$([[ -p $JOBS_DIR/424242.job ]] && print 1 || print 0)"
+rm -f "$JOBS_DIR/424242.job" "$O1.fifo" "$O3.pad" "$O4.big" "$O5" "$O6"
 
 print ""
 print "RESULT: $PASS passed, $FAIL failed"

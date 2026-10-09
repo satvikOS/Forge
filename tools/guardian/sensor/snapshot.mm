@@ -135,17 +135,27 @@ void derive(Snapshot& s, const Policy& p) {
   }
   s.disk_st = all_ok ? ST_OK : ST_UNAVAIL;
   s.disk_min_avail_gib = mn >= 0 ? std::floor(mn / kGiB) : -1;
-  // reservations (§9.1)
+  // reservations (§9.1). Every LIVE envelope counts -- ok and unverifiable alike:
+  // "unverifiable" means never signal, not free memory, and admit counts it the same
+  // way, so the published total and the admission engine agree (review FO-5). A live
+  // envelope whose peak_gb cannot be read makes the total unavailable, never smaller.
   s.budget_b = s.mem_st == ST_OK ? s.mem_total_b - p.os_reserve_gb * kGiB : -1;
   if (s.jobs_st == ST_OK) {
     double r = 0;
-    for (auto& j : s.jobs)
-      if (j.identity == "ok") r += j.reserved_b;
-    s.reserved_b = r;
+    bool readable = true;
+    for (auto& j : s.jobs) {
+      if (!j.live()) continue;
+      if (!j.peak_ok) readable = false;
+      r += j.reserved_b;
+    }
+    s.reserved_b = readable ? r : -1;
   } else {
     s.reserved_b = -1;
   }
-  s.overcommit = (s.budget_b >= 0 && s.reserved_b >= 0 && s.reserved_b > s.budget_b) ? 1 : 0;
+  // SEM-6: with either side unavailable there is no overcommit verdict at all (-1 in
+  // .env, null in .json) -- never a 0 that reads as "not overcommitted".
+  if (s.budget_b < 0 || s.reserved_b < 0) s.overcommit = -1;
+  else s.overcommit = s.reserved_b > s.budget_b ? 1 : 0;
 }
 
 // FORGE_SENSOR_INJECT (test mode only): KEY=VALUE overrides applied after sampling,
@@ -650,6 +660,8 @@ std::string encode_json(const Snapshot& s) {
     if (j.threads > 0) w.ki("threads", j.threads); else w.knull("threads");
     if (j.disk_gb >= 0) w.kn("disk_gb", j.disk_gb); else w.knull("disk_gb");
     w.ks("file", j.file);
+    if (!j.peak_ok) w.kb("peak_readable", false);  // additive: the declaration did not parse
+    if (j.oversize) w.kb("oversize", true);         // additive: > 64 KiB, kept as unverifiable
     w.end_obj();
   }
   w.end_arr();
@@ -658,7 +670,8 @@ std::string encode_json(const Snapshot& s) {
   w.ks("status", st_name(s.jobs_st));
   if (s.reserved_b >= 0) w.kn("reserved_b", std::floor(s.reserved_b), 0); else w.knull("reserved_b");
   if (s.budget_b >= 0) w.kn("budget_b", std::floor(s.budget_b), 0); else w.knull("budget_b");
-  w.kb("overcommit", s.overcommit == 1).ki("jobs", (int64_t)s.jobs.size());
+  if (s.overcommit < 0) w.knull("overcommit"); else w.kb("overcommit", s.overcommit == 1);
+  w.ki("jobs", (int64_t)s.jobs.size());
   w.end_obj();
 
   w.key("power").begin_obj();

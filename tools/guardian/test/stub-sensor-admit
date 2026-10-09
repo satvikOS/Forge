@@ -17,8 +17,8 @@
 #   FG_STUB_SNAPSHOT_BAD=1      snapshot prints something that is not JSON
 #   FG_STUB_VERSION_RC=<n>      --version's exit status (default 0)
 #
-# It never signals anything except, in `run`, nothing at all: `run` just publishes a
-# minimal sensor.env each poll and exits when its --parent dies or it is TERMed.
+# It never signals anything: `run` just publishes a complete, healthy, constant
+# sensor.env each poll and exits when its --parent dies or it is TERMed.
 set -u
 setopt NULL_GLOB
 zmodload zsh/datetime 2>/dev/null
@@ -186,9 +186,15 @@ schema=2"
     exit ${FG_STUB_SNAPSHOT_RC:-0} ;;
 
   run)
-    # Publishes a minimal, honest sensor.env each poll; exits with its parent.
+    # Publishes a COMPLETE, healthy snapshot (SCHEMA §3.1: every required signal `ok`,
+    # a fresh ts, this process's pid) each poll, and exits with its parent. The
+    # install gate's service runs the real governor against it, so "evidence complete"
+    # can be reached -- and awaited -- exactly as with the native sensor
+    # (review 2026-10-08 INS-2). The values are constants: nothing is sampled.
     [[ -n $D ]] || exit 2
-    trap 'exit 0' TERM INT
+    [[ $POLL == <1-60> ]] || POLL=5
+    NAP=0
+    trap '(( NAP )) && kill $NAP 2>/dev/null; exit 0' TERM INT
     integer seq=0
     while :; do
       [[ -n $PARENT ]] && ! kill -0 "$PARENT" 2>/dev/null && exit 0
@@ -199,12 +205,64 @@ pid=$$
 seq=$seq
 ts=$EPOCHREALTIME
 ts_s=$EPOCHSECONDS
+mono_ms=$(( seq * POLL * 1000 ))
+boot_uuid=STUB-BOOT
+boot_epoch=1700000000
+rebaseline=$(( seq == 1 ))
 poll_s=$POLL
-thermal=none
-thermal_st=unavailable
+vmp=1
+vmp_st=ok
+pevent=normal
+pevent_st=ok
+pevent_ts=-1
+pevent_warn_n=0
+pevent_crit_n=0
+freepct=60
+freepct_st=ok
+mem_total_b=38654705664
+mem_avail_b=20000000000
+mem_free_b=5000000000
+mem_wired_b=4000000000
+mem_compressed_b=1000000000
+mem_st=ok
+swap_used_mb=100
+swap_total_mb=2048
+swap_growth_mb_min=0
+swap_st=ok
+pageouts_total=1000
+pageout_rate_ps=0
+swapout_rate_ps=0
+pageouts_st=ok
+thermal=nominal
+thermal_st=ok
+load1=1.00
+cpu_busy_pct=5
+ncpu=14
+nperf=10
+cpu_st=ok
+vol_n=1
+vol0_path=/
+vol0_mount=/stub
+vol0_fsid=1
+vol0_avail_b=214748364800
+vol0_total_b=1000000000000
+vol0_growth_b_min=0
+vol0_st=ok
+disk_min_avail_gib=200
+disk_st=ok
 jobs_n=0
+jobs_st=ok
+reserved_b=0
+budget_b=32212254720
+overcommit=0
+sleep_n=0
+last_sleep_ts=-1
+last_wake_ts=-1
+self_cpu_s=0
+self_rss_b=0
+self_fds=0
 errors=0"
-      sleep "$POLL" & wait $!
+      sleep "$POLL" & NAP=$!; wait $NAP; NAP=0
     done ;;
 
   *) print -u2 -r -- "stub-sensor: unknown subcommand '$sub'"; exit 2 ;;

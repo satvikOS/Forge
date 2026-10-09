@@ -10,8 +10,10 @@
 #   forge-guardian-ctl reservations | history [N] | version
 #   forge-guardian-ctl install | upgrade | rollback | uninstall …   (→ forge-guardian-install)
 #
-# Liveness is asked of launchd FIRST, then of a pidfile, then of the published
-# state's freshness. An earlier version consulted only the pidfile and reported
+# Liveness is asked of launchd FIRST, then of the governor's lock and pid file (each
+# trusted only for a VERIFIED governor: canonical pid, recorded start time, argv --
+# see is_governor), then of the published state's freshness. Nothing but a verified
+# governor of this domain is ever signalled. An earlier version consulted only the pidfile and reported
 # "NOT RUNNING" for a daemon that launchd had restarted under a new PID — while
 # forge-gate, reading the state file, correctly admitted. Two safety instruments
 # disagreeing is worse than either being absent: an autonomous tick then either
@@ -24,6 +26,7 @@ set -u
 setopt NULL_GLOB EXTENDED_GLOB
 zmodload zsh/datetime 2>/dev/null
 zmodload -F zsh/stat b:zstat 2>/dev/null
+zmodload zsh/system 2>/dev/null     # sysopen -o nonblock: a FIFO must never block a reader
 SELF=${0:A}          # $0 inside a function is the FUNCTION's name: capture the script here
 H=${FORGE_GUARDIAN_HOME:-$HOME}
 STATE_DIR=${FORGE_HEALTH_DIR:-$H/.forge-health}
@@ -38,23 +41,52 @@ TOOLS=(forge-guardian forge-gate forge-job forge-nproc forge-guardian-ctl forge-
        forge-guardian-sensor forge-stallguard forge-guardian-selftest forge-guardian-actuator-test)
 
 # ---- small readers (all tolerate a missing file) ----------------------------------
+# REGULAR FILES ONLY, opened without blocking (review 2026-10-08 R1). A FIFO named
+# jobs/424242.job hung `status` in open(2) for as long as nobody wrote to it -- the
+# RUNBOOK's first command, wedged by one mkfifo. Globs over the domain use `(N.)`
+# (plain files: no FIFOs, directories, devices or symlinks), and every read goes
+# through a non-blocking open, so even a file swapped for a FIFO between the test
+# and the open reads as empty instead of blocking.
 mtime_of() { local -a m; zstat -A m +mtime -- "$1" 2>/dev/null && print -r -- $m[1]; }
 size_of()  { local -a s; zstat -A s +size  -- "$1" 2>/dev/null && print -r -- $s[1] || print 0; }
 mode_of()  { local -a s; zstat -A s -o +mode -- "$1" 2>/dev/null && print -r -- ${s[1]: -3}; }
+open_ro() {   # open_ro <file> -> FD_RO: a non-blocking read fd on a regular file, or 1
+  FD_RO=""
+  [[ -f $1 && -r $1 ]] || return 1
+  if (( ${+builtins[sysopen]} )); then sysopen -r -o nonblock -u FD_RO "$1" 2>/dev/null || return 1
+  else exec {FD_RO}<"$1" 2>/dev/null || return 1; fi
+  return 0
+}
+slurp() {     # slurp <file> -> REPLY: up to 64 lines of a regular file (pid, lstart, state)
+  local line n=0 fd
+  REPLY=""
+  open_ro "$1" || return 1
+  fd=$FD_RO
+  while (( n++ < 64 )) && { IFS= read -r -u $fd line || [[ -n $line ]]; }; do REPLY+="${REPLY:+$'\n'}$line"; done
+  exec {fd}<&-
+  return 0
+}
 # One JSON value (plutil reads JSON; raw prints strings/numbers/bools bare).
-jx() { [[ -r $1 ]] && $PLUTIL -extract "$2" raw -o - "$1" 2>/dev/null; }
+jx() { [[ -f $1 && -r $1 ]] && $PLUTIL -extract "$2" raw -o - "$1" 2>/dev/null; }
 # KEY=VALUE file into an associative array, first occurrence wins, no fork.
 load_kv() {   # load_kv <file> <assoc-name>
-  local f=$1 line k
-  [[ -r $f ]] || return 1
-  while IFS= read -r line || [[ -n $line ]]; do
+  local f=$1 line k fd n=0
+  open_ro "$f" || return 1
+  fd=$FD_RO
+  while (( n++ < 4096 )) && { IFS= read -r -u $fd line || [[ -n $line ]]; }; do
     [[ $line == [A-Za-z_][A-Za-z0-9_]#=* ]] || continue
     k=${line%%=*}
     eval "(( \${+$2[\$k]} ))" && continue
     eval "$2[\$k]=\${line#*=}"
-  done < "$f"
+  done
+  exec {fd}<&-
   return 0
 }
+# SCHEMA §5: a pid is canonical decimal -- no sign, no leading zero, <= 99999. zsh's
+# kill truncates to 32 bits: 2^32+P signals P, and 4294967295 is kill(-1), every
+# process the user owns (review 2026-10-08 ACT-2). Nothing here signals anything else.
+canon_pid() { [[ $1 == [1-9][0-9](#c0,4) ]]; }
+norm_ws()   { REPLY=${(j: :)${=1}}; }
 gib() { [[ $1 == (-|)<->(|.<->) ]] && (( $1 >= 0 )) && printf '%.1f' $(( $1 / 1073741824.0 )) || print -r -- "?"; }
 iso() { [[ $1 == <-> ]] && strftime '%Y-%m-%d %H:%M:%S' $1 || print -r -- "?"; }
 
@@ -90,19 +122,59 @@ guard_service() {
 }
 launchd_pid() { supervised || return 0; $LAUNCHCTL list 2>/dev/null | awk -v l="$LABEL" '$3==l && $1 ~ /^[0-9]+$/ {print $1}'; }
 launchd_loaded() { supervised && $LAUNCHCTL print "$TARGET/$LABEL" >/dev/null 2>&1; }
-pidfile_pid() { local p; [[ -f $PIDF ]] && p=$(<$PIDF) && [[ $p == <1-> ]] && kill -0 $p 2>/dev/null && print -r -- $p; }
-# The governor's own single-instance lock: domain-scoped by its path. Trusted only when
-# the recorded start time still matches the live pid (pids are reused).
+
+# ---- which process is the governor? -------------------------------------------------
+# A pid alone names nothing: pids are reused, and a stale pid file once made `stop`
+# SIGTERM whatever process had inherited the number (review 2026-10-08 ACT-2: a
+# `/bin/sleep` died; 2^32+P TERMed P through zsh's 32-bit truncation). A process is
+# the governor only when ALL hold: the pid is canonical, it is alive, its start time
+# equals the one recorded when it started, and its argv ends in forge-guardian.
+# `ps -o lstart=` is compared in this locale and in C (the governor records it in
+# whatever locale it was started with; launchd's plist says LC_ALL=C).
+is_governor() {   # is_governor <pid> <recorded lstart>
+  local p=$1 rec now a
+  canon_pid "$p" || return 1
+  norm_ws "$2"; rec=$REPLY
+  [[ -n $rec ]] || return 1
+  kill -0 "$p" 2>/dev/null || return 1
+  now=$(ps -p "$p" -o lstart= 2>/dev/null); norm_ws "$now"
+  if [[ $REPLY != "$rec" ]]; then
+    now=$(LC_ALL=C ps -p "$p" -o lstart= 2>/dev/null); norm_ws "$now"
+    [[ $REPLY == "$rec" ]] || return 1
+  fi
+  a=$(ps -ww -p "$p" -o args= 2>/dev/null); a=${a%%[[:space:]]##}
+  [[ $a == (*/|)forge-guardian ]]
+}
+# The governor's own single-instance lock: domain-scoped by its path (pid + started).
 lock_pid() {
-  local p s now
-  [[ -r $STATE_DIR/guardian.lock/pid ]] || return 0
-  p=$(<$STATE_DIR/guardian.lock/pid); [[ $p == <1-> ]] || return 0
-  kill -0 $p 2>/dev/null || return 0
-  s=""; [[ -r $STATE_DIR/guardian.lock/started ]] && s=$(<$STATE_DIR/guardian.lock/started)
-  now=$(ps -p $p -o lstart= 2>/dev/null)
-  [[ -n $s && ${(j: :)${=s}} != "${(j: :)${=now}}" ]] && return 0
-  [[ "$(ps -ww -p $p -o args= 2>/dev/null)" == *forge-guardian(| *) ]] || return 0
-  print -r -- $p
+  local p s
+  slurp "$STATE_DIR/guardian.lock/pid" || return 0; p=${REPLY//[[:space:]]/}
+  slurp "$STATE_DIR/guardian.lock/started" || return 0; s=$REPLY
+  is_governor "$p" "$s" && print -r -- $p
+  return 0
+}
+# guardian.pid is written by an UNSUPERVISED `start`: "<pid><TAB><lstart>". The same
+# verification as the lock; a bare pid (the old format) cannot be verified, so it is
+# stale by definition.
+PF_PID=""; PF_START=""
+pidfile_read() {
+  PF_PID=""; PF_START=""
+  slurp "$PIDF" || return 1
+  local line=${REPLY%%$'\n'*}
+  PF_PID=${line%%$'\t'*}
+  [[ $line == *$'\t'* ]] && PF_START=${line#*$'\t'}
+  return 0
+}
+pidfile_pid() { pidfile_read || return 0; is_governor "$PF_PID" "$PF_START" && print -r -- $PF_PID; return 0; }
+# start/stop/restart only (status is read-only): a pid file that does not name a
+# verified governor is never signalled; it is removed so it cannot mislead later.
+pidfile_check() {
+  pidfile_read || return 0
+  if is_governor "$PF_PID" "$PF_START"; then print -r -- $PF_PID; return 0; fi
+  local shown=${PF_PID[1,24]}; (( ${#PF_PID} > 24 )) && shown+="..."
+  print -u2 -r -- "forge-guardian-ctl: $PIDF names pid '$shown'$([[ -z $PF_START ]] && print -r -- ' (no start time recorded)'): not a governor; not signalling. Removed the stale pid file."
+  rm -f "$PIDF"
+  return 0
 }
 state_age() { local m; m=$(mtime_of "$STATE_DIR/state") && print $(( EPOCHSECONDS - m )) || print 999999; }
 
@@ -128,7 +200,8 @@ await_publishing() {   # await_publishing <seconds>  -> prints the pid
 # ---- status -----------------------------------------------------------------------
 local_identity() {   # SCHEMA §5 order, for envelopes the sensor has not reported on
   local pid=$1 boot=$2 pstart=$3 started=$4 ls ep
-  [[ $pid == <1-> ]] && kill -0 $pid 2>/dev/null || { print dead; return; }
+  canon_pid "$pid" || { print invalid; return; }
+  kill -0 $pid 2>/dev/null || { print dead; return; }
   if [[ -n $boot ]]; then
     [[ $boot == "$(sysctl -n kern.bootsessionuuid 2>/dev/null)" ]] || { print mismatch; return; }
   fi
@@ -184,7 +257,7 @@ cmd_status() {
 
   # -- state
   local sj="$STATE_DIR/state.json" st
-  st="?"; [[ -r $STATE_DIR/state ]] && st=$(<$STATE_DIR/state)
+  st="?"; slurp "$STATE_DIR/state" && st=${REPLY%%$'\n'*}
   print -r -- "  state=${st:-?} age=${AGE}s reason=$(jx $sj reason || print '?') seq=$(jx $sj seq || print -r -- -) j=$(jx $sj build_jobs_max || print '?')"
   local ec miss src sage
   ec=$(jx $sj evidence_complete); src=$(jx $sj evidence.source); sage=$(jx $sj evidence.sensor_age_s)
@@ -200,7 +273,7 @@ cmd_status() {
   typeset -A S
   if load_kv "$STATE_DIR/sensor.env" S; then
     local sp=${S[pid]:-?} sts=${S[ts_s]:-} salive=dead
-    [[ $sp == <1-> ]] && kill -0 $sp 2>/dev/null && salive=alive
+    canon_pid "$sp" && kill -0 $sp 2>/dev/null && salive=alive
     print -r -- "  sensor: pid=$sp ($salive) version=${S[version]:-?} seq=${S[seq]:-?} age=$([[ $sts == <-> ]] && print $(( EPOCHSECONDS - sts )) || print '?')s errors=${S[errors]:-?}"
     print -r -- "    vm_pressure     ${S[vmp]:-?}  [${S[vmp_st]:-?}]"
     print -r -- "    pressure_event  ${S[pevent]:-?} warn=${S[pevent_warn_n]:-?} crit=${S[pevent_crit_n]:-?}  [${S[pevent_st]:-?}]"
@@ -232,7 +305,8 @@ cmd_status() {
   # NULL_GLOB makes an unmatched glob VANISH, and `ls` with no arguments lists the
   # CURRENT DIRECTORY — which reported "48 registered jobs" for an empty jobs dir.
   # Count the array, never a command whose argument list can disappear.
-  local -a JOBS; JOBS=("$STATE_DIR/jobs"/*.job(N))
+  # `(N.)`: regular files only -- a FIFO named *.job is never opened (R1).
+  local -a JOBS; JOBS=("$STATE_DIR/jobs"/*.job(N.))
   print -r -- "  registered jobs: ${#JOBS[@]}"
   local f j k idn fp rs
   for f in $JOBS; do
@@ -249,7 +323,7 @@ cmd_status() {
   done
 
   # -- quarantines
-  local -a Q; Q=("$STATE_DIR/quarantine"/*.json(N))
+  local -a Q; Q=("$STATE_DIR/quarantine"/*.json(N.))
   print -r -- "  quarantined signatures: ${#Q[@]}"
   local q
   for q in $Q; do
@@ -401,7 +475,7 @@ hist_field() { [[ $1 =~ "\"$2\":(\"[^\"]*\"|\\[[^]]*\\]|[-0-9.]+|true|false|null
 cmd_history() {
   local n=${1:-20} f="$STATE_DIR/history.jsonl" line t
   [[ $n == <1-> ]] || { print -u2 "usage: forge-guardian-ctl history [N]"; exit 2; }
-  [[ -r $f ]] || { print -r -- "no history ($f)"; return 0; }
+  [[ -f $f && -r $f ]] || { print -r -- "no history ($f)"; return 0; }
   print -r -- "time                 state   reason                    vmp pevent free swap(used/total MB)  po/5s thermal  disk  reserved/budget  jobs ev"
   for line in "${(@f)$(tail -n $n "$f")}"; do
     t=$(hist_field "$line" t)
@@ -418,7 +492,7 @@ cmd_reservations() {
   else
     print -r -- "no sensor snapshot: reservations below are DECLARED peaks only (no measurement)"
   fi
-  local -a JOBS; JOBS=("$STATE_DIR/jobs"/*.job(N))
+  local -a JOBS; JOBS=("$STATE_DIR/jobs"/*.job(N.))   # regular files only (R1)
   printf '%-24s %-8s %-12s %-10s %-10s %-10s %s\n' name pid identity declared measured reserved disk
   local f j found
   for f in $JOBS; do
@@ -438,7 +512,7 @@ cmd_quarantine() {
   local sub=${1:-list}; shift 2>/dev/null
   case $sub in
     list)
-      local -a Q; Q=("$STATE_DIR/quarantine"/*.json(N))
+      local -a Q; Q=("$STATE_DIR/quarantine"/*.json(N.))
       (( ${#Q} )) || { print -r -- "no quarantined job signatures"; return 0; }
       local q
       for q in $Q; do
@@ -512,14 +586,33 @@ cmd_start() {
     return 1
   fi
   [[ -f $PLIST ]] && print -r -- "note: the installed LaunchAgent governs $(plist_domain), not $STATE_DIR -- starting this domain unsupervised"
-  local p; p=$(pidfile_pid); [[ -z $p ]] && p=$(lock_pid)
+  # Only a VERIFIED governor counts as running (the lock first: it is the governor's
+  # own record). A pid file naming anything else is stale and is removed, not trusted:
+  # `already running pid=4295018728` once refused to start a governor at all.
+  local p; p=$(lock_pid); [[ -z $p ]] && p=$(pidfile_check)
   if [[ -n $p ]]; then print -r -- "already running pid=$p"; return 0; fi
   local G="$STATE_DIR/bin/forge-guardian"
   [[ -f $G ]] || G="${SELF:h}/forge-guardian"
   ( umask 077; mkdir -p "$STATE_DIR/log" )
   FORGE_HEALTH_DIR="$STATE_DIR" nohup /bin/zsh "$G" >> "$STATE_DIR/log/guardian.out" 2>&1 &
-  print -r -- $! > "$PIDF"; sleep 2
-  print -r -- "started (unsupervised) pid=$(<$PIDF) — prefer installing the LaunchAgent: forge-guardian-ctl install"
+  local np=$! ls
+  # Record WHICH process this is, not just its number: "<pid><TAB><lstart>" (exec keeps
+  # the start time, so it can be read at once).
+  ls=$(LC_ALL=C ps -p $np -o lstart= 2>/dev/null); norm_ws "$ls"; ls=$REPLY
+  ( umask 077; print -r -- "$np"$'\t'"$ls" > "$PIDF.tmp.$$" ) && mv -f "$PIDF.tmp.$$" "$PIDF"
+  sleep 2
+  if is_governor "$np" "$ls"; then
+    print -r -- "started (unsupervised) pid=$np — prefer installing the LaunchAgent: forge-guardian-ctl install"
+    return 0
+  fi
+  rm -f "$PIDF"
+  print -u2 -r -- "forge-guardian-ctl: the governor (pid $np) is not running 2s after start; see $STATE_DIR/log/guardian.out"
+  return 1
+}
+await_exit() {   # await_exit <pid> <seconds>: 0 once the pid is gone
+  local i
+  for (( i = 0; i < $2 * 4; i++ )); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.25; done
+  ! kill -0 "$1" 2>/dev/null
 }
 cmd_stop() {
   guard_service
@@ -528,10 +621,19 @@ cmd_stop() {
     rm -f "$PIDF"
     return 0
   fi
-  local p; p=$(pidfile_pid)
-  if [[ -n $p ]]; then kill "$p" 2>/dev/null; rm -f "$PIDF"; print -r -- "stopped"; return 0; fi
-  p=$(lock_pid)
-  if [[ -n $p ]]; then kill "$p" 2>/dev/null; print -r -- "stopped (unsupervised pid=$p)"; return 0; fi
+  # Unsupervised: signal ONLY a verified governor of this domain (lock, then pid file).
+  local p; p=$(lock_pid); [[ -z $p ]] && p=$(pidfile_check)
+  if [[ -n $p ]]; then
+    kill -TERM "$p" 2>/dev/null
+    # Wait for it: `restart` used to start the replacement while this one was still
+    # exiting, find it "already running", and leave the domain with no governor.
+    if ! await_exit "$p" 15; then
+      print -u2 -r -- "forge-guardian-ctl: sent TERM to the governor pid=$p; it is still running after 15s"
+      return 1
+    fi
+    rm -f "$PIDF"
+    print -r -- "stopped (unsupervised pid=$p)"; return 0
+  fi
   print -r -- "not running"
 }
 cmd_restart() {
@@ -543,7 +645,8 @@ cmd_restart() {
     local lp; if lp=$(await_publishing 20); then print -r -- "restarted under launchd pid=$lp"; return 0; fi
     print -u2 -r -- "launchd did not bring up a publishing governor within 20s"; return 1
   fi
-  cmd_stop; sleep 1; cmd_start
+  cmd_stop || return 1
+  cmd_start
 }
 
 case "${1:-status}" in

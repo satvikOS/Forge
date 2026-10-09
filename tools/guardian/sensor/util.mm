@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstdarg>
@@ -366,15 +367,35 @@ int write_atomic(const std::string& path, std::string_view data, bool full_sync)
 int append_line(const std::string& path, std::string_view line) {
   std::string buf(line);
   if (buf.empty() || buf.back() != '\n') buf += '\n';
-  int fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+  int fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600);
   if (fd < 0) return errno;
+  struct stat st;
+  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {  // never append into a FIFO or device
+    close(fd);
+    return EINVAL;
+  }
   // One write(2) per line: O_APPEND makes it a single positioned append, so lines from
   // the governor and the sensor interleave whole.
   ssize_t n;
   do { n = write(fd, buf.data(), buf.size()); } while (n < 0 && errno == EINTR);
   int e = 0;
-  if (n < 0) e = errno;
-  else if ((size_t)n != buf.size()) e = ENOSPC;
+  if (n < 0) {
+    e = errno;
+  } else if ((size_t)n != buf.size()) {
+    // THE BUG THIS CLOSES (review 2026-10-08 R6): on a full volume write(2) fills the
+    // last block's slack and returns short. The fragment had no newline, so the next
+    // record anyone appended -- ours or the governor's -- was glued to it and both were
+    // lost to every JSON reader. Cut the fragment off again: our bytes are exactly
+    // [end - n, end), where end is the offset O_APPEND left us at. If another writer
+    // has appended after us in the meantime its record must survive, so the cut is
+    // made only while the file still ends with our fragment.
+    e = ENOSPC;
+    off_t end = lseek(fd, 0, SEEK_CUR);
+    struct stat now;
+    if (n > 0 && end >= (off_t)n && fstat(fd, &now) == 0 && now.st_size == end) {
+      if (ftruncate(fd, end - (off_t)n) != 0) e = errno ? errno : ENOSPC;
+    }
+  }
   if (close(fd) != 0 && !e) e = errno;
   return e;
 }
@@ -383,10 +404,16 @@ void rotate_if_needed(const std::string& path, uint64_t max_bytes, int generatio
   struct stat st;
   if (lstat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) return;
   if ((uint64_t)st.st_size < max_bytes) return;
-  if (generations < 1) generations = 1;
+  // Bounded work whatever the caller passes: logs.generations=1e9 once made this loop
+  // run for 40 minutes on the main queue, starving SIGTERM (review 2026-10-08 R3).
+  generations = std::clamp(generations, 1, 10);
   unlink((path + "." + std::to_string(generations)).c_str());
-  for (int i = generations - 1; i >= 1; --i)
-    rename((path + "." + std::to_string(i)).c_str(), (path + "." + std::to_string(i + 1)).c_str());
+  for (int i = generations - 1; i >= 1; --i) {
+    std::string from = path + "." + std::to_string(i);
+    struct stat gs;
+    if (lstat(from.c_str(), &gs) != 0) continue;  // rotate only the generations that exist
+    rename(from.c_str(), (path + "." + std::to_string(i + 1)).c_str());
+  }
   rename(path.c_str(), (path + ".1").c_str());
 }
 

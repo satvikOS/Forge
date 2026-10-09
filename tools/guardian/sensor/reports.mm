@@ -28,14 +28,30 @@ extern char** environ;
 
 namespace fgs {
 
+// THE GAP THIS CLOSES (review 2026-10-08 SEM-1): macOS moves EVERY report into
+// <dir>/Retired at its daily run -- one born 47 s earlier included. Scanning only the
+// top level lost every JetsamEvent on this Mac, among them the one real system-wide
+// compressor-exhaustion kill (JetsamEvent-2026-10-03-215334.ips), from the baseline,
+// from incidents and from `reports`. A move keeps the mtime, so report_key() makes a
+// report seen in one place and later in the other the same report.
 std::vector<std::string> report_dirs() {
+  std::vector<std::string> base;
   if (const char* e = test_env("FORGE_SENSOR_TEST_REPORT_DIRS")) {
-    std::vector<std::string> out;
     for (auto& d : split(e, ':'))
-      if (!d.empty()) out.push_back(d);
-    return out;
+      if (!d.empty()) base.push_back(d);
+  } else {
+    base = {"/Library/Logs/DiagnosticReports", home_dir() + "/Library/Logs/DiagnosticReports"};
   }
-  return {"/Library/Logs/DiagnosticReports", home_dir() + "/Library/Logs/DiagnosticReports"};
+  std::vector<std::string> out;
+  for (auto& d : base) {
+    out.push_back(d);
+    out.push_back(d + "/Retired");
+  }
+  return out;
+}
+
+std::string report_key(const std::string& name, double mtime) {
+  return std::to_string((int64_t)std::floor(mtime)) + " " + name;
 }
 
 std::string classify_report_name(const std::string& name) {
@@ -162,7 +178,17 @@ std::vector<Report> scan_reports(const std::vector<std::string>& dirs, double si
       out.back().size = (int64_t)st.st_size;
     }
   }
-  std::sort(out.begin(), out.end(), [](const Report& a, const Report& b) { return a.mtime < b.mtime; });
+  // One report, one entry: the copy in the first directory listed (the top level
+  // before its Retired/) wins over the same report found again after a move.
+  {
+    std::set<std::string> seen;
+    std::vector<Report> uniq;
+    uniq.reserve(out.size());
+    for (auto& r : out)
+      if (seen.insert(report_key(r.name, r.mtime)).second) uniq.push_back(std::move(r));
+    out.swap(uniq);
+  }
+  std::stable_sort(out.begin(), out.end(), [](const Report& a, const Report& b) { return a.mtime < b.mtime; });
   if (out.size() > max) out.erase(out.begin(), out.end() - (long)max);  // keep the newest
   for (auto& r : out) r = analyze_report(r.dir, r.name, r.mtime, r.size, deep);
   return out;
@@ -227,8 +253,42 @@ bool incident_kind_known(const std::string& k) {
          k == "gpu_error";
 }
 
-// The last lines of a JSONL file whose numeric `field` is >= since, newest kept,
-// within cap bytes.
+// The line's TOP-LEVEL numeric `field`. Fast path: the field is the first member
+// (every producer writes ts/t first: `{"ts":` or `{"ts": `). Otherwise the line is
+// parsed: the first '"ts":' anywhere in the text can be a NESTED key, which silently
+// dropped or mis-windowed inbox lines (review 2026-10-08 SEM-7).
+static bool line_time(std::string_view line, const char* field, double& t) {
+  size_t i = 0;
+  auto ws = [&] { while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i; };
+  ws();
+  if (i < line.size() && line[i] == '{') {
+    ++i;
+    ws();
+    std::string key = std::string("\"") + field + "\"";
+    if (line.substr(i, key.size()) == key) {
+      i += key.size();
+      ws();
+      if (i < line.size() && line[i] == ':') {
+        ++i;
+        ws();
+        std::string num(line.substr(i, std::min<size_t>(32, line.size() - i)));
+        char* end = nullptr;
+        double v = strtod(num.c_str(), &end);
+        if (end && end != num.c_str() && std::isfinite(v)) { t = v; return true; }
+        return false;
+      }
+    }
+  }
+  @autoreleasepool {
+    NSDictionary* o = json_obj(line);
+    double v;
+    if (o && ns_num(o[[NSString stringWithUTF8String:field]], v)) { t = v; return true; }
+  }
+  return false;
+}
+
+// The last lines of a JSONL file whose top-level numeric `field` is >= since, newest
+// kept, within cap bytes.
 static std::string window_lines(const std::string& path, const char* field, double since, size_t cap,
                                 int64_t& nlines, bool& truncated) {
   nlines = 0;
@@ -236,7 +296,6 @@ static std::string window_lines(const std::string& path, const char* field, doub
   std::string tail;
   if (read_tail(path, tail, 8u * 1024 * 1024) != 0) return "";
   std::vector<std::string_view> keep;
-  std::string pat = std::string("\"") + field + "\":";
   size_t i = 0;
   std::string_view tv(tail);
   while (i < tv.size()) {
@@ -244,10 +303,8 @@ static std::string window_lines(const std::string& path, const char* field, doub
     if (nl == std::string_view::npos) nl = tv.size();
     std::string_view line = tv.substr(i, nl - i);
     i = nl + 1;
-    size_t p = line.find(pat);
-    if (p == std::string_view::npos) continue;
-    std::string num(line.substr(p + pat.size(), 32));
-    double t = strtod(num.c_str(), nullptr);
+    double t;
+    if (!line_time(line, field, t)) continue;
     if (t >= since) keep.push_back(line);
   }
   size_t total = 0;
@@ -410,7 +467,10 @@ int make_incident(const std::string& D, const Policy& pol, const IncidentReq& rq
   // reports in the window
   auto dirs = report_dirs();
   for (auto& d : dirs) {
-    if (access(d.c_str(), R_OK | X_OK) != 0) inaccessible.push_back(d + ": " + strerror(errno));
+    // A Retired/ that does not exist yet holds nothing; anything else unreadable is
+    // recorded as inaccessible evidence.
+    if (access(d.c_str(), R_OK | X_OK) != 0 && !(errno == ENOENT && ends_with(d, "/Retired")))
+      inaccessible.push_back(d + ": " + strerror(errno));
   }
   auto reps = scan_reports(dirs, since, now + 1, 200, true);
   std::string rj;

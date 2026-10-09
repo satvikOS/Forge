@@ -16,6 +16,11 @@
 # command-substitution subshells lose array appends).
 #
 # usage: sensor_gate.sh [--bin PREBUILT]     (default: build from ../sensor)
+#   SCAN_IN_POLICY=1  put reports.scan_interval_s=1 in the test policies instead of
+#                     FORGE_SENSOR_TEST_SCAN_S=1 -- only for running these cases against
+#                     a pre-2026-10-08 binary, which accepted that value (it is now out of
+#                     SCHEMA §6's 60-86400 range) and knew no test hook for it.
+# Cases tagged [ID] reproduce a finding of the 2026-10-08 review.
 # ============================================================================
 set -u
 setopt NULL_GLOB 2>/dev/null || true
@@ -100,7 +105,9 @@ print(n)' "$1" "$2"
 }
 write_policy() { # write_policy D [extra json members]
   mkdir -p "$1"
-  print -r -- "{\"reports\": {\"scan_interval_s\": 1}, \"watch_logs\": [{\"path\": \"$ROOT/watch/gpu.log\", \"kind\": \"gpu_error\", \"patterns\": [\"GPU Hang\", \"MTLCommandBufferError\"]}]${2:+, $2}}" >"$1/policy.json"
+  local scan=""
+  (( ${SCAN_IN_POLICY:-0} )) && scan="\"reports\": {\"scan_interval_s\": 1}, "
+  print -r -- "{$scan\"watch_logs\": [{\"path\": \"$ROOT/watch/gpu.log\", \"kind\": \"gpu_error\", \"patterns\": [\"GPU Hang\", \"MTLCommandBufferError\"]}]${2:+, $2}}" >"$1/policy.json"
 }
 # start_sensor D [extra run args] -> sets SPID (env from the caller's exports)
 start_sensor() {
@@ -114,6 +121,7 @@ mkdir -p "$ROOT/watch" "$ROOT/reps_empty"
 export FORGE_SENSOR_TEST=1
 export FORGE_SENSOR_TEST_REPORT_DIRS=$ROOT/reps_empty
 export FORGE_SENSOR_INJECT=$ROOT/inject
+export FORGE_SENSOR_TEST_SCAN_S=1   # reports scan every second (test mode only)
 : >"$FORGE_SENSOR_INJECT"
 
 # ================================================================ A. build
@@ -165,6 +173,73 @@ out=$("$B" policy --env --policy "$ROOT/good.json"); rc=$?
 (( rc == 0 )) && [[ $out == *$'\npoll_s=2\n'* || $out == poll_s=2$'\n'* ]] && [[ $out == *'memory_os_reserve_gb=4'* && $out == *'memory_instant_margin_gb=2'* ]]
 ck "a partial policy overlays the defaults" $?
 
+# SCHEMA §6 bounds: ONE table. For every key: min and max accepted, min-1 and max+1
+# rejected WHOLE (review 2026-10-08 R2: poll_s 4000 accepted here and refused by `run`;
+# R3: logs.generations 1e9 wedged sensor and governor at 100 % CPU).
+RAMH=$(( $(sysctl -n hw.memsize) / 1073741824.0 / 2 ))
+python3 -I - "$B" "$ROOT/bounds" "$RAMH" >"$ROOT/bounds.out" <<'PY'
+import json, os, subprocess, sys
+B, d, ramh = sys.argv[1], sys.argv[2], float(sys.argv[3])
+os.makedirs(d, exist_ok=True)
+T = [("poll_s",1,60),("escalate_polls",1,10),("deescalate_polls",1,60),("sensor_stale_polls",2,12),
+     ("memory.os_reserve_gb",2,ramh),("memory.instant_margin_gb",0,16),("memory.light_job_gb",0,2),
+     ("eviction.settle_s",0,3600),("eviction.term_grace_s",1,600),
+     ("crash_loop.max_crashes",1,100),("crash_loop.window_s",60,86400),
+     ("guardian_restart_loop.max_starts",2,100),("guardian_restart_loop.window_s",60,86400),
+     ("guardian_restart_loop.backoff_s",10,3600),("logs.cap_mib",8,1024),("logs.rotate_mib",1,64),
+     ("logs.generations",1,10),("logs.history_mib",1,64),("logs.incident_max_kib",64,4096),
+     ("logs.retention_days",1,365),("notifications.min_interval_s",60,86400),
+     ("reports.scan_interval_s",60,86400),("smart.interval_s",600,604800)]
+def obj(k, v):
+    o = v
+    for p in reversed(k.split(".")): o = {p: o}
+    return o
+def rc_of(o):
+    f = os.path.join(d, "p.json")
+    json.dump(o, open(f, "w"))
+    return subprocess.run([B, "policy", "--policy", f, "--env"], capture_output=True).returncode
+bad = []
+for k, lo, hi in T:
+    real = k.startswith("memory.")
+    step = 0.5 if real else 1
+    cases = [(lo, 0), (hi if real else int(hi), 0), (lo - step, 1), ((hi + step) if real else int(hi) + 1, 1), (10**9, 1)]
+    for v, want in cases:
+        rc = rc_of(obj(k, v))
+        if rc != want: bad.append("%s=%s: rc %d, want %d" % (k, v, rc, want))
+for fl, want in (({"red": 9998, "orange": 9999, "yellow": 10000}, 0), ({"red": 10001, "orange": 10002, "yellow": 10003}, 1),
+                 ({"red": 1, "orange": 2, "yellow": 10001}, 1)):
+    rc = rc_of({"disk": {"floors_gib": fl}})
+    if rc != want: bad.append("disk.floors_gib=%s: rc %d, want %d" % (fl, rc, want))
+print("\n".join(bad) if bad else "all bounds enforced")
+sys.exit(1 if bad else 0)
+PY
+brc=$?
+note "$(head -c 600 "$ROOT/bounds.out" | tr '\n' ';')"
+ck "[R2][R3] every SCHEMA §6 bound: min/max accepted, min-1/max+1/1e9 rejected whole" $brc
+print -r -- '{"logs": {"generations": 1000000000}}' >"$ROOT/gen.json"
+"$B" policy --env --policy "$ROOT/gen.json" >"$ROOT/gen.env" 2>"$ROOT/gen.err"; rc=$?
+(( rc == 1 )) && grep -qx 'logs_generations=3' "$ROOT/gen.env" && grep -q '1..10' "$ROOT/gen.err"
+ck "[R3] logs.generations=1e9 -> rejected whole, policy.env keeps generations=3 (rc=$rc)" $?
+print -r -- '{"poll_s": 4000}' >"$ROOT/poll.json"
+"$B" policy --env --policy "$ROOT/poll.json" >"$ROOT/poll.env" 2>/dev/null; rc=$?
+(( rc == 1 )) && grep -qx 'poll_s=5' "$ROOT/poll.env"; ck "[R2] poll_s=4000 -> rejected whole, policy.env keeps poll_s=5 (rc=$rc)" $?
+"$B" run --state-dir "$ROOT/poll61" --poll 61 >/dev/null 2>"$ROOT/poll61.err" & pp=$!; note_pid $pp
+wait_until 2 '! alive $pp'; alive $pp && { kill -TERM $pp; wait_until 2 '! alive $pp'; rc=124; } || { wait $pp; rc=$?; }
+(( rc == 2 )); ck "[R2] run --poll 61 -> usage (2): the same 1..60 range as policy.json (rc=$rc)" $?
+pol_rc() { print -r -- "$1" >"$ROOT/rs.json"; "$B" policy --env --policy "$ROOT/rs.json" >"$ROOT/rs.env" 2>"$ROOT/rs.err"; print $? }
+(( $(pol_rc '{"required_signals": []}') == 1 )) && grep -qx 'required_signals=vm_pressure swap pageouts disk thermal' "$ROOT/rs.env"
+ck "[FO-3] required_signals [] -> rejected whole (policy.env keeps all five)" $?
+(( $(pol_rc '{"required_signals": ["vm_pressure", "swap", "pageouts"]}') == 1 )) && grep -q 'missing disk' "$ROOT/rs.err"
+ck "[FO-3] required_signals without disk (a core signal) -> rejected" $?
+(( $(pol_rc '{"required_signals": ["vm_pressure", "swap", "pageouts", "disk", "cpu"]}') == 1 ))
+ck "[FO-3] required_signals naming cpu (not one of the five) -> rejected" $?
+(( $(pol_rc '{"required_signals": ["vm_pressure", "swap", "swap", "pageouts", "disk"]}') == 1 ))
+ck "[FO-3] required_signals listing swap twice (not a set) -> rejected" $?
+(( $(pol_rc '{"required_signals": ["disk", "pageouts", "swap", "vm_pressure"]}') == 0 )) && grep -qx 'required_signals=disk pageouts swap vm_pressure' "$ROOT/rs.env"
+ck "[FO-3] A/B: the core four without thermal -> accepted" $?
+(( $(pol_rc '{"sensor_stale_polls": 1000000000}') == 1 )) && grep -qx 'sensor_stale_polls=3' "$ROOT/rs.env"
+ck "[FO-3] sensor_stale_polls=1e9 -> rejected (2..12)" $?
+
 # ================================================================ C. snapshot
 sect "C. snapshot on this Mac"
 t0=$EPOCHREALTIME
@@ -181,17 +256,17 @@ sys.exit(0 if ok and set(names)<=set(d["signals"]) else 1)
 PY
 ck "every one of the 9 signals carries a status" $?
 [[ $(pyj "$ROOT/snap.json" 'd["signals"]["vm_pressure"]["status"]') == ok && $(pyj "$ROOT/snap.json" 'd["signals"]["vm_pressure"]["value"] in (1,2,4)') == True ]]
-ck "vm_pressure ok and in {1,2,4} ($(pyj "$ROOT/snap.json" 'd["signals"]["vm_pressure"]["value"]'))" $?
+r_=$?; ck "vm_pressure ok and in {1,2,4} ($(pyj "$ROOT/snap.json" 'd["signals"]["vm_pressure"]["value"]'))" $r_
 TH=$(pyj "$ROOT/snap.json" 'd["signals"]["thermal"]["value"]')
 [[ $(pyj "$ROOT/snap.json" 'd["signals"]["thermal"]["status"]') == ok && $TH == (nominal|fair|serious|critical) ]]
 ck "T-173 HEADLINE: thermal is AVAILABLE natively: status ok, value '$TH'" $?
 python3 -I -c 'import json,sys
 s=json.load(open(sys.argv[1]))["signals"]["swap"]
 sys.exit(0 if s["status"]=="ok" and 0<=s["used_mb"]<=s["total_mb"]<10_000_000 else 1)' "$ROOT/snap.json"
-ck "swap totals plausible ($(pyj "$ROOT/snap.json" 'd["signals"]["swap"]["used_mb"]')/$(pyj "$ROOT/snap.json" 'd["signals"]["swap"]["total_mb"]') MiB)" $?
+r_=$?; ck "swap totals plausible ($(pyj "$ROOT/snap.json" 'd["signals"]["swap"]["used_mb"]')/$(pyj "$ROOT/snap.json" 'd["signals"]["swap"]["total_mb"]') MiB)" $r_
 (( $(pyj "$ROOT/snap.json" 'sum(1 for v in d["volumes"] if v["status"]=="ok")') >= 1 )); ck ">= 1 volume ok" $?
 [[ $(pyj "$ROOT/snap.json" 'd["signals"]["memory"]["total_b"]') == $(sysctl -n hw.memsize) ]]
-ck "memory total == hw.memsize ($(sysctl -n hw.memsize))" $?
+r_=$?; ck "memory total == hw.memsize ($(sysctl -n hw.memsize))" $r_
 [[ $(pyj "$ROOT/snap.json" 'd["boot"]["uuid"]') == $(sysctl -n kern.bootsessionuuid) ]]; ck "boot uuid == kern.bootsessionuuid" $?
 fp=$(pyj "$ROOT/snap.json" 'd["signals"]["free_pct"]["value"]'); kl=$(sysctl -n kern.memorystatus_level)
 (( fp >= kl - 3 && fp <= kl + 3 )); ck "free_pct ($fp) agrees with kern.memorystatus_level ($kl)" $?
@@ -243,6 +318,33 @@ sleep 0 & cpid=$!; wait $cpid
 "$B" pidinfo nope >/dev/null 2>&1; ck "pidinfo of a non-pid exits 2" $(( $? == 2 ? 0 : 1 ))
 [[ $("$B" pidinfo 1) == *comm=launchd*identity=alive* ]]; ck "another user's process (launchd) is resolved via kern.proc" $?
 
+# ACT-1: comm stays percent-encoded, and protected=0|1 is computed by the sensor from
+# SCHEMA §5's ONE list on the DECODED name (the governor matched 'Claude Helper*'
+# against 'Claude%20Helper' and signalled every Claude helper).
+mkdir -p "$ROOT/ch"; CH_BIN="$ROOT/ch/Claude Helper"
+print -l '#include <unistd.h>' 'int main(void) { for (;;) pause(); }' >"$ROOT/ch/ch.c"
+if xcrun clang -O0 -o "$CH_BIN" "$ROOT/ch/ch.c" >/dev/null 2>&1; then
+  "$CH_BIN" & CHP=$!; note_pid $CHP; sleep 0.2
+  line=$("$B" pidinfo $CHP)
+  [[ $line == *" protected=1 comm=Claude%20Helper identity=alive" ]]; ck "[ACT-1] 'Claude Helper' -> protected=1, comm=Claude%20Helper still encoded and last before identity ($line)" $?
+  kill -9 $CHP 2>/dev/null
+else
+  note "clang unavailable: the 'Claude Helper' arm is skipped"
+fi
+[[ $("$B" pidinfo $$) == *" uid=$UID protected=0 comm=zsh identity=alive" ]]; ck "[ACT-1] this gate's own zsh -> protected=0" $?
+[[ $("$B" pidinfo 1) == *" protected=1 comm=launchd "* ]]; ck "[ACT-1] pid 1 (launchd, root) -> protected=1" $?
+RP=$(ps -axo pid=,uid=,comm= | awk '$2 == 0 && $1 > 1 && $3 !~ /launchd$/ { print $1; exit }')
+[[ $("$B" pidinfo $RP) == *" uid=0 protected=1 "* ]]; ck "[ACT-1] a root-owned pid ($RP) -> protected=1 (another uid)" $?
+DG=$ROOT/dg; mkdir -p "$DG/guardian.lock" "$ROOT/fg"
+print -r -- 'zmodload zsh/zselect; while :; do zselect -t 360000; done' >"$ROOT/fg/forge-guardian"
+zsh "$ROOT/fg/forge-guardian" & FG=$!; note_pid $FG
+print -r -- $FG >"$DG/guardian.lock/pid"; ps -p $FG -o lstart= >"$DG/guardian.lock/started"
+sleep 30 & SL=$!; note_pid $SL
+out=$("$B" pidinfo --state-dir "$DG" $FG $$ $SL)
+[[ ${(f)out}[1] == *" protected=1 "* && ${(f)out}[2] == *" protected=1 "* && ${(f)out}[3] == *" protected=0 "* ]]
+ck "[ACT-1] --state-dir: the guardian.lock holder and its ancestor (this shell) protected=1, a plain sleeper protected=0" $?
+kill -9 $FG $SL 2>/dev/null
+
 # ================================================================ E. run mode
 sect "E. run mode"
 D1=$ROOT/d1
@@ -252,7 +354,7 @@ start_sensor "$D1" --poll 1
 S1=$SPID
 t0=$EPOCHREALTIME
 wait_until 3 '[[ -s $D1/sensor.env && -s $D1/sensor.json ]]'
-ck "sensor.env + sensor.json appear ($(printf '%.2f' $(( EPOCHREALTIME - t0 ))) s; limit 2 polls + start)" $?
+r_=$?; ck "sensor.env + sensor.json appear ($(printf '%.2f' $(( EPOCHREALTIME - t0 ))) s; limit 2 polls + start)" $r_
 [[ ! -e $D1/sensor.json.tmp.99999 && -e $D1/unrelated.tmp.99999 ]]; ck "a stale sensor tmp file from a killed sensor is removed at start; nothing else" $?
 agree=1
 for i in {1..10}; do
@@ -300,8 +402,13 @@ wait_until 3 '[[ $(envv $D1/sensor.env freepct_st) == invalid ]]'
    && $(envv "$D1/sensor.env" mem_st) == unavailable && $(envv "$D1/sensor.env" mem_total_b) == -1 \
    && $(envv "$D1/sensor.env" budget_b) == -1 && $(envv "$D1/sensor.env" thermal_st) == ok ]]
 ck "negative -> invalid; used > total -> invalid; unavailable -> -1; derived budget -> -1" $?
+sleep 0.3
+[[ $(envv "$D1/sensor.env" overcommit) == -1 && $(pyj "$D1/sensor.json" 'd["reservations"]["overcommit"]') == None ]]
+ck "[SEM-6] budget unavailable -> overcommit=-1 in .env and null in .json, never a healthy-looking 0/false" $?
 : >"$FORGE_SENSOR_INJECT"
 wait_until 3 '[[ $(envv $D1/sensor.env freepct_st) == ok ]]'; ck "injection cleared -> real values back" $?
+[[ $(envv "$D1/sensor.env" overcommit) == (0|1) && $(pyj "$D1/sensor.json" 'd["reservations"]["overcommit"] in (True, False)') == True ]]
+ck "[SEM-6] A/B: budget available again -> overcommit is a 0|1 verdict" $?
 
 grep '"kind":"thermal"' "$D1/events.jsonl" | grep -q '"state":"none","prev":"nominal"' \
   && grep '"kind":"thermal"' "$D1/events.jsonl" | grep -q '"state":"nominal","prev":"none"'
@@ -341,6 +448,30 @@ wait_until 4 '[[ -e $D7/events.jsonl.2 ]]'
 ck "events.jsonl rotates at logs.rotate_mib (1 MiB): .1 -> .2, current -> .1, fresh current" $?
 kill -TERM $S7; wait_until 3 '! alive $S7'
 
+# R3: logs.generations=1e9 made every rotation 1e9 renames on the main queue: the
+# sensor sat at 100 % CPU and ignored SIGTERM and parent exit. Rejected now, and the
+# rotation loop is bounded whatever it is given.
+D7b=$ROOT/d7b; write_policy "$D7b" '"logs": {"rotate_mib": 1, "generations": 1000000000}'
+python3 -I -c 'import json,sys
+with open(sys.argv[1],"w") as f:
+    for i in range(18000): f.write(json.dumps({"ts":1.0,"kind":"filler","i":i,"pad":"x"*100})+"\n")' "$D7b/events.jsonl"
+start_sensor "$D7b" --poll 1; S7b=$SPID
+wait_until 3 '[[ -s $D7b/sensor.env ]]'; sleep 1.5
+t0=$EPOCHREALTIME; kill -TERM $S7b
+wait_until 3 '! alive $S7b'; gone=$?
+note "generations=1e9: SIGTERM -> $( (( gone == 0 )) && printf 'exit in %.0f ms' $(( (EPOCHREALTIME - t0) * 1000 )) || print 'STILL ALIVE after 3 s')"
+(( gone == 0 )) && grep -q 'policy rejected' "$D7b/log/sensor.log"
+ck "[R3] a policy with logs.generations=1e9 is rejected, and the sensor still answers SIGTERM within 3 s" $?
+alive $S7b && kill -9 $S7b 2>/dev/null
+
+# FO-3: thermal may be left out of required_signals, and that is logged at every start.
+D12=$ROOT/d12; write_policy "$D12" '"required_signals": ["vm_pressure", "swap", "pageouts", "disk"]'
+start_sensor "$D12" --poll 1; S12=$SPID
+wait_until 3 '[[ -s $D12/sensor.env ]]'
+grep -qx 'required_signals=vm_pressure swap pageouts disk' "$D12/policy.env" && grep -q 'omits thermal' "$D12/log/sensor.log"
+ck "[FO-3] required_signals without thermal: accepted and logged at start" $?
+kill -TERM $S12; wait_until 3 '! alive $S12'
+
 # ================================================================ F. parent + SIGUSR2
 sect "F. parent death and SIGUSR2 to the governor"
 D2=$ROOT/d2
@@ -372,7 +503,7 @@ note "SIGUSR2 latency (inject -> governor trap): $(printf '%.1f' $lat_ms) ms"
 (( t1 > 0 && lat_ms < 1000 )); ck "injected critical pressure delivers SIGUSR2 to the parent within 1 s" $?
 grep -q '"kind":"pressure","level":"critical"' "$D2/events.jsonl"; ck "  ...pressure event appended (level critical)" $?
 [[ $(envv "$D2/sensor.env" pevent) == critical && $(envv "$D2/sensor.env" pevent_crit_n) == $(( crit0 + 1 )) ]]
-ck "  ...published before the signal: pevent=critical, crit_n $crit0 -> $(envv "$D2/sensor.env" pevent_crit_n)" $?
+r_=$?; ck "  ...published before the signal: pevent=critical, crit_n $crit0 -> $(envv "$D2/sensor.env" pevent_crit_n)" $r_
 n_before=$(wc -l <"$ROOT/usr2.log")
 print -r -- "pressure=normal" >"$ROOT/ev_inject"
 kill -USR1 $S2; sleep 1.2
@@ -415,10 +546,10 @@ run3() { # run3 BOOT -> S3
 }
 run3 BOOT-A; kill -9 $S3; wait $S3 2>/dev/null
 run3 BOOT-A
-[[ $(cls_of) == service_interrupted ]]; ck "kill -9, same boot -> service_interrupted ($(cls_of))" $?
+[[ $(cls_of) == service_interrupted ]]; r_=$?; ck "kill -9, same boot -> service_interrupted ($(cls_of))" $r_
 kill -TERM $S3; wait_until 3 '! alive $S3'
 run3 BOOT-B
-[[ $(cls_of) == orderly_stop_then_reboot ]]; ck "orderly stop + new boot uuid -> orderly_stop_then_reboot ($(cls_of))" $?
+[[ $(cls_of) == orderly_stop_then_reboot ]]; r_=$?; ck "orderly stop + new boot uuid -> orderly_stop_then_reboot ($(cls_of))" $r_
 kill -9 $S3; wait $S3 2>/dev/null
 sleep 1.1; : >"$R3/x.panic"            # dated inside the gap: after the last heartbeat
 run3 BOOT-C
@@ -477,23 +608,47 @@ s2=$(pyj "$ROOT/reps.json" '[x for x in d if x["file"].endswith("000002.ips")][0
 ck "vm-pageshortage Jetsam is NOT per-process and is incident-worthy" $?
 [[ $(pyj "$ROOT/reps.json" '[x for x in d if x["category"]=="panic"][0]["summary"]') == "panic: panic(cpu 1): watchdog timeout" ]]
 ck "panic summary carries the first panic_string line" $?
-if [[ -r /Library/Logs/DiagnosticReports/JetsamEvent-2026-10-07-181917.ips ]]; then
-  "$B" reports --since 1791400000 --until 1791500000 --dirs /Library/Logs/DiagnosticReports >"$ROOT/real.json"
+# SEM-1: the real report this machine produced moved into Retired/ at macOS's daily
+# run, and the check that guarded on the top-level path silently stopped running. Look
+# in both; a report present in neither is a logged skip, one found but misclassified
+# is a failure.
+REAL=""
+for rd in /Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports/Retired; do
+  [[ -r $rd/JetsamEvent-2026-10-07-181917.ips ]] && { REAL=$rd; break; }
+done
+if [[ -n $REAL ]]; then
+  "$B" reports --since 1791400000 --until 1791500000 --dirs "$REAL" >"$ROOT/real.json"
   rs=$(pyj "$ROOT/real.json" '[x for x in d if x["file"]=="JetsamEvent-2026-10-07-181917.ips"][0]["summary"]')
-  note "real report: $rs"
+  note "real report ($REAL): $rs"
   [[ $rs == *"per-process limit, not system-wide exhaustion"*knowledgeconstructiond*Python* ]]
   ck "the REAL JetsamEvent-2026-10-07-181917.ips: per-process (knowledgeconstructiond), largest Python" $?
+else
+  note "SKIPPED (logged): JetsamEvent-2026-10-07-181917.ips is in neither /Library/Logs/DiagnosticReports nor its Retired/ on this machine"
 fi
+RR=$ROOT/repsR; mkdir -p "$RR/Retired"
+mkjetsam "$RR/Retired/JetsamEvent-2026-10-03-215334.ips" jettisoned vm-compressor-space-shortage
+cp -p "$RR/Retired/JetsamEvent-2026-10-03-215334.ips" "$RR/JetsamEvent-2026-10-03-215334.ips"   # same report, both places
+mkjetsam "$RR/Retired/JetsamEvent-2026-10-07-181917.ips" per-process-limit
+FORGE_SENSOR_TEST_REPORT_DIRS=$RR "$B" reports --since 0 >"$ROOT/repsR.json"
+[[ $(pyj "$ROOT/repsR.json" 'sorted(x["file"] for x in d)') == "['JetsamEvent-2026-10-03-215334.ips', 'JetsamEvent-2026-10-07-181917.ips']" ]]
+ck "[SEM-1] the default report dirs include Retired/: a report found only there is listed" $?
+[[ $(pyj "$ROOT/repsR.json" '[x["path"] for x in d if x["file"].startswith("JetsamEvent-2026-10-03")]') == "['$RR/JetsamEvent-2026-10-03-215334.ips']" ]]
+ck "[SEM-1] the same report in the top level and in Retired/ (same name and mtime) is listed ONCE, the top-level copy" $?
+[[ $(pyj "$ROOT/repsR.json" '[x["incident_worthy"] for x in d if x["file"].startswith("JetsamEvent-2026-10-03")][0]') == True ]]
+ck "[SEM-1] ...and the system-wide (compressor-space-shortage) kill found in Retired/ is incident-worthy" $?
 
 # run-mode scanning: baseline on first run, events + incident afterwards
 D4=$ROOT/d4; R4=$ROOT/reps4; mkdir -p "$R4"
 write_policy "$D4"
 cp "$RP/JetsamEvent-2026-10-07-000001.ips" "$R4/"
+mkdir -p "$R4/Retired"; mkjetsam "$R4/Retired/JetsamEvent-2026-10-03-215334.ips" jettisoned vm-compressor-space-shortage
 FORGE_SENSOR_TEST_REPORT_DIRS=$R4 start_sensor "$D4" --poll 1
 S4=$SPID
 wait_until 3 '[[ -s $D4/session/reports_baseline.json ]]'
-[[ $(pyj "$D4/session/reports_baseline.json" 'd["categories"]["jetsam"]["count"]') == 1 ]]
-ck "first run writes reports_baseline.json (jetsam count 1)" $?
+[[ $(pyj "$D4/session/reports_baseline.json" 'd["categories"]["jetsam"]["count"]') == 2 ]]
+ck "[SEM-1] first run writes reports_baseline.json counting Retired/ too (jetsam count 2)" $?
+[[ $(pyj "$D4/session/reports_baseline.json" 'any("vm-compressor-space-shortage" in x["summary"] for x in d["categories"]["jetsam"]["details"])') == True ]]
+ck "[SEM-1] ...the retired system-wide compressor-exhaustion kill is in the baseline details" $?
 sleep 1.5
 (( $(count_kind "$D4/events.jsonl" report) == 0 )) && [[ ! -d $D4/incidents ]]
 ck "  ...and emits no report events and no incidents" $?
@@ -507,6 +662,30 @@ mkjetsam "$R4/JetsamEvent-2026-10-08-000003.ips" per-process-limit
 wait_until 4 '(( $(count_kind $D4/events.jsonl report) >= 2 ))'
 ninc=$(print -l "$D4"/incidents/*-report(N) | wc -l | tr -d ' ')
 (( $(count_kind "$D4/events.jsonl" report) == 2 && ninc == 1 )); ck "a per-process Jetsam -> report event but no second incident ($ninc)" $?
+mkjetsam "$ROOT/jx.ips" per-process-limit; mv "$ROOT/jx.ips" "$R4/Retired/JetsamEvent-2026-10-08-000004.ips"
+wait_until 4 '(( $(count_kind $D4/events.jsonl report) >= 3 ))'
+grep '"kind":"report"' "$D4/events.jsonl" | grep -q 'Retired/JetsamEvent-2026-10-08-000004.ips'
+ck "[SEM-1] a report that reaches Retired/ between two scans (macOS's daily move) -> still a report event" $?
+nr0=$(count_kind "$D4/events.jsonl" report)
+mv "$R4/JetsamEvent-2026-10-08-000002.ips" "$R4/Retired/"; sleep 2.2
+(( $(count_kind "$D4/events.jsonl" report) == nr0 )); ck "[SEM-1] retiring an already-reported file (a move keeps its mtime) does not report it again ($nr0)" $?
+
+# R8: a first run under a clock one day ahead leaves the watermark in the future; after
+# the clock is corrected, panic and GPU reports must still be reported.
+D11=$ROOT/d11; R11=$ROOT/reps11; mkdir -p "$R11"; write_policy "$D11"
+FORGE_SENSOR_TEST_REPORT_DIRS=$R11 FORGE_SENSOR_TEST_NOW=$(( EPOCHSECONDS + 86400 )) start_sensor "$D11" --poll 1; S11=$SPID
+wait_until 3 '[[ -s $D11/session/report_watermark ]]'; kill -TERM $S11; wait_until 3 '! alive $S11'
+wm11=$(<"$D11/session/report_watermark")
+FORGE_SENSOR_TEST_REPORT_DIRS=$R11 start_sensor "$D11" --poll 1; S11=$SPID
+wait_until 3 '[[ -s $D11/sensor.env ]]'
+: >"$R11/Kernel-2026-10-08-120000.panic"; : >"$R11/gpuRestart-2026-10-08-120000.ips"
+wait_until 5 '(( $(count_kind $D11/events.jsonl report) >= 2 ))'
+nr=$(count_kind "$D11/events.jsonl" report)
+note "watermark after the future-clock run: ${wm11%%.*} (now $EPOCHSECONDS); report events after the correction: $nr"
+(( nr == 2 )); ck "[R8] after a backward clock step (watermark 1 day ahead) a new panic and a GPU report are still reported ($nr)" $?
+sleep 2.2
+(( $(count_kind "$D11/events.jsonl" report) == 2 )); ck "[R8] ...exactly once each across later scans" $?
+kill -TERM $S11; wait_until 3 '! alive $S11'
 
 # ================================================================ I. watch_logs
 sect "I. watch_logs"
@@ -534,21 +713,60 @@ S5=$SPID
 wait_until 3 '[[ -s $D5/sensor.env ]]'
 mkdir -p "$D5/events/inbox"
 {
-  print -r -- '{"kind":"app_event","n":1}'
+  print -r -- '{"kind":"gpu_error","n":1}'
   print -r -- 'not json at all'
-  print -r -- '{"kind":"app_event","n":2,"ts":1.5}'
+  print -r -- '{"kind":"stall","n":2,"ts":1.5}'
   print -r -- '[1,2,3]'
-  print -r -- "{\"kind\":\"big\",\"pad\":\"$(printf '%5000s' '' | tr ' ' x)\"}"
-  print -r -- '{"kind":"app_event","n":3}'
+  print -r -- "{\"kind\":\"gpu_error\",\"pad\":\"$(printf '%5000s' '' | tr ' ' x)\"}"
+  print -r -- '{"kind":"cancel_latency","n":3}'
+  print -r -- '{"foo":1}'                                                   # SEM-7: no kind
+  print -r -- '{"kind":"stall","from":"RED","n":5,"ts":"later"}'            # SEM-7: ts not a number
+  print -r -- '{"kind":"transition","from":"RED","to":"GREEN","n":6}'       # SEM-7: a governor-only kind
+  print -r -- '{"kind":true,"n":7}'                                         # SEM-7: kind not a string
+  print -r -- '{"z":{"ts":1},"kind":"gpu_error","n":4,"detail":{"ts":2}}'  # nested ts keys
 } >"$D5/events/inbox/app.jsonl.tmp"
 mv "$D5/events/inbox/app.jsonl.tmp" "$D5/events/inbox/app.jsonl"
-wait_until 4 '[[ ! -e $D5/events/inbox/app.jsonl && $(envv $D5/sensor.env inbox_invalid) == 3 ]]'
+wait_until 4 '[[ ! -e $D5/events/inbox/app.jsonl && $(envv $D5/sensor.env inbox_invalid) -ge 3 ]]'
 [[ ! -e $D5/events/inbox/app.jsonl ]]; ck "inbox file removed after ingestion" $?
-(( $(grep -c '"source":"app.jsonl"' "$D5/events.jsonl") == 3 )); ck "3 valid lines copied with source=app.jsonl" $?
-[[ $(envv "$D5/sensor.env" inbox_invalid) == 3 && $(envv "$D5/sensor.env" inbox_ingested) == 3 ]]
-ck "3 invalid lines counted (non-JSON, non-object, > 4 KiB)" $?
+(( $(grep -c '"source":"app.jsonl"' "$D5/events.jsonl") == 4 )); ck "4 valid lines copied with source=app.jsonl" $?
+[[ $(envv "$D5/sensor.env" inbox_invalid) == 7 && $(envv "$D5/sensor.env" inbox_ingested) == 4 ]]
+r_=$?; ck "[SEM-7] 7 invalid lines counted (non-JSON, non-object, > 4 KiB, no kind, string ts, governor-only kind, non-string kind): ingested $(envv "$D5/sensor.env" inbox_ingested), invalid $(envv "$D5/sensor.env" inbox_invalid)" $r_
+python3 -I - "$D5/events.jsonl" <<'PY'
+import json, sys
+bad = []
+for l in open(sys.argv[1]):
+    o = json.loads(l)
+    if o.get("source") != "app.jsonl": continue
+    if not (isinstance(o.get("kind"), str) and isinstance(o.get("ts"), (int, float)) and not isinstance(o.get("ts"), bool)): bad.append(l)
+    if o.get("kind") in ("transition", "shed", "reap"): bad.append(l)
+    if not l.startswith('{"ts":'): bad.append("ts not first: " + l)
+sys.exit(1 if bad else 0)
+PY
+ck "[SEM-7] every ingested line has a string kind a producer may send and a numeric ts, written FIRST" $?
 grep '"n":2' "$D5/events.jsonl" | grep -q '"ts":1.5'; ck "  ...a producer's own ts is kept" $?
+# SEM-7: lines whose nested "ts" keys come first must not be dropped from (or mis-windowed
+# in) an incident bundle.
+python3 -I -c 'import json,sys
+with open(sys.argv[1],"w") as f:
+    for i,k in enumerate("abcdefghijklmnopqrstuvwx"): f.write(json.dumps({k:{"ts":1},"kind":"gpu_error","i":i})+"\n")' "$D5/events/inbox/nest.jsonl.tmp"
+mv "$D5/events/inbox/nest.jsonl.tmp" "$D5/events/inbox/nest.jsonl"
+wait_until 4 '[[ ! -e $D5/events/inbox/nest.jsonl ]]'; sleep 0.3
+IDN=$("$B" incident --state-dir "$D5" --kind manual --window-min 5 2>/dev/null)
+nn=$(grep -c '"source":"nest.jsonl"' "$IDN/events.jsonl" 2>/dev/null || print 0)
+(( nn == 24 )); ck "[SEM-7] all 24 inbox lines with nested ts keys are in the incident window ($nn)" $?
 kill -TERM $S5; wait_until 3 '! alive $S5'
+
+# R10: an inbox file that cannot be removed is ingested ONCE, not on every tick.
+D10=$ROOT/d10; write_policy "$D10"; mkdir -p "$D10/events/inbox"
+for i in 1 2 3; do print -r -- "{\"kind\":\"stall\",\"i\":$i}"; done >"$D10/events/inbox/z.jsonl"
+chmod 500 "$D10/events/inbox"
+start_sensor "$D10" --poll 1; S10=$SPID
+wait_until 3 '[[ -s $D10/sensor.env ]]'; sleep 4
+ing=$(envv "$D10/sensor.env" inbox_ingested)
+(( ing == 3 )) && (( $(grep -c '"source":"z.jsonl"' "$D10/events.jsonl") == 3 ))
+ck "[R10] an unremovable inbox file (chmod 500 inbox) is ingested once in 4+ ticks (inbox_ingested=$ing)" $?
+(( $(grep -c 'z.jsonl not removed' "$D10/log/sensor.log") == 1 )); ck "[R10] ...and its 'not removed' line is logged once" $?
+kill -TERM $S10; wait_until 3 '! alive $S10'; chmod 700 "$D10/events/inbox"
 
 # ================================================================ K. publish failure
 sect "K. publish failure: full disk, unwritable dir"
@@ -600,6 +818,43 @@ if hdiutil create -size 2m -fs HFS+ -volname fgtest "$ROOT/fg.dmg" >/dev/null 2>
 else
   note "hdiutil volume unavailable here: full-disk arm skipped"
 fi
+# R6: a torn append on a full disk must not glue itself to the next record. On a full
+# HFS+ volume write(2) fills the last block's slack and returns short; the fragment had
+# no newline, so the next append (anybody's) was glued to it and both were lost.
+# Deterministic: cleared.jsonl ends ~1 KiB short of a block boundary, the volume is full,
+# and quarantine-clear appends a ~2 KiB record (zero-length quarantine files: removing
+# one frees no data block).
+mkdir -p "$ROOT/mnt6"
+if hdiutil create -size 2m -fs HFS+ -volname fgtorn "$ROOT/fg6.dmg" >/dev/null 2>&1 \
+   && hdiutil attach -nobrowse -mountpoint "$ROOT/mnt6" "$ROOT/fg6.dmg" >/dev/null 2>&1; then
+  MNT=$ROOT/mnt6
+  QD=$MNT/q; mkdir -p "$QD/quarantine"; : >"$QD/admission.lock"
+  : >"$QD/quarantine/aaaa.json"; : >"$QD/quarantine/bbbb.json"
+  python3 -I -c 'import json,sys
+with open(sys.argv[1],"w") as f:
+    i=0
+    while f.tell() < 3000: f.write(json.dumps({"sig":"pre%d"%i,"reason":"prefill","ts":1.0})+"\n"); i+=1' "$QD/quarantine/cleared.jsonl"
+  python3 -I -c 'import os,sys
+fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT,0o600)
+for bs in (65536,4096,512,1):
+    try:
+        while True: os.write(fd,b"\0"*bs)
+    except OSError: pass
+os.close(fd)' "$MNT/fill"
+  "$B" quarantine-clear --state-dir "$QD" --sig aaaa --reason "$(printf 'r%.0s' {1..1900})" >/dev/null 2>"$ROOT/torn.err"; trc=$?
+  rm -f "$MNT/fill"
+  "$B" quarantine-clear --state-dir "$QD" --sig bbbb --reason after >/dev/null 2>&1; arc=$?
+  note "on the full volume: rc $trc ($(head -c 120 "$ROOT/torn.err")); after freeing: rc $arc"
+  python3 -I -c 'import json,sys
+ls=open(sys.argv[1],"rb").read().split(b"\n")
+assert ls[-1]==b"", "no trailing newline"
+for l in ls[:-1]: json.loads(l)
+assert json.loads(ls[-2])["sig"]=="bbbb"' "$QD/quarantine/cleared.jsonl" 2>/dev/null
+  ck "[R6] after a short append on a full disk, every line of the ledger is whole JSON and the next record survives (rc $trc then $arc)" $?
+  hdiutil detach "$MNT" -force >/dev/null 2>&1; MNT=""
+else
+  note "hdiutil volume unavailable here: the torn-append arm is skipped"
+fi
 D6=$ROOT/d6
 pub_fail_arm "unwritable-dir" "$D6" 'chmod 0500 $D6' 'chmod 0700 $D6'
 grep -q '"kind":"publish_error".*"errno":13' "$D6/events.jsonl"; ck "unwritable-dir: publish_error event with errno 13 (EACCES)" $?
@@ -637,11 +892,11 @@ ck "automatic kinds rate-limited (red: 0 then 1), manual is not" $?
 "$B" incident --state-dir "$D8" --kind bogus >/dev/null 2>&1; (( $? == 2 )); ck "unknown kind -> 2" $?
 grep -q '"kind":"incident","dir":' "$D8/events.jsonl" && ! grep '"kind":"incident"' "$D8/events.jsonl" | grep -q '"kind":"manual"'
 ck "incident events carry incident_kind, never a duplicate 'kind' key" $?
-D9=$ROOT/d9; mkdir -p "$D9"; print -r -- '{"logs": {"incident_max_kib": 32}}' >"$D9/policy.json"
+D9=$ROOT/d9; mkdir -p "$D9"; print -r -- '{"logs": {"incident_max_kib": 64}}' >"$D9/policy.json"   # the SCHEMA §6 minimum
 cp "$D8/history.jsonl" "$D9/"; cp "$D8/sensor.json" "$D9/"
 IDIR9=$("$B" incident --state-dir "$D9" --kind manual --window-min 1 --with-log 2>/dev/null)
 tot=0; for f in "$IDIR9"/*(.); do (( tot += $(stat -f %z "$f") )); done
-(( tot <= 32 * 1024 )) && json_ok "$IDIR9/summary.json"; ck "a 32 KiB cap is honoured too ($tot bytes, summary still valid)" $?
+(( tot <= 64 * 1024 )) && json_ok "$IDIR9/summary.json"; ck "a 64 KiB cap is honoured too ($tot bytes, summary still valid)" $?
 kill -TERM $S8; wait_until 3 '! alive $S8'
 
 # ================================================================ N. test hooks inert

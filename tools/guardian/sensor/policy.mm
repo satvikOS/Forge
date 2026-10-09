@@ -10,6 +10,7 @@
 #include "sensor.hpp"
 
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 
 #include <cerrno>
 #include <cmath>
@@ -33,10 +34,12 @@ double Policy::floor_gib(const std::string& level) const {
   return floor_yellow;
 }
 
-static const std::set<std::string>& signal_names() {
-  static const std::set<std::string> s{"vm_pressure", "pressure_event", "free_pct", "memory", "swap",
-                                       "pageouts", "thermal", "cpu", "disk"};
-  return s;
+int reports_scan_interval_s(const Policy& p) {
+  if (const char* e = test_env("FORGE_SENSOR_TEST_SCAN_S")) {
+    int64_t v;
+    if (parse_i64(e, v) && v >= 1 && v <= 86400) return (int)v;
+  }
+  return p.reports_scan_interval_s;
 }
 
 bool known_signal_name(const std::string& s) {
@@ -63,23 +66,34 @@ bool get_dict(Ctx& c, id v, const std::string& where, NSDictionary* __strong& ou
   return true;
 }
 
-// min_ok: the smallest accepted value; strict: value must be > min_ok.
-bool get_number(Ctx& c, id v, const std::string& where, double min_ok, bool strict, double& out) {
+// SCHEMA §6 bounds -- ONE table, enforced identically by the governor. An accepted-but-
+// absurd value is a denial of service on the guardian itself (review 2026-10-08:
+// logs.generations=1e9 wedged both processes at 100 % CPU; poll_s=4000 was accepted
+// here and refused by `run --poll`, so the sensor never started again).
+bool get_number(Ctx& c, id v, const std::string& where, double lo, double hi, double& out) {
   double d;
   if (!ns_num(v, d)) return c.fail(where + " must be a number");
-  if (strict ? !(d > min_ok) : !(d >= min_ok))
-    return c.fail(where + (strict ? " must be > " : " must be >= ") + fmt_num(min_ok));
+  if (!(d >= lo && d <= hi)) return c.fail(where + " must be " + fmt_num(lo) + ".." + fmt_num(hi) + " (got " + fmt_num(d) + ")");
   out = d;
   return true;
 }
 
-bool get_int(Ctx& c, id v, const std::string& where, int64_t min_ok, int& out) {
+bool get_int(Ctx& c, id v, const std::string& where, int64_t lo, int64_t hi, int& out) {
   double d;
   if (!ns_num(v, d)) return c.fail(where + " must be an integer");
-  if (d != std::floor(d) || d > 1e9) return c.fail(where + " must be an integer");
-  if (d < (double)min_ok) return c.fail(where + " must be >= " + std::to_string(min_ok));
+  if (d != std::floor(d) || std::fabs(d) > 1e12) return c.fail(where + " must be an integer");
+  if (d < (double)lo || d > (double)hi)
+    return c.fail(where + " must be " + std::to_string(lo) + ".." + std::to_string(hi) + " (got " + fmt_num(d, 0) + ")");
   out = (int)d;
   return true;
+}
+
+// memory.os_reserve_gb: 2 .. RAM/2 (in GiB).
+double ram_half_gib() {
+  uint64_t m = 0;
+  size_t len = sizeof m;
+  if (sysctlbyname("hw.memsize", &m, &len, nullptr, 0) != 0 || len != sizeof m || m == 0) return 1e6;
+  return (double)m / kGiB / 2.0;
 }
 
 bool get_bool(Ctx& c, id v, const std::string& where, bool& out) {
@@ -128,25 +142,36 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
   FOR_KEYS(root)
     if (k == "schema") {
       if (ns_str(v) != "forge.guardian.policy/1") return c.fail("schema must be forge.guardian.policy/1");
-    } else if (k == "poll_s") { if (!get_int(c, v, k, 1, p.poll_s)) return false; }
-    else if (k == "escalate_polls") { if (!get_int(c, v, k, 1, p.escalate_polls)) return false; }
-    else if (k == "deescalate_polls") { if (!get_int(c, v, k, 1, p.deescalate_polls)) return false; }
-    else if (k == "sensor_stale_polls") { if (!get_int(c, v, k, 1, p.sensor_stale_polls)) return false; }
+    } else if (k == "poll_s") { if (!get_int(c, v, k, 1, 60, p.poll_s)) return false; }
+    else if (k == "escalate_polls") { if (!get_int(c, v, k, 1, 10, p.escalate_polls)) return false; }
+    else if (k == "deescalate_polls") { if (!get_int(c, v, k, 1, 60, p.deescalate_polls)) return false; }
+    else if (k == "sensor_stale_polls") { if (!get_int(c, v, k, 2, 12, p.sensor_stale_polls)) return false; }
     else if (k == "required_signals") {
+      // A set drawn from the five, holding at least the core four: an empty or
+      // core-less list let the governor publish GREEN with every signal unavailable
+      // (review 2026-10-08 FO-3). thermal may be left out (logged at every start).
+      static const std::set<std::string> allowed{"vm_pressure", "swap", "pageouts", "disk", "thermal"};
+      static const char* core[] = {"vm_pressure", "swap", "pageouts", "disk"};
       std::vector<std::string> l;
       if (!get_str_list(c, v, k, 16, l)) return false;
-      for (auto& s : l)
-        if (!signal_names().count(s)) return c.fail("required_signals: unknown signal " + s);
+      std::set<std::string> seen;
+      for (auto& s : l) {
+        if (!allowed.count(s)) return c.fail("required_signals: " + s + " is not one of vm_pressure swap pageouts disk thermal");
+        if (!seen.insert(s).second) return c.fail("required_signals: " + s + " is listed twice");
+      }
+      for (const char* x : core)
+        if (!seen.count(x))
+          return c.fail(std::string("required_signals must contain vm_pressure swap pageouts disk (missing ") + x + ")");
       p.required_signals = l;
     } else if (k == "memory") {
       NSDictionary* d = nil;
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "memory." + k;
-        if (k == "os_reserve_gb") { if (!get_number(c, v, w, 0, false, p.os_reserve_gb)) return false; }
-        else if (k == "instant_margin_gb") { if (!get_number(c, v, w, 0, false, p.instant_margin_gb)) return false; }
+        if (k == "os_reserve_gb") { if (!get_number(c, v, w, 2, ram_half_gib(), p.os_reserve_gb)) return false; }
+        else if (k == "instant_margin_gb") { if (!get_number(c, v, w, 0, 16, p.instant_margin_gb)) return false; }
         else if (k == "enforce_instant_fit") { if (!get_bool(c, v, w, p.enforce_instant_fit)) return false; }
-        else if (k == "light_job_gb") { if (!get_number(c, v, w, 0, false, p.light_job_gb)) return false; }
+        else if (k == "light_job_gb") { if (!get_number(c, v, w, 0, 2, p.light_job_gb)) return false; }
         else return c.fail("unknown key " + w);
       }
     } else if (k == "disk") {
@@ -163,9 +188,9 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
             // (disk_min_avail_gib is an int), so a fractional floor would mean one
             // thing to admission and another to the state machine.
             int f = 0;
-            if (k == "yellow") { if (!get_int(c, v, ww, 1, f)) return false; p.floor_yellow = f; }
-            else if (k == "orange") { if (!get_int(c, v, ww, 1, f)) return false; p.floor_orange = f; }
-            else if (k == "red") { if (!get_int(c, v, ww, 1, f)) return false; p.floor_red = f; }
+            if (k == "yellow") { if (!get_int(c, v, ww, 1, 10000, f)) return false; p.floor_yellow = f; }
+            else if (k == "orange") { if (!get_int(c, v, ww, 1, 10000, f)) return false; p.floor_orange = f; }
+            else if (k == "red") { if (!get_int(c, v, ww, 1, 10000, f)) return false; p.floor_red = f; }
             else return c.fail("unknown key " + ww);
           }
         } else if (k == "volumes") {
@@ -194,8 +219,8 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "eviction." + k;
-        if (k == "settle_s") { if (!get_int(c, v, w, 0, p.settle_s)) return false; }
-        else if (k == "term_grace_s") { if (!get_int(c, v, w, 1, p.term_grace_s)) return false; }
+        if (k == "settle_s") { if (!get_int(c, v, w, 0, 3600, p.settle_s)) return false; }
+        else if (k == "term_grace_s") { if (!get_int(c, v, w, 1, 600, p.term_grace_s)) return false; }
         else return c.fail("unknown key " + w);
       }
     } else if (k == "crash_loop") {
@@ -203,8 +228,8 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "crash_loop." + k;
-        if (k == "max_crashes") { if (!get_int(c, v, w, 1, p.max_crashes)) return false; }
-        else if (k == "window_s") { if (!get_int(c, v, w, 1, p.window_s)) return false; }
+        if (k == "max_crashes") { if (!get_int(c, v, w, 1, 100, p.max_crashes)) return false; }
+        else if (k == "window_s") { if (!get_int(c, v, w, 60, 86400, p.window_s)) return false; }
         else if (k == "crash_signals") {
           std::vector<std::string> l;
           if (!get_str_list(c, v, w, 32, l)) return false;
@@ -218,9 +243,9 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "guardian_restart_loop." + k;
-        if (k == "max_starts") { if (!get_int(c, v, w, 1, p.restart_max_starts)) return false; }
-        else if (k == "window_s") { if (!get_int(c, v, w, 1, p.restart_window_s)) return false; }
-        else if (k == "backoff_s") { if (!get_int(c, v, w, 0, p.restart_backoff_s)) return false; }
+        if (k == "max_starts") { if (!get_int(c, v, w, 2, 100, p.restart_max_starts)) return false; }
+        else if (k == "window_s") { if (!get_int(c, v, w, 60, 86400, p.restart_window_s)) return false; }
+        else if (k == "backoff_s") { if (!get_int(c, v, w, 10, 3600, p.restart_backoff_s)) return false; }
         else return c.fail("unknown key " + w);
       }
     } else if (k == "logs") {
@@ -228,12 +253,12 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "logs." + k;
-        if (k == "cap_mib") { if (!get_int(c, v, w, 1, p.logs_cap_mib)) return false; }
-        else if (k == "rotate_mib") { if (!get_int(c, v, w, 1, p.logs_rotate_mib)) return false; }
-        else if (k == "generations") { if (!get_int(c, v, w, 1, p.logs_generations)) return false; }
-        else if (k == "history_mib") { if (!get_int(c, v, w, 1, p.logs_history_mib)) return false; }
-        else if (k == "incident_max_kib") { if (!get_int(c, v, w, 16, p.logs_incident_max_kib)) return false; }
-        else if (k == "retention_days") { if (!get_int(c, v, w, 1, p.logs_retention_days)) return false; }
+        if (k == "cap_mib") { if (!get_int(c, v, w, 8, 1024, p.logs_cap_mib)) return false; }
+        else if (k == "rotate_mib") { if (!get_int(c, v, w, 1, 64, p.logs_rotate_mib)) return false; }
+        else if (k == "generations") { if (!get_int(c, v, w, 1, 10, p.logs_generations)) return false; }
+        else if (k == "history_mib") { if (!get_int(c, v, w, 1, 64, p.logs_history_mib)) return false; }
+        else if (k == "incident_max_kib") { if (!get_int(c, v, w, 64, 4096, p.logs_incident_max_kib)) return false; }
+        else if (k == "retention_days") { if (!get_int(c, v, w, 1, 365, p.logs_retention_days)) return false; }
         else return c.fail("unknown key " + w);
       }
     } else if (k == "notifications") {
@@ -242,7 +267,7 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       FOR_KEYS(d)
         std::string w = "notifications." + k;
         if (k == "enabled") { if (!get_bool(c, v, w, p.notifications_enabled)) return false; }
-        else if (k == "min_interval_s") { if (!get_int(c, v, w, 1, p.notifications_min_interval_s)) return false; }
+        else if (k == "min_interval_s") { if (!get_int(c, v, w, 60, 86400, p.notifications_min_interval_s)) return false; }
         else return c.fail("unknown key " + w);
       }
     } else if (k == "reports") {
@@ -250,7 +275,7 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "reports." + k;
-        if (k == "scan_interval_s") { if (!get_int(c, v, w, 1, p.reports_scan_interval_s)) return false; }
+        if (k == "scan_interval_s") { if (!get_int(c, v, w, 60, 86400, p.reports_scan_interval_s)) return false; }
         else return c.fail("unknown key " + w);
       }
     } else if (k == "smart") {
@@ -258,7 +283,7 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "smart." + k;
-        if (k == "interval_s") { if (!get_int(c, v, w, 1, p.smart_interval_s)) return false; }
+        if (k == "interval_s") { if (!get_int(c, v, w, 600, 604800, p.smart_interval_s)) return false; }
         else return c.fail("unknown key " + w);
       }
     } else if (k == "watch_logs") {

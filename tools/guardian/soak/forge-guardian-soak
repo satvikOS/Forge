@@ -35,8 +35,11 @@
 #   - the soak's own deadline
 # ============================================================================
 set -u
-setopt NULL_GLOB 2>/dev/null || true
+setopt NULL_GLOB EXTENDED_GLOB 2>/dev/null || true
 zmodload zsh/datetime zsh/stat 2>/dev/null
+# zsh/system: $sysparams[pid] (the CURRENT process -- `$$` in a subshell is the
+# parent's pid) and sysopen -o nonblock (a FIFO in the domain must never block us).
+zmodload zsh/system 2>/dev/null
 umask 077
 
 STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
@@ -87,18 +90,84 @@ cpu_seconds() { # cumulative CPU seconds of a pid from ps TIME ([[dd-]hh:]mm:ss.
   print -r -- $(( d*86400 + h*3600 + m*60 + s ))
 }
 
-domain_pids() { # $1 = guardian|sensor : pids whose argv names this domain's tool
-  local which=$1
+slurp() { # slurp FILE -> REPLY: first line of a REGULAR file, opened without blocking
+  local fd line=""
+  REPLY=""
+  [[ -f "$1" && -r "$1" ]] || return 1
+  if (( ${+builtins[sysopen]} )); then sysopen -r -o nonblock -u fd "$1" 2>/dev/null || return 1
+  else exec {fd}<"$1" 2>/dev/null || return 1; fi
+  IFS= read -r -u $fd line; exec {fd}<&-
+  REPLY=$line
+  return 0
+}
+canon_pid() { [[ $1 == [1-9][0-9](#c0,4) ]] }               # SCHEMA §5: no sign, no leading 0, <= 99999
+lstart_of() { local s; s=$(LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null); print -r -- ${(j: :)${=s}} }
+
+# ---- the soak's own identity ------------------------------------------------------
+# $DIR/pid is "<pid><TAB><lstart>" of the soak process itself. It used to hold `$$`,
+# which in the `( ... ) &!` subshell is the PARENT's pid -- already dead -- so `stop`
+# could not stop a running soak, `status` called it gone, and `start` let a second one
+# run beside it (review 2026-10-08 ACT-4). Nothing is signalled unless the pid is
+# canonical, alive, runs `forge-guardian-soak start`, and started when recorded.
+SOAK_PID=""; SOAK_START=""
+read_pidfile() { # read_pidfile DIR -> SOAK_PID SOAK_START (empty start = an old-format file)
+  SOAK_PID=""; SOAK_START=""
+  slurp "$1/pid" || return 1
+  SOAK_PID=${REPLY%%$'\t'*}
+  [[ "$REPLY" == *$'\t'* ]] && SOAK_START=${REPLY#*$'\t'}
+  return 0
+}
+soak_alive() { # soak_alive DIR : the recorded soak process is alive and is that soak
+  local a
+  read_pidfile "$1" || return 1
+  canon_pid "$SOAK_PID" || return 1
+  kill -0 "$SOAK_PID" 2>/dev/null || return 1
+  a=$(ps -ww -o args= -p "$SOAK_PID" 2>/dev/null)
+  [[ "$a" == *forge-guardian-soak\ start(| *) ]] || return 1
+  [[ -z "$SOAK_START" || "$(lstart_of $SOAK_PID)" == "${(j: :)${=SOAK_START}}" ]]
+}
+
+# ---- processes of THIS domain -------------------------------------------------------
+# The governor is the holder of $STATE_DIR/guardian.lock (verified as forge-guardian-ctl
+# does: canonical pid, recorded start time, argv ending in forge-guardian). A DUPLICATE
+# is another process running that same program line which is not one of its own
+# children (zsh forks subshells with the parent's argv). `pgrep -f '/forge-guardian$'`
+# counted every governor on the machine, so a soak of the live domain stopped as
+# "duplicate instances" whenever any private test governor ran (review 2026-10-08).
+lock_holder() {
+  local p s
+  slurp "$STATE_DIR/guardian.lock/pid" || return 1; p=${REPLY//[[:space:]]/}
+  slurp "$STATE_DIR/guardian.lock/started" || return 1; s=${(j: :)${=REPLY}}
+  canon_pid "$p" && [[ -n "$s" ]] && kill -0 "$p" 2>/dev/null || return 1
+  local now; now=$(ps -p "$p" -o lstart= 2>/dev/null); now=${(j: :)${=now}}
+  [[ "$now" == "$s" || "$(lstart_of $p)" == "$s" ]] || return 1
+  local a; a=$(ps -ww -o args= -p "$p" 2>/dev/null); a=${a%%[[:space:]]##}
+  [[ "$a" == (*/|)forge-guardian ]] || return 1
+  print -r -- $p
+}
+domain_pids() { # $1 = guardian|sensor : pids of THIS domain's governor / sensor
+  local which=$1 lp="" prog="" line pid ppid args
   if [[ "$which" == guardian ]]; then
-    pgrep -f '/forge-guardian$' 2>/dev/null
-  else
-    pgrep -f "forge-guardian-sensor run --state-dir $STATE_DIR" 2>/dev/null
+    lp=$(lock_holder) || return 0
+    prog=$(ps -ww -o args= -p "$lp" 2>/dev/null); prog=${prog%%[[:space:]]##}
+    print -r -- $lp
   fi
+  for line in ${(f)"$(ps -axww -o pid=,ppid=,args= 2>/dev/null)"}; do
+    line=${line##[[:space:]]##}; pid=${line%% *}; line=${line#* }
+    line=${line##[[:space:]]##}; ppid=${line%% *}; args=${line#* }
+    args=${args##[[:space:]]##}; args=${args%%[[:space:]]##}
+    if [[ "$which" == guardian ]]; then
+      [[ "$pid" == "$lp" || "$ppid" == "$lp" ]] && continue
+      [[ "$args" == "$prog" ]] && print -r -- $pid
+    else
+      [[ "$args" == *forge-guardian-sensor\ run\ *--state-dir\ "$STATE_DIR"(| *) ]] && print -r -- $pid
+    fi
+  done
 }
 
 write_status() { # write_status DIR STATUS REASON
   local d=$1 st=$2 why=$3
-  print -r -- "{\"status\": \"$st\", \"reason\": \"${why//\"/'}\", \"ts\": $EPOCHSECONDS, \"pid\": $$, \"deadline\": ${DEADLINE:-0}, \"samples\": ${NS:-0}, \"probes_ok\": ${PROBE_OK:-0}, \"probes_bad\": ${PROBE_BAD:-0}}" > "$d/status.json.tmp" \
+  print -r -- "{\"status\": \"$st\", \"reason\": \"${why//\"/'}\", \"ts\": $EPOCHSECONDS, \"pid\": ${MY_PID:-0}, \"pid_started\": \"${MY_START:-}\", \"deadline\": ${DEADLINE:-0}, \"samples\": ${NS:-0}, \"probes_ok\": ${PROBE_OK:-0}, \"probes_bad\": ${PROBE_BAD:-0}}" > "$d/status.json.tmp" \
     && mv -f "$d/status.json.tmp" "$d/status.json"
 }
 
@@ -117,9 +186,14 @@ run_soak() {
   NS=0; PROBE_OK=0; PROBE_BAD=0
   local -i dup_streak=0 last_probe=0
   local cap_mib; cap_mib=$(envget "$STATE_DIR/policy.env" logs_cap_mib 2>/dev/null); cap_mib=${cap_mib:-64}
-  trap 'write_status "$DIR" STOPPED "signalled"; exit 0' TERM INT
+  # THIS process, not $$ (the parent's pid in a subshell).
+  MY_PID=${sysparams[pid]:-}
+  canon_pid "$MY_PID" || { MY_PID=$(exec /bin/sh -c 'echo $PPID'); }
+  MY_START=$(lstart_of $MY_PID)
+  NAP_PID=0
+  trap '(( NAP_PID > 0 )) && kill $NAP_PID 2>/dev/null; write_status "$DIR" STOPPED "signalled"; exit 0' TERM INT
+  print -r -- "$MY_PID"$'\t'"$MY_START" > "$DIR/pid.tmp" && mv -f "$DIR/pid.tmp" "$DIR/pid"
   write_status "$DIR" RUNNING "started"
-  print -r -- "$$" > "$DIR/pid"
   while (( EPOCHSECONDS < DEADLINE )); do
     local -a gp sp
     gp=($(domain_pids guardian)); sp=($(domain_pids sensor))
@@ -163,7 +237,7 @@ run_soak() {
       print -r -- "{\"t\":$EPOCHSECONDS,\"probe\":{\"admit_rc\":$prc,\"deny_rc\":$drc}}" >> "$DIR/samples.jsonl"
     fi
     write_status "$DIR" RUNNING "sampling"
-    sleep "$INTERVAL" & wait $!
+    sleep "$INTERVAL" & NAP_PID=$!; wait $NAP_PID; NAP_PID=0
   done
   write_status "$DIR" COMPLETED "deadline reached after ${HOURS}h"
   return 0
@@ -227,8 +301,8 @@ case "${1:-}" in
     [[ "$INTERVAL" == <-> ]] && (( INTERVAL >= 5 )) || { print -u2 -r -- "--interval must be >= 5"; exit 2 }
     [[ "$PROBE_EVERY" == <-> ]] && (( PROBE_EVERY >= 60 )) || { print -u2 -r -- "--probe-every must be >= 60"; exit 2 }
     L=$(latest)
-    if [[ -n "$L" && -f "$L/pid" ]] && kill -0 "$(<$L/pid)" 2>/dev/null; then
-      print -u2 "a soak is already running: $L (pid $(<$L/pid))"; exit 3
+    if [[ -n "$L" ]] && soak_alive "$L"; then
+      print -u2 -r -- "a soak is already running: $L (pid $SOAK_PID)"; exit 3
     fi
     DIR="$SOAK_ROOT/$(strftime '%Y%m%dT%H%M%S' $EPOCHSECONDS)"
     mkdir -p "$DIR" || exit 1
@@ -239,8 +313,8 @@ case "${1:-}" in
   status)
     DIR=${2:-$(latest)}
     [[ -n "$DIR" && -d "$DIR" ]] || { print "no soak found under $SOAK_ROOT"; exit 1 }
-    st=$(jget "$DIR/status.json" status); pid=$(<"$DIR/pid" 2>/dev/null)
-    if [[ "$st" == RUNNING ]] && ! kill -0 "${pid:-0}" 2>/dev/null; then
+    st=$(jget "$DIR/status.json" status)
+    if [[ "$st" == RUNNING ]] && ! soak_alive "$DIR"; then
       print "soak $DIR: INCOMPLETE — the soak process is gone (reboot/logout/kill) while status said RUNNING"
     else
       print "soak $DIR: $st — $(jget "$DIR/status.json" reason)"
@@ -251,12 +325,16 @@ case "${1:-}" in
   stop)
     DIR=${2:-$(latest)}
     [[ -n "$DIR" && -f "$DIR/pid" ]] || { print "no soak to stop"; exit 1 }
-    pid=$(<"$DIR/pid")
-    # Only ever signal the soak's OWN recorded pid, and only if it is this script.
-    if ps -o args= -p "$pid" 2>/dev/null | grep -q 'forge-guardian-soak'; then
-      kill -TERM "$pid" && print "stopped soak pid $pid"
+    # Only ever signal the soak's OWN recorded process, verified (soak_alive): a pid
+    # alone is a number anybody can inherit.
+    if soak_alive "$DIR"; then
+      kill -TERM "$SOAK_PID" || exit 1
+      for i in {1..40}; do kill -0 "$SOAK_PID" 2>/dev/null || break; sleep 0.25; done
+      if kill -0 "$SOAK_PID" 2>/dev/null; then print -u2 -r -- "sent TERM to soak pid $SOAK_PID; still running after 10s"; exit 1; fi
+      print -r -- "stopped soak pid $SOAK_PID"
     else
-      print "soak pid $pid is not running"
+      print -r -- "soak pid ${SOAK_PID[1,24]:-?} is not running (or is not this soak); not signalling"
+      exit 1
     fi
     ;;
   -h|--help|help|"") usage; [[ -n "${1:-}" ]] && exit 0 || exit 2 ;;

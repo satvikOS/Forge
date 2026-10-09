@@ -293,6 +293,42 @@ ck "legacy: a newline in --name cannot forge an earlier key" \
   $(t eval '[[ "$(sed -n "s/^can_restart=//p" $M.envelope | head -1)" == 0 ]] && grep -qx "name=evil can_restart=1" $M.envelope') \
   "first can_restart=$(sed -n 's/^can_restart=//p' $M.envelope | head -1)"
 
+print "== R7: an envelope stays far below 64 KiB: values capped at 4000 bytes, absurd paths/numbers refused =="
+# SCHEMA §6: an envelope over 64 KiB is `unverifiable` (never signalled); the governor
+# used to DELETE it, and the legacy path wrote a 70 000-byte argv into cmd= uncapped.
+# The writers cap cmd= at 4 KiB: 4000 bytes, as admit's one_line(v, 4000).
+nbytes() { print -rn -- "$1" | wc -c | tr -d ' ' }
+utf8_ok() { python3 -I -c 'import sys; open(sys.argv[1], "rb").read().decode("utf-8")' "$1" 2>/dev/null }
+BIG=$(head -c 70000 /dev/zero | tr '\0' a)
+M=$ROOT/m.big; rm -f $M*
+run_job 30 -u FORGE_GUARDIAN_SENSOR_BIN FORGE_HEALTH_DIR=$L $LB/forge-job --name bigargs --peak-gb 1 -- $CH $M ok "$BIG"
+cmdv=$(sed -n 's/^cmd=//p' $M.envelope 2>/dev/null)
+ck "legacy, a 70 000-byte argument: the job ran (rc 0) and its envelope is < 8 KiB" \
+  $(t eval '[[ $RC == 0 ]] && grep -q FINISHED $M && (( $(wc -c < $M.envelope) < 8192 ))') "rc=$RC envelope=$(wc -c < $M.envelope 2>/dev/null | tr -d ' ')B"
+ck "legacy: cmd= is exactly the first 4000 bytes of the command line" \
+  $(t eval '(( $(nbytes "$cmdv") == 4000 )) && [[ "$CH $M ok $BIG" == "$cmdv"* ]]') "cmd=$(nbytes "$cmdv")B"
+M=$ROOT/m.bigs; rm -f $M*
+run_job 30 FG_STUB_ADMIT_RC=0 $JOB --name bigargs --peak-gb 1 -- $CH $M ok "$BIG"
+cmdv=$(sed -n 's/^cmd=//p' $M.envelope 2>/dev/null)
+ck "sensor path: the --cmd given to admit is the first 4000 bytes too" \
+  $(t eval '[[ $RC == 0 ]] && (( $(nbytes "$cmdv") == 4000 )) && [[ "$CH $M ok $BIG" == "$cmdv"* ]]') "rc=$RC cmd=$(nbytes "$cmdv")B"
+MB=$(repeat 3000 print -rn -- 'é')     # 6000 bytes, 2 per character
+for loc in C en_US.UTF-8; do
+  M=$ROOT/m.mb.$loc; rm -f $M*
+  run_job 30 -u FORGE_GUARDIAN_SENSOR_BIN LC_ALL=$loc FORGE_HEALTH_DIR=$L $LB/forge-job --name "x$MB" --peak-gb 1 -- $CH $M ok "$MB"
+  sed -n 's/^name=//p' $M.envelope > $M.name 2>/dev/null; sed -n 's/^cmd=//p' $M.envelope > $M.cmd 2>/dev/null
+  ck "LC_ALL=$loc: a multibyte name and argv are capped at <= 4000 bytes on a character boundary (valid UTF-8)" \
+    $(t eval '[[ $RC == 0 ]] && (( $(wc -c < $M.name) - 1 <= 4000 && $(wc -c < $M.cmd) - 1 <= 4000 && $(wc -c < $M.cmd) - 1 >= 3990 )) && utf8_ok $M.name && utf8_ok $M.cmd') \
+    "rc=$RC name=$(( $(wc -c < $M.name 2>/dev/null || print 1) - 1 ))B cmd=$(( $(wc -c < $M.cmd 2>/dev/null || print 1) - 1 ))B"
+done
+LONGP=$ROOT/$(head -c 1100 /dev/zero | tr '\0' h)
+run_job 5 $JOB --name hb --peak-gb 1 --heartbeat $LONGP -- /usr/bin/true
+ck "--heartbeat longer than PATH_MAX (1024): usage error 2, admit never asked" $(t eval '[[ $RC == 2 ]] && ! grep -q "^admit" $ROOT/calls.log') "rc=$RC"
+run_job 5 $JOB --name dk --peak-gb 1 --disk-gb 1 --disk-path $LONGP -- /usr/bin/true
+ck "--disk-path longer than PATH_MAX: usage error 2, admit never asked" $(t eval '[[ $RC == 2 ]] && ! grep -q "^admit" $ROOT/calls.log') "rc=$RC"
+run_job 5 $JOB --name th --peak-gb 1 --threads $(repeat 40 print -rn 9) -- /usr/bin/true
+ck "a 40-digit --threads: usage error 2, admit never asked"   $(t eval '[[ $RC == 2 ]] && ! grep -q "^admit" $ROOT/calls.log') "rc=$RC"
+
 M=$ROOT/m.legslow; rm -f $M*
 n0=$(wc -l < $PIDFILE)
 env -u FORGE_GUARDIAN_SENSOR_BIN FORGE_HEALTH_DIR=$L FJ_GATE_SLEEP=20 $LB/forge-job --name legslow --peak-gb 1 -- $CH $M ok > $ROOT/out 2>&1 &

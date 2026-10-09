@@ -26,6 +26,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstring>
+#include <tuple>
 
 namespace fgs {
 namespace {
@@ -60,6 +61,9 @@ struct RunCtx {
   bool watch_dirty = false;
   std::map<std::string, double> watch_last;
   std::map<std::string, int64_t> watch_suppressed;
+  // R10: inbox files already ingested whose unlink failed, by identity
+  // (dev, ino, size, mtime_ns): skipped while they persist unchanged.
+  std::set<std::tuple<uint64_t, uint64_t, int64_t, int64_t>> inbox_done;
   bool stopping = false;
 };
 RunCtx* g = nullptr;
@@ -302,6 +306,39 @@ void on_usr1() {
 }
 
 // ------------------------------------------------------------------ inbox
+// SCHEMA §7: every events.jsonl line is {"ts": <epoch float>, "kind": "<documented>"}.
+// An inbox producer (the Forge app, a worker) may report only what it can observe
+// itself; the kinds the governor and the sensor own -- a transition, a shed, a
+// pressure event, a sensor_stop -- cannot be forged through the inbox (review SEM-7).
+bool inbox_kind_ok(const std::string& k) {
+  static const std::set<std::string> ok{"gpu_error", "stall", "cancel_latency"};
+  return ok.count(k) > 0;
+}
+
+// One valid inbox line -> the events.jsonl line, ts and kind FIRST (window_lines and
+// every other reader find the top-level ts at the front), or "" when invalid.
+std::string inbox_line(NSDictionary* o, NSString* src) {
+  id kind = o[@"kind"];
+  if (![kind isKindOfClass:[NSString class]] || !inbox_kind_ok(ns_str(kind))) return "";
+  id tsv = o[@"ts"];
+  double ts = now_wall();
+  if (tsv && !ns_num(tsv, ts)) return "";  // present but not a number (or a bool)
+  NSMutableDictionary* rest = [o mutableCopy];
+  [rest removeObjectsForKeys:@[ @"ts", @"kind", @"source" ]];
+  std::string body = ns_compact(rest);
+  if (body.size() < 2) return "";
+  JW w;
+  w.begin_obj().kn("ts", ts, 3).ks("kind", ns_str(kind)).ks("source", ns_str(src));
+  std::string head = w.out;  // still open
+  std::string inner = body.substr(1, body.size() - 2);
+  return head + (inner.empty() ? "" : "," + inner) + "}";
+}
+
+std::tuple<uint64_t, uint64_t, int64_t, int64_t> file_id(const struct stat& st) {
+  return std::make_tuple((uint64_t)st.st_dev, (uint64_t)st.st_ino, (int64_t)st.st_size,
+                         (int64_t)st.st_mtimespec.tv_sec * 1000000000LL + (int64_t)st.st_mtimespec.tv_nsec);
+}
+
 void ingest_inbox() {
   std::string dir = g->D + "/events/inbox";
   int err = 0;
@@ -309,18 +346,36 @@ void ingest_inbox() {
   if (err) return;
   std::sort(names.begin(), names.end());
   int files = 0;
+  decltype(g->inbox_done) still;  // forget identities whose file is gone
   for (auto& n : names) {
     if (!ends_with(n, ".jsonl") || starts_with(n, ".")) continue;
-    if (++files > 64) break;
     std::string p = dir + "/" + n;
+    // R10: a file whose unlink failed (an unwritable inbox) was re-ingested in full on
+    // EVERY tick -- ~1 MiB/s of duplicates at poll 1, flushing real transitions out of
+    // the rotated history. Each file is ingested once; while it persists unchanged it
+    // is skipped.
+    struct stat st;
+    if (lstat(p.c_str(), &st) == 0 && g->inbox_done.count(file_id(st))) {
+      still.insert(file_id(st));
+      continue;
+    }
+    if (files >= 64) continue;  // the rest next tick (never `break`: the skip set must see every name)
+    ++files;
     std::string t;
     const size_t cap = 256 * 4097;
     int e = read_file(p, t, cap + 1, false);
     if (e) {
       if (e != ENOENT) {
-        logf("inbox %s unreadable (%s); removed", n.c_str(), strerror(e));
-        unlink(p.c_str());
         ++g->sm.inbox_invalid;
+        if (unlink(p.c_str()) == 0) {
+          logf("inbox %s unreadable (%s); removed", n.c_str(), strerror(e));
+        } else {
+          int ue = errno;
+          logf("inbox %s unreadable (%s) and not removed (%s); skipped while it stays unchanged", n.c_str(),
+               strerror(e), strerror(ue));
+          struct stat s3;
+          if (lstat(p.c_str(), &s3) == 0 && still.size() < 4096) still.insert(file_id(s3));
+        }
       }
       continue;
     }
@@ -338,21 +393,24 @@ void ingest_inbox() {
       @autoreleasepool {
         NSDictionary* o = json_obj(line);
         if (!o) { ++bad; continue; }
-        NSMutableDictionary* m = [o mutableCopy];
-        m[@"source"] = src;
-        if (!m[@"ts"]) m[@"ts"] = @(now_wall());
-        std::string out = ns_compact(m);
+        std::string out = inbox_line(o, src);
         if (out.empty()) { ++bad; continue; }
         int we = append_line(g->D + "/events.jsonl", out);
         if (we) { ++g->sm.errors; logf("inbox line not appended: %s", strerror(we)); }
         else ++ok;
       }
     }
-    if (unlink(p.c_str()) != 0) logf("inbox %s not removed: %s", n.c_str(), strerror(errno));
+    if (unlink(p.c_str()) != 0) {
+      int ue = errno;
+      struct stat st2;
+      if (lstat(p.c_str(), &st2) == 0 && still.size() < 4096) still.insert(file_id(st2));
+      logf("inbox %s not removed: %s (ingested once; skipped while it stays unchanged)", n.c_str(), strerror(ue));
+    }
     g->sm.inbox_ingested += ok;
     g->sm.inbox_invalid += bad;
     logf("inbox %s: %lld ingested, %lld invalid", n.c_str(), (long long)ok, (long long)bad);
   }
+  g->inbox_done.swap(still);
 }
 
 // ------------------------------------------------------------------ watch_logs
@@ -486,28 +544,82 @@ void write_baseline(const std::vector<std::string>& dirs, double now) {
   logf("reports baseline: %zu reports over 30 days in %zu categories (errno %d)", reps.size(), by.size(), e);
 }
 
+// session/report_seen: the keys (report_key: "<mtime s> <name>") of reports already
+// emitted or baselined whose mtime is inside the rescan window or in the future.
+std::set<std::string> load_seen(const std::string& path) {
+  std::set<std::string> s;
+  std::string t;
+  if (read_file(path, t, 4 * 1024 * 1024, false) != 0) return s;
+  for (auto& l : split(t, '\n'))
+    if (!l.empty()) s.insert(l);
+  return s;
+}
+void save_seen(const std::string& path, const std::set<std::string>& seen, double keep_after) {
+  std::vector<std::pair<int64_t, const std::string*>> v;
+  for (auto& k : seen) {
+    int64_t m;
+    size_t sp = k.find(' ');
+    if (sp == std::string::npos || !parse_i64(k.substr(0, sp), m) || k.find('\n') != std::string::npos) continue;
+    if ((double)m + 1 < keep_after) continue;  // below every future rescan window
+    v.emplace_back(m, &k);
+  }
+  std::sort(v.begin(), v.end(), [](auto& a, auto& b) { return a.first > b.first; });
+  if (v.size() > 5000) v.resize(5000);
+  std::string out;
+  for (auto& [m, k] : v) { out += *k; out += '\n'; }
+  write_atomic(path, out);
+}
+
+// Reports are found by mtime but REMEMBERED by key. Each scan looks back over
+// (min(watermark, now - scan interval - 120 s), +inf): a report that became visible
+// late, or was moved into Retired/ (a move keeps the mtime: same key), is caught once
+// and never twice.
+//
+// R8 (review 2026-10-08): the watermark used to be the newest mtime seen, never
+// clamped. After a backward clock step it sat in the future and every panic and GPU
+// report dated before it -- the whole length of the step -- was skipped. A watermark
+// more than 5 s in the future is now treated as a clock step: the scan restarts from
+// the rescan window and the seen set keeps already-emitted reports from repeating.
 void reports_scan() {
   std::string wm_path = g->D + "/session/report_watermark";
+  std::string seen_path = g->D + "/session/report_seen";
   auto dirs = report_dirs();
   double now = now_wall();
+  double look = (double)reports_scan_interval_s(g->pl.p) + 120.0;
   std::string t;
   double wm = 0;
   if (read_file(wm_path, t, 64, false) != 0 || !parse_dbl(trim(t), wm)) {
-    // First run ever: summarize history, emit nothing. Old reports are not news.
+    // First run ever: summarize history, emit nothing. Old reports are not news, and
+    // neither is anything a later rescan window would still see.
     write_baseline(dirs, now);
+    std::set<std::string> seen;
+    for (auto& r : scan_reports(dirs, now - look, 1e15, 5000, false)) seen.insert(report_key(r.name, r.mtime));
+    save_seen(seen_path, seen, now - look);
     write_atomic(wm_path, fmt_num(std::ceil(now * 1e6) / 1e6, 6) + "\n");
     return;
   }
-  auto reps = scan_reports(dirs, wm, 1e15, 200, true);
-  double nwm = wm;
-  for (auto& r : reps) {
+  double lo;
+  if (wm > now + 5) {
+    logf("report watermark %.0f is %.0f s in the future (clock stepped back?): rescanning from now - %.0f s", wm,
+         wm - now, look);
+    lo = now - look;
+  } else {
+    lo = std::min(wm, now - look);
+  }
+  std::set<std::string> seen = load_seen(seen_path);
+  std::vector<Report> fresh;
+  for (auto& r : scan_reports(dirs, lo, 1e15, 500, false))
+    if (!seen.count(report_key(r.name, r.mtime))) fresh.push_back(r);
+  if (fresh.size() > 200) fresh.erase(fresh.begin(), fresh.end() - 200);  // the newest
+  for (auto& r0 : fresh) {
+    Report r = analyze_report(r0.dir, r0.name, r0.mtime, r0.size, true);
+    seen.insert(report_key(r.name, r.mtime));
     Ev x("report");
     x.s("category", r.category).s("file", r.path).n("mtime", r.mtime);
     if (r.bug_type.empty()) x.raw("bug_type", "null"); else x.s("bug_type", r.bug_type);
     x.s("summary", r.summary);
     if (r.category == "jetsam") x.b("per_process_limit_only", r.per_process_only);
     ev(x);
-    nwm = std::max(nwm, r.mtime);
     if (r.incident_worthy()) {
       IncidentReq rq;
       rq.kind = "report";
@@ -519,7 +631,8 @@ void reports_scan() {
       else logf("no incident for %s: %s", r.name.c_str(), err.c_str());
     }
   }
-  if (nwm > wm) write_atomic(wm_path, fmt_num(std::ceil(nwm * 1e6) / 1e6, 6) + "\n");
+  save_seen(seen_path, seen, lo);  // also prunes keys below the next rescan window
+  write_atomic(wm_path, fmt_num(std::ceil(now * 1e6) / 1e6, 6) + "\n");
 }
 
 // ------------------------------------------------------------------ tick
@@ -538,7 +651,7 @@ void tick() {
     watch_logs_tick();
     if (m >= g->next_report_scan) {
       reports_scan();
-      g->next_report_scan = mono_ms() + (uint64_t)g->pl.p.reports_scan_interval_s * 1000;
+      g->next_report_scan = mono_ms() + (uint64_t)reports_scan_interval_s(g->pl.p) * 1000;
     }
     uint64_t rot = (uint64_t)g->pl.p.logs_rotate_mib * 1048576ULL;
     rotate_if_needed(g->D + "/events.jsonl", rot, g->pl.p.logs_generations);
@@ -580,8 +693,10 @@ int cmd_run(int argc, char** argv) {
   std::string D = a.get("state-dir");
   if (D.empty() || D[0] != '/') return run_usage("--state-dir must be an absolute path");
   int64_t poll = 0, parent = 0;
-  if (a.has("poll") && (!parse_i64(a.get("poll"), poll) || poll < 1 || poll > 3600))
-    return run_usage("--poll must be 1..3600 seconds");
+  // SCHEMA §6: poll_s 1-60, the same range policy.json and the governor accept (review
+  // R2: policy accepted 4000, this refused it, and the sensor never started again).
+  if (a.has("poll") && (!parse_i64(a.get("poll"), poll) || poll < 1 || poll > 60))
+    return run_usage("--poll must be 1..60 seconds");
   if (a.has("parent") && (!parse_i64(a.get("parent"), parent) || parent <= 1 || parent > INT32_MAX))
     return run_usage("--parent must be a pid > 1");
 
@@ -631,7 +746,7 @@ int cmd_run(int argc, char** argv) {
     for (auto& n : list_dir(dir, 4096, &le)) {
       static const char* mine[] = {"sensor.env.tmp.", "sensor.json.tmp.", "policy.env.tmp.", "current.json.tmp.",
                                    "previous.json.tmp.", "watch_offsets.json.tmp.", "report_watermark.tmp.",
-                                   "reports_baseline.json.tmp."};
+                                   "reports_baseline.json.tmp.", "report_seen.tmp."};
       for (const char* m : mine)
         if (starts_with(n, m)) unlink((dir + "/" + n).c_str());
     }
@@ -742,6 +857,9 @@ int cmd_run(int argc, char** argv) {
   }
   logf("sensor %s started: D=%s poll=%ds parent=%d session=%s", kVersion, D.c_str(), g->poll, g->parent,
        cls.empty() ? "(first)" : cls.c_str());
+  if (std::find(g->pl.p.required_signals.begin(), g->pl.p.required_signals.end(), "thermal") ==
+      g->pl.p.required_signals.end())
+    logf("policy: required_signals omits thermal (allowed only where thermal is unavailable by design)");
 
   // the parent may have died while we were starting
   if (parent_gone()) stop("parent_exit");

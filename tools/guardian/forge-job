@@ -92,14 +92,50 @@ NEED=${NEED:l}
 [[ -z $STALL_S || $STALL_S == <1-> ]] || usage_err "--stall-s must be a positive integer (got '$STALL_S')"
 [[ -z $STALL_S || -n $HEARTBEAT ]]    || usage_err "--stall-s needs --heartbeat"
 [[ -z $SIG || $SIG =~ '^[0-9a-f]{16}$' ]] || usage_err "--sig must be 16 lowercase hex digits (got '$SIG')"
+# A number is never longer than 32 characters: `<1->` matches seventy thousand digits,
+# and every value here is written into the envelope (review 2026-10-08 R7).
+for _v in "$PRIO" "$PEAK" "$WAIT" "$THREADS" "$DISK_GB" "$STALL_S"; do
+  (( ${#_v} <= 32 )) || usage_err "a numeric option is longer than 32 characters (${_v[1,40]}...)"
+done
 [[ -n $DISK_GB ]]   && DISK_PATH=${${DISK_PATH:-$PWD}:a}
 [[ -n $HEARTBEAT ]] && HEARTBEAT=${HEARTBEAT:a}
+# A path longer than PATH_MAX (1024) can be neither opened nor statted; it is a usage
+# error, never something to truncate (a truncated heartbeat path names another file).
+(( ${#DISK_PATH} <= 1024 ))  || usage_err "--disk-path is longer than 1024 characters (PATH_MAX)"
+(( ${#HEARTBEAT} <= 1024 ))  || usage_err "--heartbeat is longer than 1024 characters (PATH_MAX)"
 
 # An envelope is KEY=VALUE lines and readers take the FIRST occurrence of a key, so a
 # newline inside a name would let `--name $'x\ncan_restart=1'` forge an earlier key.
 oneline() { REPLY=${1//$'\n'/ }; REPLY=${REPLY//$'\r'/ }; }
-oneline "$NAME"; NAME=$REPLY
-oneline "$*";    CMDLINE=$REPLY
+# Values written into an envelope are capped at 4000 BYTES -- what `admit` writes
+# (one_line(v, 4000)) and under the readers' 4096-byte line cap. SCHEMA §6: an envelope
+# larger than 64 KiB is `unverifiable`, never signalled; a 70 000-byte argv on the legacy
+# path used to produce exactly that (review 2026-10-08 R7). The cut never splits a UTF-8
+# sequence, whatever the locale: the bytes are counted with multibyte off, and a trailing
+# lead byte without all of its continuation bytes is dropped.
+CAP_B=4000
+cap_bytes() {   # cap_bytes <max bytes> <string> -> REPLY
+  emulate -L zsh
+  setopt no_multibyte
+  REPLY=$2
+  (( ${#REPLY} <= $1 )) && return 0
+  REPLY=${REPLY[1,$1]}
+  local -i i n=${#REPLY} c need
+  local ch
+  for (( i = n; i >= 1 && i > n - 4; i-- )); do
+    ch=${REPLY[i]}; c=$(( #ch )); (( c < 0 )) && (( c += 256 ))
+    if (( c < 0x80 )); then return 0                 # ASCII: the cut is on a boundary
+    elif (( c < 0xC0 )); then continue               # a continuation byte: look further back
+    else                                             # a lead byte: is its sequence complete?
+      need=$(( c >= 0xF0 ? 4 : (c >= 0xE0 ? 3 : 2) ))
+      (( n - i + 1 < need )) && REPLY=${REPLY[1,i-1]}
+      return 0
+    fi
+  done
+  return 0
+}
+oneline "$NAME"; cap_bytes $CAP_B "$REPLY"; NAME=$REPLY
+oneline "$*";    cap_bytes $CAP_B "$REPLY"; CMDLINE=$REPLY
 
 # ---- the sensor ---------------------------------------------------------------
 # An EXPLICIT sensor that is not there is a misconfiguration, and admission cannot

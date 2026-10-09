@@ -83,8 +83,9 @@ print "== LIVENESS: the daemon must survive polls, not just start =="
 CTL=${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian-ctl
 SD=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
 # PUBLISHING is the definition of alive -- the same definition forge-guardian-ctl
-# uses, and the one every consumer already depends on, since forge-gate and
-# forge-nproc fail closed on a stale state and never look for a process at all.
+# uses, and the one every consumer already depends on: forge-gate and forge-nproc
+# fail closed on a stale state (and, since review 2026-10-08 FO-4, also when the
+# guardian.lock holder is not a live forge-guardian with the recorded start time).
 #
 # This used to gate on `kill -0 $(cat guardian.pid)`. That file is written ONLY by
 # an unsupervised `ctl start`; under launchd -- the configuration this ships with --

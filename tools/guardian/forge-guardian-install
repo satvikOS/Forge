@@ -7,6 +7,11 @@
 #   forge-guardian-install uninstall [--purge] [--no-service]
 #   forge-guardian-install status
 #
+# exit: 0 done; 1 failed (a failed install/rollback is rolled back to the state before
+# the run); 2 usage or refused; 3 another install holds the lock; 4 INSTALLED and
+# running, but its evidence did not become complete within FORGE_GUARDIAN_EVIDENCE_S
+# (left running: see "service verification"); 70 internal error.
+#
 # Every path derives from $FORGE_GUARDIAN_HOME (default $HOME); launchctl is
 # $FORGE_GUARDIAN_LAUNCHCTL (default /bin/launchctl). The gates point both at a fake
 # home and a stub, and this file refuses to drive the REAL launchd for any home that
@@ -37,6 +42,7 @@ set -u
 setopt NULL_GLOB EXTENDED_GLOB PIPE_FAIL
 zmodload zsh/datetime || { print -u2 "forge-guardian-install: zsh/datetime unavailable"; exit 70; }
 zmodload -F zsh/stat b:zstat || { print -u2 "forge-guardian-install: zsh/stat unavailable"; exit 70; }
+zmodload zsh/system 2>/dev/null     # sysopen -o nonblock (preflight requires the module)
 umask 077
 export LC_ALL=C      # deterministic sort order for the version hash, whatever the caller's locale
 
@@ -54,6 +60,10 @@ LAUNCHCTL=${FORGE_GUARDIAN_LAUNCHCTL:-/bin/launchctl}
 TARGET="gui/$UID"
 PLUTIL=/usr/bin/plutil
 VERIFY_S=${FORGE_GUARDIAN_VERIFY_S:-40}
+EVIDENCE_S=${FORGE_GUARDIAN_EVIDENCE_S:-120}
+# The Law-7 directory the governor publishes into (the plist sets no ARCHIE_HEALTH_DIR,
+# so the service uses the default).
+AH_DIR=${ARCHIE_HEALTH_DIR:-/tmp/archie_health}
 ZSH_TOOLS=(forge-guardian forge-gate forge-job forge-nproc forge-guardian-ctl forge-guardian-install
            forge-stallguard forge-guardian-selftest forge-guardian-actuator-test)
 ALL_TOOLS=($ZSH_TOOLS forge-guardian-sensor)
@@ -73,7 +83,10 @@ usage() {
   print -r -- "       forge-guardian-install status"
   print -r -- "env:   FORGE_GUARDIAN_HOME (default \$HOME), FORGE_GUARDIAN_LAUNCHCTL (default /bin/launchctl),"
   print -r -- "       FORGE_GUARDIAN_SENSOR_PREBUILT (a sensor binary to install instead of building one),"
-  print -r -- "       FORGE_GUARDIAN_VERIFY_S (service verification budget, default 40)"
+  print -r -- "       FORGE_GUARDIAN_VERIFY_S (service verification budget, default 40),"
+  print -r -- "       FORGE_GUARDIAN_EVIDENCE_S (how long install waits for complete evidence, default 120)"
+  print -r -- "exit:  0 done, 1 failed and rolled back, 2 usage/refused, 3 locked,"
+  print -r -- "       4 installed and running but evidence incomplete (left running), 70 internal"
 }
 
 # ---- helpers --------------------------------------------------------------------
@@ -192,6 +205,171 @@ verify_service() {   # verify_service <program> <t0> <pre-mtime>
   done
 }
 
+# PUBLISHING IS NOT EVIDENCE (review 2026-10-08 INS-2). verify_service passed ~0.6 s
+# after bootstrap, while the governor still said UNKNOWN "evidence incomplete": an
+# install whose sensor could never run reported "verified" and left heavy admission
+# closed for good. So, after verify_service, wait (<= EVIDENCE_S) for state.json to
+# say evidence_complete=true with a state other than UNKNOWN (the governor needs
+# deescalate_polls of complete evidence to leave UNKNOWN). Outcomes:
+#   0  complete evidence, state EVIDENCE_STATE;
+#   4  the service runs and publishes but its evidence stayed incomplete
+#      (EVIDENCE_WHY names what is missing). NOT rolled back: the v1 it would roll back
+#      to fabricated health (thermal defaulted to 100, GREEN on every start and stop),
+#      which is less safe than a governor that keeps the gates closed and says why;
+#   1  the service stopped running or stopped publishing (VERIFY_WHY) -> roll back.
+EVIDENCE_WHY=""; EVIDENCE_STATE=""
+policy_poll_s() {   # the governor's poll from policy.env (1..60), default 5
+  local line p=5
+  if [[ -f $FH/policy.env ]]; then
+    while IFS= read -r line || [[ -n $line ]]; do
+      [[ $line == poll_s=<1-60> ]] && { p=${line#poll_s=}; break; }
+    done < "$FH/policy.env"
+  fi
+  print -r -- $p
+}
+verify_evidence() {
+  local deadline=$(( EPOCHSECONDS + EVIDENCE_S )) out st pid sm lim ec state reason miss
+  lim=$(( 3 * $(policy_poll_s) + 10 ))
+  while :; do
+    out=$(lc_print)
+    st=$(print -r -- "$out" | sed -n 's/^	state = //p' | head -1)
+    pid=$(print -r -- "$out" | sed -n 's/^	pid = \([0-9][0-9]*\)$/\1/p' | head -1)
+    if [[ $st != running || -z $pid ]]; then
+      VERIFY_WHY="stopped running while its evidence was awaited (launchd state='${st:-not loaded}')"; return 1
+    fi
+    sm=$(mtime_of "$FH/state")
+    if (( EPOCHSECONDS - sm > lim )); then
+      VERIFY_WHY="stopped publishing while its evidence was awaited: $FH/state is $(( EPOCHSECONDS - sm ))s old (> ${lim}s)"; return 1
+    fi
+    ec=""; state=""; reason=""; miss=""
+    if [[ -f $FH/state.json ]]; then
+      ec=$($PLUTIL -extract evidence_complete raw -o - "$FH/state.json" 2>/dev/null)
+      state=$($PLUTIL -extract state raw -o - "$FH/state.json" 2>/dev/null)
+      reason=$($PLUTIL -extract reason raw -o - "$FH/state.json" 2>/dev/null)
+      miss=$($PLUTIL -extract evidence.missing json -o - "$FH/state.json" 2>/dev/null)
+      miss=${${miss//[\[\]\"[:space:]]/}//,/ }
+    fi
+    if [[ $ec == true && -n $state && $state != UNKNOWN ]]; then EVIDENCE_STATE=$state; return 0; fi
+    if [[ $ec == true ]]; then EVIDENCE_WHY="the evidence is complete but the state is still ${state:-?} ($reason)"
+    else EVIDENCE_WHY="${miss:-not reported} (state ${state:-?}: ${reason:-?})"; fi
+    (( EPOCHSECONDS >= deadline )) && return 4
+    sleep 1
+  done
+}
+
+# THE CUTOVER IS NOT EVIDENCE EITHER (review 2026-10-08 INS-3). v1's TERM trap
+# publishes GREEN "guardian stopped" -- heavy_jobs_ok=true, a FRESH ts and epoch -- into
+# state.json and the Law-7 status.json, and back-dates only the `state` file. forge-gate
+# fails closed on that mtime, but every reader of the JSON alone (forge-nproc,
+# forge_law7.admission_blocked, the app) saw GREEN until v2's first publication. Only
+# the installer stands between the two governors, so after EVERY bootout and before
+# anything is bootstrapped it publishes UNKNOWN itself: state.json and status.json
+# (atomic tmp+rename; the Law-7 directory only when it is a real directory owned by
+# this user, the governor's rule) and `state`, back-dated so forge-gate keeps failing
+# closed and the new governor's upgrade-window guard (fresh `state` = "already
+# governed") does not refuse to start. Never while a live governor holds the lock: its
+# publication is the truth, not ours.
+lock_holder_alive() {   # a live governor holds $FH/guardian.lock (pid canonical, start time, argv)
+  local p s now a
+  [[ -f $FH/guardian.lock/pid && -f $FH/guardian.lock/started ]] || return 1
+  p=$(<"$FH/guardian.lock/pid"); p=${p//[[:space:]]/}
+  s=$(<"$FH/guardian.lock/started"); s=${(j: :)${=s}}
+  [[ $p == [1-9][0-9](#c0,4) && -n $s ]] && kill -0 $p 2>/dev/null || return 1
+  now=$(ps -p $p -o lstart= 2>/dev/null); now=${(j: :)${=now}}
+  [[ $now == "$s" ]] || { now=$(LC_ALL=C ps -p $p -o lstart= 2>/dev/null); [[ ${(j: :)${=now}} == "$s" ]]; } || return 1
+  a=$(ps -ww -p $p -o args= 2>/dev/null); a=${a%%[[:space:]]##}
+  [[ $a == (*/|)forge-guardian ]]
+}
+law7_dir_ok() {
+  # A fake home (a test) that did not name its own Law-7 directory must never write
+  # the workstation's /tmp/archie_health.
+  if [[ -z ${ARCHIE_HEALTH_DIR:-} ]] && fake_home; then return 1; fi
+  [[ -d $AH_DIR && ! -L $AH_DIR ]] || return 1          # absent: nothing to neutralize
+  local -A st
+  zstat -L -H st -- "$AH_DIR" 2>/dev/null && (( st[uid] == UID ))
+}
+pub_atomic() {   # pub_atomic <path> <content>: SCHEMA §2 <name>.tmp.<pid> + rename
+  local tmp="$1.tmp.$$"
+  print -r -- "$2" >| "$tmp" 2>/dev/null && /bin/mv -f "$tmp" "$1" || { /bin/rm -f "$tmp"; return 1; }
+}
+publish_unknown() {   # publish_unknown <reason>
+  [[ -d $FH && ! -L $FH ]] || return 0
+  if lock_holder_alive; then warn "a governor still holds $FH/guardian.lock; its publication is left alone"; return 0; fi
+  local now=$EPOCHSECONDS iso r f line k v pid gpu jobs=0 gjobs=0 halt=false ram ncpu nperf fd
+  iso=$(TZ=UTC strftime '%Y-%m-%dT%H:%M:%SZ' $now)
+  r=$(json_str "$1")
+  # registered_jobs / gpu_jobs as the governor counts them: envelopes (regular files
+  # only, read without blocking) whose pid is alive. A 0 would read as "GPU idle".
+  for f in "$FH"/jobs/*.job(N.); do
+    pid=""; gpu=""
+    sysopen -r -o nonblock -u fd "$f" 2>/dev/null || continue
+    while IFS= read -r -u $fd line; do
+      k=${line%%=*}; v=${line#*=}
+      [[ $k == pid && -z $pid ]] && pid=$v
+      [[ $k == gpu && -z $gpu ]] && gpu=$v
+      [[ -n $pid && -n $gpu ]] && break
+    done
+    exec {fd}<&-
+    [[ $pid == [1-9][0-9](#c0,4) ]] && kill -0 $pid 2>/dev/null || continue
+    (( jobs++ )); [[ $gpu == 1 ]] && (( gjobs++ ))
+  done
+  ram=$(( $(sysctl -n hw.memsize 2>/dev/null || print 0) / 1073741824 ))
+  ncpu=$(sysctl -n hw.ncpu 2>/dev/null); [[ $ncpu == <-> ]] || ncpu=-1
+  nperf=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null); [[ $nperf == <-> ]] || nperf=-1
+  pub_atomic "$FH/state.json" "{
+  \"schema\": \"forge.guardian.state/2\",
+  \"state\": \"UNKNOWN\",
+  \"reason\": $r,
+  \"ts\": \"$iso\",
+  \"epoch\": $now,
+  \"seq\": 0,
+  \"build_jobs_max\": 2,
+  \"spawn_agents_ok\": false,
+  \"evidence_complete\": false,
+  \"heavy_jobs_ok\": false,
+  \"evidence\": {\"source\": \"fallback\", \"sensor_age_s\": -1, \"missing\": [\"guardian\"]},
+  \"critical_now\": false,
+  \"thermal_state\": \"none\",
+  \"admission\": {\"heavy_open\": false, \"reason\": $r},
+  \"reservations\": {\"reserved_gb\": -1, \"budget_gb\": -1, \"overcommit\": null, \"jobs\": -1},
+  \"volumes\": [],
+  \"disk_hardware\": \"UNKNOWN\",
+  \"observables\": {
+    \"vm_pressure_level\": -1,
+    \"free_pct\": -1,
+    \"swap_used_mb\": -1,
+    \"swap_total_mb\": -1,
+    \"pageout_rate_pages_per_poll\": -1,
+    \"disk_avail_gb\": -1,
+    \"loadavg\": \"-1\",
+    \"cpu_speed_limit_pct\": -1,
+    \"registered_jobs\": $jobs
+  },
+  \"host\": {\"ram_gb\": $ram, \"ncpu\": $ncpu, \"nperf\": $nperf}
+}" || warn "could not publish UNKNOWN into $FH/state.json"
+  if law7_dir_ok; then
+    [[ -e $AH_DIR/HALT ]] && halt=true
+    pub_atomic "$AH_DIR/status.json" "{
+  \"state\": \"UNKNOWN\",
+  \"reason\": $r,
+  \"swap_gib\": -1,
+  \"halt\": $halt,
+  \"gpu_jobs\": $gjobs,
+  \"registered_jobs\": $jobs,
+  \"free_pct\": -1,
+  \"pageout_rate\": -1,
+  \"disk_avail_gb\": -1,
+  \"producer\": \"forge-guardian-install\",
+  \"ts\": $now,
+  \"iso\": \"$iso\",
+  \"evidence_complete\": false
+}" || warn "could not publish UNKNOWN into $AH_DIR/status.json"
+  fi
+  pub_atomic "$FH/state" "UNKNOWN" && /usr/bin/touch -t 197001020000 "$FH/state" 2>/dev/null \
+    || warn "could not publish UNKNOWN into $FH/state"
+  return 0
+}
+
 bootout_service() {
   local i
   $LAUNCHCTL bootout "$TARGET/$LABEL" >/dev/null 2>&1   # "not loaded" is fine
@@ -216,10 +394,18 @@ start_service() {
 # ---- transaction: snapshot of everything a switch changes ------------------------
 typeset -A TXBIN TXMODE
 TX=""; TX_CUR=""; TX_PREV=""; TX_HAD_PLIST=0; TX_HAD_INST=0; TX_LEGACY=""
+# The domain directory's mode and whether policy.json existed are part of "the state
+# before this run": ensure_links tightens the directory to 0700 and installs
+# policy.json, and a failed run used to leave both behind while claiming to have
+# restored everything (review 2026-10-08 INS-4).
+TX_FH_MODE=""; TX_HAD_POLICY=1; POLICY_INSTALLED_SHA=""
 tx_begin() {
   local t f
   TX="$APP/tx.$$"; /bin/rm -rf "$TX"; mkdir -p "$TX" || die 70 "cannot create $TX"
   TX_CUR=$(link_target "$APP/current"); TX_PREV=$(link_target "$APP/previous")
+  TX_FH_MODE=""; [[ -d $FH && ! -L $FH ]] && TX_FH_MODE=$(stat -f %Lp "$FH" 2>/dev/null)
+  TX_HAD_POLICY=0; [[ -e $FH/policy.json || -L $FH/policy.json ]] && TX_HAD_POLICY=1
+  POLICY_INSTALLED_SHA=""
   TX_HAD_PLIST=0; [[ -f $PLIST ]] && { /bin/cp -p "$PLIST" "$TX/plist" && TX_HAD_PLIST=1; }
   TX_HAD_INST=0; [[ -f $FH/guardian.installed.json ]] && { /bin/cp -p "$FH/guardian.installed.json" "$TX/installed.json" && TX_HAD_INST=1; }
   for t in $ALL_TOOLS; do
@@ -243,6 +429,14 @@ tx_restore_files() {   # put every link, bin entry, plist and record back as it 
   done
   if (( TX_HAD_PLIST )); then place_file "$TX/plist" "$PLIST" 0644; else /bin/rm -f "$PLIST"; fi
   if (( TX_HAD_INST )); then place_file "$TX/installed.json" "$FH/guardian.installed.json" 0600; else /bin/rm -f "$FH/guardian.installed.json"; fi
+  # policy.json: removed only when THIS run created it and it is still byte-for-byte
+  # what was installed (an edit made meanwhile is the user's, and is kept).
+  if (( ! TX_HAD_POLICY )) && [[ -n $POLICY_INSTALLED_SHA && -f $FH/policy.json && ! -L $FH/policy.json ]] \
+     && [[ "$(sha_of "$FH/policy.json")" == "$POLICY_INSTALLED_SHA" ]]; then
+    /bin/rm -f "$FH/policy.json"
+  fi
+  [[ -n $TX_FH_MODE && -d $FH && ! -L $FH ]] && /bin/chmod "$TX_FH_MODE" "$FH"
+  return 0
 }
 tx_end() { [[ -n $TX ]] && /bin/rm -rf "$TX"; TX=""; }
 
@@ -254,6 +448,7 @@ fail_and_rollback() {
   tx_restore_files
   if (( ! NO_SERVICE )); then
     bootout_service
+    publish_unknown "guardian rollback in progress"
     if (( TX_HAD_PLIST )); then
       if start_service; then
         print -u2 -r -- "forge-guardian-install: rolled back; the previous service is running and verified (pid $VERIFIED_PID)"
@@ -282,7 +477,8 @@ ensure_links() {   # prints what changed; returns the number of problems
     say "linked $f -> $want"
   done
   if [[ ! -e $FH/policy.json && -f $APP/current/share/policy.default.json ]]; then
-    place_file "$APP/current/share/policy.default.json" "$FH/policy.json" 0600 && say "installed $FH/policy.json from policy.default.json"
+    place_file "$APP/current/share/policy.default.json" "$FH/policy.json" 0600 && say "installed $FH/policy.json from policy.default.json" \
+      && POLICY_INSTALLED_SHA=$(sha_of "$FH/policy.json")
   fi
   mkdir -p "$LOCALBIN" 2>/dev/null
   for t in $LOCAL_TOOLS; do
@@ -560,16 +756,32 @@ cmd_install() {
   fi
   /bin/rm -f "$newplist"
 
+  local incomplete=0 erc
   if (( NO_SERVICE )); then
     say "service not touched (--no-service)"
   else
     bootout_service
+    publish_unknown "guardian upgrade in progress"
     start_service || fail_and_rollback "the new service did not verify within ${VERIFY_S}s: $VERIFY_WHY"
     say "service verified: $LABEL pid=$VERIFIED_PID runs $APP/current/bin/forge-guardian and is publishing"
+    say "waiting up to ${EVIDENCE_S}s for complete evidence and a state other than UNKNOWN"
+    verify_evidence; erc=$?
+    case $erc in
+      0) say "evidence complete: the governor publishes $EVIDENCE_STATE" ;;
+      4) incomplete=1 ;;
+      *) fail_and_rollback "the new service $VERIFY_WHY" ;;
+    esac
   fi
   write_installed "$V" "$(release_of previous)" || warn "could not write $FH/guardian.installed.json"
   tx_end
   say "installed $V$( [[ -n $(release_of previous) ]] && print " (previous: $(release_of previous))")"
+  if (( incomplete )); then
+    print -u2 -r -- "forge-guardian-install: installed, but evidence is incomplete: $EVIDENCE_WHY"
+    print -u2 -r -- "  after ${EVIDENCE_S}s. The service is LEFT RUNNING -- it publishes UNKNOWN and keeps heavy admission closed,"
+    print -u2 -r -- "  which is safer than rolling back to a governor that reports health it never measured."
+    print -u2 -r -- "  inspect: forge-guardian-ctl status; forge-guardian-ctl diagnose"
+    exit 4
+  fi
 }
 
 # ---- rollback ---------------------------------------------------------------------
@@ -593,6 +805,7 @@ cmd_rollback() {
   /bin/rm -f "$newplist"
   if (( ! NO_SERVICE )); then
     bootout_service
+    publish_unknown "guardian rollback in progress"
     start_service || fail_and_rollback "the rolled-back service did not verify: $VERIFY_WHY"
     say "service verified: pid=$VERIFIED_PID"
   fi
@@ -609,7 +822,10 @@ cmd_uninstall() {
   (( NO_SERVICE )) || guard_service
   take_lock
   local t f n=0
-  if (( ! NO_SERVICE )); then bootout_service && say "service stopped ($LABEL booted out)"; fi
+  if (( ! NO_SERVICE )); then
+    bootout_service && say "service stopped ($LABEL booted out)"
+    publish_unknown "guardian uninstalled: this domain is not governed"
+  fi
   if [[ -f $PLIST ]]; then /bin/rm -f "$PLIST" && say "removed $PLIST"; fi
   for t in $LOCAL_TOOLS; do
     f="$LOCALBIN/$t"
@@ -623,9 +839,10 @@ cmd_uninstall() {
   say "removed $n tool links from $FH/bin"
   /bin/rm -f "$FH/guardian.installed.json"
   local -a live; local p
-  for f in "$FH"/jobs/*.job(N); do
+  # `(N.)`: regular files only -- sed on a FIFO named *.job blocks for ever (R1).
+  for f in "$FH"/jobs/*.job(N.); do
     p=$(sed -n 's/^pid=//p' "$f" | head -1)
-    [[ $p == <1-> ]] && kill -0 $p 2>/dev/null && live+=("${f:t} ($(sed -n 's/^name=//p' "$f" | head -1))")
+    [[ $p == [1-9][0-9](#c0,4) ]] && kill -0 $p 2>/dev/null && live+=("${f:t} ($(sed -n 's/^name=//p' "$f" | head -1))")
   done
   (( ${#live} )) && warn "kept the envelopes of live jobs: ${(j:, :)live} -- they are no longer governed"
   if (( PURGE )); then

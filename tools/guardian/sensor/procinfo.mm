@@ -8,17 +8,21 @@
 
 #include "sensor.hpp"
 
+#include <fcntl.h>
 #include <libproc.h>
 #include <signal.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
+#include <unistd.h>
+#include <xlocale.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <deque>
 
 namespace fgs {
@@ -60,6 +64,164 @@ ProcInfo proc_info(int pid) {
   }
   if (kill(pid, 0) == 0 || errno == EPERM) pi.alive = true;
   return pi;
+}
+
+bool proc_argv(int pid, std::vector<std::string>& argv) {
+  argv.clear();
+  if (pid <= 0) return false;
+  int argmax = 0;
+  size_t sz = sizeof argmax;
+  int m1[2] = {CTL_KERN, KERN_ARGMAX};
+  if (sysctl(m1, 2, &argmax, &sz, nullptr, 0) != 0 || argmax <= 0) return false;
+  std::vector<char> buf((size_t)argmax);
+  int m2[3] = {CTL_KERN, KERN_PROCARGS2, pid};
+  sz = buf.size();
+  if (sysctl(m2, 3, buf.data(), &sz, nullptr, 0) != 0 || sz < sizeof(int)) return false;
+  int argc = 0;
+  memcpy(&argc, buf.data(), sizeof argc);
+  if (argc <= 0 || argc > 65536) return false;
+  size_t p = sizeof(int);
+  while (p < sz && buf[p] != '\0') ++p;  // the exec path
+  while (p < sz && buf[p] == '\0') ++p;  // its padding
+  for (int i = 0; i < argc && p < sz; ++i) {
+    size_t s = p;
+    while (p < sz && buf[p] != '\0') ++p;
+    argv.emplace_back(buf.data() + s, p - s);
+    ++p;
+  }
+  return (int)argv.size() == argc;
+}
+
+bool canonical_pid(std::string_view s, int& out) {
+  if (s.empty() || s.size() > 5 || s[0] == '0') return false;
+  int v = 0;
+  for (char c : s) {
+    if (c < '0' || c > '9') return false;
+    v = v * 10 + (c - '0');
+  }
+  if (v < 1 || v > 99999) return false;
+  out = v;
+  return true;
+}
+
+// ---------------------------------------------------------------- SCHEMA §5 protection
+bool protected_name(const std::string& comm) {
+  std::string c = comm;
+  size_t sl = c.find_last_of('/');
+  if (sl != std::string::npos) c = c.substr(sl + 1);
+  if (c.empty()) return true;  // an unknown name is protected
+  static const std::set<std::string> names{
+      "claude", "node", "Claude", "WindowServer", "loginwindow", "Finder", "Dock", "SystemUIServer",
+      "kernel_task", "launchd", "sshd", "forge-guardian", "forge-guardian-sensor",
+      "forge-guardian-s",  // forge-guardian-sensor as p_comm truncates it (16 characters)
+  };
+  if (names.count(c)) return true;
+  return starts_with(c, "Claude Helper");
+}
+
+// ps(1) prints lstart with strftime("%c"), in the locale of whoever ran it: under
+// launchd the plist sets LC_ALL=C; a governor started by hand inherits the user's.
+// Whitespace runs are collapsed (ps pads the field).
+static std::string collapse_ws(std::string_view s) {
+  std::string o;
+  bool sp = false;
+  for (char c : s) {
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { sp = !o.empty(); continue; }
+    if (sp) o += ' ';
+    sp = false;
+    o += c;
+  }
+  return o;
+}
+
+static bool lstart_matches(int64_t start_s, const std::string& text) {
+  std::string want = collapse_ws(text);
+  if (want.empty() || start_s <= 0) return false;
+  time_t t = (time_t)start_s;
+  struct tm tmv;
+  if (!localtime_r(&t, &tmv)) return false;
+  for (const char* loc : {"C", ""}) {
+    locale_t l = newlocale(LC_ALL_MASK, loc, nullptr);
+    if (!l) continue;
+    char buf[160];
+    size_t n = strftime_l(buf, sizeof buf, "%c", &tmv, l);
+    freelocale(l);
+    if (n > 0 && collapse_ws(std::string_view(buf, n)) == want) return true;
+  }
+  return false;
+}
+
+static int lock_holder_pid(const std::string& D) {
+  std::string t;
+  if (D.empty() || read_file(D + "/guardian.lock/pid", t, 64, false) != 0) return -1;
+  int p;
+  return canonical_pid(trim(t), p) ? p : -1;
+}
+
+std::string governor_check(const std::string& D, int* pid_out) {
+  if (pid_out) *pid_out = -1;
+  std::string t;
+  int e = read_file(D + "/guardian.lock/pid", t, 64, false);
+  if (e) return "no guardian.lock/pid (" + std::string(strerror(e)) + ")";
+  int pid;
+  if (!canonical_pid(trim(t), pid)) return "guardian.lock/pid is not a pid ('" + one_line(trim(t), 40) + "')";
+  std::string started;
+  e = read_file(D + "/guardian.lock/started", started, 256, false);
+  if (e) return "no guardian.lock/started (" + std::string(strerror(e)) + ")";
+  ProcInfo pi = proc_info(pid);
+  if (!pi.alive) return "guardian.lock names pid " + std::to_string(pid) + ", which is not running";
+  if (!lstart_matches(pi.start_s, started))
+    return "pid " + std::to_string(pid) + " did not start at '" + collapse_ws(started) +
+           "' (guardian.lock/started): the pid was reused";
+  std::vector<std::string> av;
+  if (!proc_argv(pid, av) || av.empty()) return "cannot read the argv of pid " + std::to_string(pid);
+  const std::string& last = av.back();
+  std::string base = last.substr(last.find_last_of('/') == std::string::npos ? 0 : last.find_last_of('/') + 1);
+  if (base != "forge-guardian")
+    return "pid " + std::to_string(pid) + " is not forge-guardian (argv ends in '" + one_line(last, 120) + "')";
+  if (pid_out) *pid_out = pid;
+  return "";
+}
+
+static int sensor_lock_holder(const std::string& D) {
+  if (D.empty()) return -1;
+  int fd = open((D + "/sensor.lock").c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  if (fd < 0) return -1;
+  struct flock q;
+  memset(&q, 0, sizeof q);
+  q.l_type = F_RDLCK;  // the sensor's write lock conflicts with a read lock
+  q.l_whence = SEEK_SET;
+  int holder = -1;
+  if (fcntl(fd, F_GETLK, &q) == 0 && q.l_type != F_UNLCK) holder = (int)q.l_pid;
+  close(fd);
+  return holder;
+}
+
+std::string protected_why(int pid, const ProcInfo& pi, const std::string& D) {
+  if (pid <= 1) return "pid " + std::to_string(pid) + " <= 1";
+  if (pid == (int)getpid()) return "the sensor itself";
+  if (pi.uid < 0) return "owner unknown";
+  if (pi.uid != (int64_t)getuid())
+    return "owned by uid " + std::to_string(pi.uid) + ", not " + std::to_string(getuid());
+  if (protected_name(pi.comm))
+    return pi.comm.empty() ? std::string("process name unknown") : "protected process name '" + pi.comm + "'";
+  if (!D.empty()) {
+    // The lock holder is protected even unverified (refusing is the safe direction);
+    // its ancestors only when it IS the live governor, never a reused pid's.
+    int holder = lock_holder_pid(D);
+    if (holder > 0 && holder == pid) return "the governor (guardian.lock holder)";
+    int gov = -1;
+    if (holder > 0 && governor_check(D, &gov).empty()) {
+      int p = proc_info(gov).ppid;
+      for (int d = 0; p > 1 && d < 64; ++d) {
+        if (p == pid) return "an ancestor of the governor (pid " + std::to_string(gov) + ")";
+        p = proc_info(p).ppid;
+      }
+    }
+    int sh = sensor_lock_holder(D);
+    if (sh > 0 && sh == pid) return "the sensor (sensor.lock holder)";
+  }
+  return "";
 }
 
 TreeUse tree_usage(int root) {
@@ -189,22 +351,48 @@ Registry read_registry(const std::string& state_dir, const std::string& cur_boot
   Registry r;
   std::string dir = state_dir + "/jobs";
   int err = 0;
-  std::vector<std::string> names = list_dir(dir, 4096, &err);
+  // SCHEMA §6 registry limits. THE BUG THIS CLOSES (review 2026-10-08 R4): readdir was
+  // cut at 4096 raw entries (tmp files included) BEFORE the *.job filter, and the
+  // envelope list at 1024 after a sort by name, both SILENTLY -- a 25 GiB job named
+  // zzzz.job vanished from the budget and admit admitted past it. A registry that
+  // cannot be read completely is an error, never a shorter registry.
+  std::vector<std::string> names = list_dir(dir, kMaxJobDirEntries + 1, &err);
   if (err == ENOENT) return r;  // no registry yet: nothing registered
   if (err) {
     r.err = err;
     r.errmsg = "cannot read " + dir + ": " + strerror(err);
     return r;
   }
+  if (names.size() > kMaxJobDirEntries) {
+    r.err = E2BIG;
+    r.errmsg = dir + " has more than " + std::to_string(kMaxJobDirEntries) + " entries: the registry cannot be read completely";
+    return r;
+  }
   std::sort(names.begin(), names.end());
-  double now = now_wall();
-  std::set<std::pair<int, int64_t>> live_keys;
+  // Envelopes are REGULAR *.job files. A FIFO, directory, symlink or device named
+  // *.job is not an envelope and is never opened (a FIFO must never block a reader;
+  // review R1). lstat first; read_file's O_NONBLOCK + S_ISREG covers the race.
+  std::vector<std::pair<std::string, off_t>> envs;
   for (auto& n : names) {
     if (!ends_with(n, ".job") || starts_with(n, ".")) continue;
+    struct stat st;
+    if (lstat((dir + "/" + n).c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+    envs.emplace_back(n, st.st_size);
+  }
+  if (envs.size() > kMaxEnvelopes) {
+    r.err = E2BIG;
+    r.errmsg = dir + " holds " + std::to_string(envs.size()) + " envelopes, more than " + std::to_string(kMaxEnvelopes) +
+               ": the registry cannot be read completely";
+    return r;
+  }
+  double now = now_wall();
+  std::set<std::pair<int, int64_t>> live_keys;
+  for (auto& [n, fsize] : envs) {
     std::string path = dir + "/" + n;
     std::string text;
-    int e = read_file(path, text, 64 * 1024, /*follow=*/false);
-    if (e == ENOENT) continue;  // released between readdir and open
+    int e = read_file(path, text, kMaxEnvelopeBytes, /*follow=*/false);
+    if (e == ENOENT) continue;               // released between readdir and open
+    if (e == EINVAL || e == ELOOP) continue;  // replaced by a non-regular file since lstat
     if (e) {
       r.err = e;
       r.errmsg = "cannot read envelope " + path + ": " + strerror(e);
@@ -212,6 +400,10 @@ Registry read_registry(const std::string& state_dir, const std::string& cur_boot
     }
     JobInfo j;
     j.file = n;
+    // R7: an envelope larger than 64 KiB is read up to 64 KiB (pid, pstart and peak_gb
+    // come first; cmd is last) and kept as unverifiable -- counted, never signalled,
+    // never dropped. The governor used to DELETE it, live job and all.
+    j.oversize = fsize > (off_t)kMaxEnvelopeBytes || (text.size() >= kMaxEnvelopeBytes && (off_t)text.size() > fsize);
     parse_kv(text, j.kv);
     int64_t pid = kv_i64(j.kv, "pid", -1);
     if (pid <= 0) {
@@ -225,7 +417,14 @@ Registry read_registry(const std::string& state_dir, const std::string& cur_boot
     j.priority = (int)kv_i64(j.kv, "priority", 5);
     j.can_restart = kv_i64(j.kv, "can_restart", 0) == 1;
     j.gpu = kv_i64(j.kv, "gpu", 0) == 1;
-    j.peak_gb = std::max(0.0, kv_dbl(j.kv, "peak_gb", 0));
+    {
+      // FO-5: a declaration that does not parse ("24GiB", "", missing, negative) is
+      // not a reservation of 0. It is recorded as unreadable; admission cannot decide.
+      auto it = j.kv.find("peak_gb");
+      double pg = -1;
+      j.peak_ok = it != j.kv.end() && parse_dbl(it->second, pg) && pg >= 0;
+      j.peak_gb = j.peak_ok ? pg : 0;
+    }
     j.declared_b = j.peak_gb * kGiB;
     j.pstart = kv_i64(j.kv, "pstart", -1);
     j.started = kv_i64(j.kv, "started", -1);
@@ -240,8 +439,15 @@ Registry read_registry(const std::string& state_dir, const std::string& cur_boot
     if (!safe_token(j.sig, 64)) j.sig = job_sig(j.name, j.cmd);
     ProcInfo pi;
     j.identity = verify_identity(j.kv, j.pid, cur_boot, &pi);
+    if (j.oversize && j.identity != "dead") j.identity = "unverifiable";
     j.proc_start = pi.start_s;
-    if (measure && (j.identity == "ok" || j.identity == "unverifiable")) {
+    if (!j.peak_ok && j.live() && r.undecidable.empty()) {
+      auto it = j.kv.find("peak_gb");
+      r.undecidable = "envelope " + path + " (pid " + std::to_string(j.pid) + ", " + j.identity +
+                      ") has peak_gb " + (it == j.kv.end() ? std::string("missing") : "'" + one_line(it->second, 40) + "'") +
+                      ", which is not a decimal >= 0";
+    }
+    if (measure && j.live()) {
       TreeUse u = tree_usage(j.pid);
       j.fp_b = u.fp;
       j.res_b = u.res;
@@ -273,7 +479,6 @@ Registry read_registry(const std::string& state_dir, const std::string& cur_boot
       }
     }
     r.jobs.push_back(std::move(j));
-    if (r.jobs.size() >= 1024) break;
   }
   if (peaks) {  // forget peaks of processes that are no longer registered
     for (auto it = peaks->begin(); it != peaks->end();) {
@@ -286,16 +491,27 @@ Registry read_registry(const std::string& state_dir, const std::string& cur_boot
 }
 
 // ---------------------------------------------------------------- pidinfo
+// pidinfo [--state-dir D] PID...
+//   pid=N ppid=P pstart=S uid=U protected=0|1 comm=<percent-encoded> identity=alive
+//   pid=N identity=dead
+// comm stays percent-encoded (%20 for a space) and stays the field just before
+// identity=, so existing `${out#*comm=}% identity=*` parsers keep working. protected=
+// is computed HERE from the one SCHEMA §5 list on the DECODED name, so no consumer has
+// to re-derive it: the governor once matched 'Claude Helper*' against the encoded
+// 'Claude%20Helper' and signalled every Claude helper (review 2026-10-08 ACT-1).
 int cmd_pidinfo(int argc, char** argv) {
-  if (argc < 3) {
-    fprintf(stderr, "usage: forge-guardian-sensor pidinfo PID...\n");
+  Args a = parse_args(argc, argv, 2, {"state-dir"}, {});
+  if (!a.error.empty() || a.pos.empty()) {
+    fprintf(stderr, "usage: forge-guardian-sensor pidinfo [--state-dir D] PID...%s%s\n", a.error.empty() ? "" : "\n",
+            a.error.c_str());
     return kExitUsage;
   }
+  std::string D = a.get("state-dir");
   std::vector<int> pids;
-  for (int i = 2; i < argc; ++i) {
+  for (auto& s : a.pos) {
     int64_t v;
-    if (!parse_i64(argv[i], v) || v <= 0 || v > INT32_MAX) {
-      fprintf(stderr, "forge-guardian-sensor pidinfo: not a pid: %s\n", argv[i]);
+    if (!parse_i64(s, v) || v <= 0 || v > INT32_MAX) {
+      fprintf(stderr, "forge-guardian-sensor pidinfo: not a pid: %s\n", s.c_str());
       return kExitUsage;
     }
     pids.push_back((int)v);
@@ -306,8 +522,9 @@ int cmd_pidinfo(int argc, char** argv) {
       printf("pid=%d identity=dead\n", pid);
       continue;
     }
-    printf("pid=%d ppid=%d pstart=%lld uid=%lld comm=%s identity=alive\n", pid, pi.ppid,
-           (long long)pi.start_s, (long long)pi.uid, env_word(pi.comm).c_str());
+    bool prot = !protected_why(pid, pi, D).empty();
+    printf("pid=%d ppid=%d pstart=%lld uid=%lld protected=%d comm=%s identity=alive\n", pid, pi.ppid,
+           (long long)pi.start_s, (long long)pi.uid, prot ? 1 : 0, env_word(pi.comm).c_str());
   }
   return kExitOk;
 }

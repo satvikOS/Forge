@@ -6,10 +6,24 @@
 # Also fails CLOSED if the guardian is not running or its state is stale: an
 # absent instrument is not evidence of a healthy machine.
 #
+# FAIL CLOSED ON EVERY MALFORMED CALL (review 2026-10-08 SEM-2, FO-1, FO-2). An
+# unrecognised --need word ranked 9 and so admitted at RED and UNKNOWN (`--need grn`,
+# `--need ''`, `--need 'green '`), and an unrecognised argument was silently skipped,
+# so `--peak-gb=1000` or `--peak_gb 1000` admitted with no resource check at all. Now
+# --need must be exactly one of the four words (after lower-casing) and every argument
+# must be one this gate knows: anything else is exit 2, which every caller treats as
+# "do not start".
+#
 # FRESHNESS FROM BOTH CLOCKS (SCHEMA §9.1). The `state` file's mtime AND the
 # `epoch` inside state.json must each be <= 60 s old and not more than 5 s in the
 # future. One alone can lie: a copied or restored state file keeps a fresh mtime
 # with an old epoch, and a skewed clock makes an old file look new.
+#
+# A LIVE GOVERNOR (review 2026-10-08 FO-4). Fresh files are not enough: a governor
+# killed by SIGKILL (or jetsam) leaves a fresh GREEN behind for up to 60 s. The
+# domain's guardian.lock must name a LIVE process whose start time (ps lstart, C
+# locale) equals guardian.lock/started and whose argv ends in forge-guardian;
+# otherwise deny, whatever the state file says.
 #
 # The resource flags are optional. With any of them the state check is followed by
 # `forge-guardian-sensor admit --dry-run` -- the same memory/disk fit the admission
@@ -35,14 +49,18 @@ while (( $# )); do
       esac
       shift 2 ;;
     --gpu) ADMIT_ARGS+=(--gpu); shift ;;
-    *) shift ;;
+    *) print -u2 -r -- "forge-gate: unknown argument '$1' (a misspelled flag must never skip a check)"; usage ;;
   esac
 done
+case $NEED in
+  green|yellow|orange|red) ;;
+  *) print -u2 -r -- "forge-gate: --need must be green|yellow|orange|red, got '$NEED'"; usage ;;
+esac
 [[ $WAIT == <-> ]] && (( ${#WAIT} <= 9 )) || { print -u2 "forge-gate: --wait takes whole seconds, got '$WAIT'"; usage; }
 # UNKNOWN means the governor has no sustained evidence (just started, just stopped,
 # or a required observable is missing). It ranks with RED: only a caller that asked
 # for --need red -- "admit me whatever the machine's state" -- gets in. Any other
-# word still ranks 9, so a state this gate has never heard of denies everything.
+# state word ranks 9 and is denied for every --need (see the admit test below).
 rank() { case "$1" in GREEN) REPLY=0;; YELLOW) REPLY=1;; ORANGE) REPLY=2;; RED|UNKNOWN) REPLY=3;; *) REPLY=9;; esac }
 rank "${NEED:u}"; need_rank=$REPLY
 
@@ -55,6 +73,36 @@ else
     [[ -f $c && -x $c ]] && { SENSOR=$c; break; }
   done
 fi
+
+# governor_alive -> 0, or 1 with DENY_WHY. One `ps` fork.
+governor_alive() {
+  local L="$STATE_DIR/guardian.lock" p="" s="" out
+  local -a w
+  if [[ ! -d $L || -L $L ]]; then
+    DENY_WHY="no governor holds $L (guardian not running?). Start it: forge-guardian-ctl start"; return 1
+  fi
+  [[ -f $L/pid && ! -L $L/pid ]] && p=$(<"$L/pid" 2>/dev/null)
+  p=${p//[[:space:]]/}
+  if ! [[ $p == [1-9]* && $p == <1-99999> ]]; then
+    DENY_WHY="guardian.lock/pid does not name a process ('${p[1,20]}')"; return 1
+  fi
+  [[ -f $L/started && ! -L $L/started ]] && s=$(<"$L/started" 2>/dev/null)
+  s=${(j: :)${=s}}
+  [[ -n $s ]] || { DENY_WHY="guardian.lock records no start time: the holder cannot be verified"; return 1; }
+  if ! kill -0 $p 2>/dev/null; then
+    DENY_WHY="the governor (pid $p, guardian.lock) is not running: its last state is not live evidence"; return 1
+  fi
+  out=$(LC_ALL=C ps -ww -p $p -o lstart=,args= 2>/dev/null)
+  w=(${=out})
+  if (( ${#w} < 6 )); then DENY_WHY="cannot inspect the governor pid $p"; return 1; fi
+  if [[ ${(j: :)w[1,5]} != "$s" ]]; then
+    DENY_WHY="pid $p is not the governor that took guardian.lock (started '${(j: :)w[1,5]}', lock says '$s'): pid reused"; return 1
+  fi
+  if [[ ${w[-1]:t} != forge-guardian ]]; then
+    DENY_WHY="pid $p holding guardian.lock is not a forge-guardian (argv ends '${w[-1][1,80]}')"; return 1
+  fi
+  return 0
+}
 
 state_fresh() { # -> 0, or 1 with DENY_WHY
   setopt localoptions extendedglob
@@ -71,7 +119,7 @@ state_fresh() { # -> 0, or 1 with DENY_WHY
   if (( age < -5 )); then
     DENY_WHY="guardian state mtime is $(( -age ))s in the future (clock skew)"; return 1
   fi
-  c=""; [[ -r "$STATE_DIR/state.json" ]] && c=$(<"$STATE_DIR/state.json")
+  c=""; [[ -f "$STATE_DIR/state.json" && -r "$STATE_DIR/state.json" ]] && c=$(<"$STATE_DIR/state.json")
   if [[ $c != (#b)*'"epoch":'[[:space:]]#([0-9]##)* ]] || (( ${#match[1]} > 12 )); then
     DENY_WHY="state.json missing or has no epoch: freshness cannot be verified"; return 1
   fi
@@ -82,6 +130,7 @@ state_fresh() { # -> 0, or 1 with DENY_WHY
   if (( age < -5 )); then
     DENY_WHY="state.json epoch is $(( -age ))s in the future (clock skew)"; return 1
   fi
+  governor_alive || return 1
   return 0
 }
 
@@ -109,7 +158,8 @@ while true; do
   fi
   st=$(<"$STATE_DIR/state")
   rank "$st"
-  if (( REPLY <= need_rank )); then
+  # a state word this gate does not know (rank 9) never admits, whatever --need says
+  if (( REPLY <= 3 && REPLY <= need_rank )); then
     (( ${#ADMIT_ARGS} )) || exit 0
     resource_fit; rc=$?
     (( rc == 0 )) && exit 0

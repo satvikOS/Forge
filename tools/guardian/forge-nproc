@@ -8,9 +8,15 @@
 # threads (`threads=`) reserved by OTHER live jobs: envelopes whose process is
 # alive, identity-verified (SCHEMA §5), and not this caller or one of its
 # ancestors (a job asking for its own -j must not be charged for itself). Never
-# below 1, never above build_jobs_max. Fork-light: no fork at all unless some
-# envelope declares threads, and then one `ps` (plus one sysctl if an envelope
-# carries a boot id).
+# below 1, never above build_jobs_max.
+#
+# A LIVE GOVERNOR (review 2026-10-08 FO-4): a fresh state.json is believed only while
+# the domain's guardian.lock names a live process with the recorded start time (ps
+# lstart, C locale) and forge-guardian argv -- the check forge-gate makes. A governor
+# killed by SIGKILL/jetsam used to leave its GREEN -j8 in force for up to 60 s.
+#
+# Fork-light: one `ps` for the governor check, then one more only if some envelope
+# declares threads (plus one sysctl if an envelope carries a boot id).
 set -u
 umask 077
 setopt NULL_GLOB EXTENDED_GLOB
@@ -20,6 +26,7 @@ STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
 SJ="$STATE_DIR/state.json"
 # Fail SAFE, not fast: with no guardian, assume we must be conservative.
 fallback() { print -r -- 2; exit 0; }
+is_pid() { [[ $1 == [1-9]* && $1 == <1-99999> ]] }   # canonical (SCHEMA §5)
 
 [[ -f $SJ && -r $SJ ]] || fallback
 typeset -A st
@@ -33,6 +40,14 @@ age=$(( EPOCHSECONDS - match[1] ))
 [[ $c == (#b)*'"build_jobs_max":'[[:space:]]#([0-9]##)* ]] && (( ${#match[1]} <= 4 )) || fallback
 jmax=$match[1]
 (( jmax >= 1 )) || fallback
+
+L="$STATE_DIR/guardian.lock"
+[[ -d $L && ! -L $L && -f $L/pid && ! -L $L/pid && -f $L/started && ! -L $L/started ]] || fallback
+gp=$(<"$L/pid"); gp=${gp//[[:space:]]/}
+gs=$(<"$L/started"); gs=${(j: :)${=gs}}
+is_pid "$gp" && [[ -n $gs ]] && kill -0 $gp 2>/dev/null || fallback
+w=(${=$(LC_ALL=C ps -ww -p $gp -o lstart=,args= 2>/dev/null)})
+(( ${#w} >= 6 )) && [[ ${(j: :)w[1,5]} == "$gs" && ${w[-1]:t} == forge-guardian ]] || fallback
 
 # ---- threads reserved by other live jobs (best effort) ------------------------
 typeset -a want
@@ -49,8 +64,9 @@ for f in "$STATE_DIR"/jobs/*.job(N.); do
       cmd=*)     break ;;
     esac
   done 2>/dev/null < "$f"
-  # digits bounded BEFORE arithmetic: a 25-digit value would be truncated, not rejected
-  [[ $pid == <-> && $thr == <-> ]] && (( ${#pid} <= 9 && ${#thr} <= 6 )) && (( pid > 1 && thr > 0 )) || continue
+  # digits bounded BEFORE arithmetic: a 25-digit value would be truncated, not rejected;
+  # a non-canonical pid (`034023`) is an invalid envelope (SCHEMA §5), never counted
+  is_pid "$pid" && [[ $thr == <-> ]] && (( ${#thr} <= 6 )) && (( pid > 1 && thr > 0 )) || continue
   kill -0 "$pid" 2>/dev/null || continue
   want+=("$pid $thr ${pst:--} ${stt:--} ${bt:--}")
 done

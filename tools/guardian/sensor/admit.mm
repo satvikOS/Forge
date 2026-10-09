@@ -129,6 +129,7 @@ struct Decision {
   std::string decision = "undecidable", reason, state, envelope;
   JW budget, instant, disk;
   bool b_set = false, i_set = false, d_set = false;
+  bool final = false;  // a refusal that waiting cannot change (--wait does not retry it)
 };
 
 void fit_skipped(JW& w, const char* why) {
@@ -138,6 +139,22 @@ void fit_skipped(JW& w, const char* why) {
 Decision decide(const AdmitReq& rq, const Policy& pol) {
   Decision d;
   double now = now_wall();
+  // 0. SCHEMA §5: never admit a protected or foreign process as a job. An admitted pid
+  // is a pid the governor may later signal; `admit` used to accept any live pid --
+  // root-owned logd, the governor itself, a "Claude Helper" (review 2026-10-08 ACT-1).
+  {
+    ProcInfo pi = proc_info(rq.pid);
+    if (pi.alive) {
+      std::string why = protected_why(rq.pid, pi, rq.D);
+      if (!why.empty()) {
+        d.code = kExitDeny;
+        d.decision = "deny";
+        d.final = true;
+        d.reason = "protected or foreign process: pid " + std::to_string(rq.pid) + " (" + why + ")";
+        return d;
+      }
+    }
+  }
   // 1. quarantine
   std::string qpath = rq.D + "/quarantine/" + rq.sig + ".json";
   struct stat qst;
@@ -214,6 +231,18 @@ Decision decide(const AdmitReq& rq, const Policy& pol) {
       return d;
     }
   }
+  // 2b. FO-4: a fresh state file is not a live governor. A governor killed by anything
+  // but TERM/INT (SIGKILL, jetsam, a set -u death) leaves state and state.json fresh
+  // for up to 60 s. Only the guardian.lock holder -- alive, started when the lock says,
+  // running forge-guardian -- makes this domain governed.
+  {
+    std::string why = governor_check(rq.D, nullptr);
+    if (!why.empty()) {
+      d.code = kExitTempfail;
+      d.reason = "undecidable: governor not running: " + why;
+      return d;
+    }
+  }
   d.state = word;
   // 3. state rank vs --need
   if (rank_of(word) > rank_of(upper(rq.need))) {
@@ -231,6 +260,11 @@ Decision decide(const AdmitReq& rq, const Policy& pol) {
     d.reason = "undecidable: unreadable registry: " + reg.errmsg;
     return d;
   }
+  if (!reg.undecidable.empty()) {  // FO-5: an unreadable declaration is not a 0 GiB one
+    d.code = kExitTempfail;
+    d.reason = "undecidable: " + reg.undecidable;
+    return d;
+  }
   // memory evidence (honours FORGE_SENSOR_INJECT in test mode)
   Sampler sm;
   sm.pol = pol;
@@ -240,7 +274,10 @@ Decision decide(const AdmitReq& rq, const Policy& pol) {
   std::vector<Holder> holders, unbacked;
   double reserved = 0, deficit = 0;
   for (auto& j : reg.jobs) {
-    if (j.identity != "ok" || j.pid == rq.pid) continue;  // re-admission replaces its own envelope
+    // Every LIVE envelope holds its reservation: ok AND unverifiable. Unverifiable is
+    // a reason never to SIGNAL a pid, never a reason to treat its memory as free
+    // (review 2026-10-08 FO-5: a live 24 GiB job without `started` was admitted past).
+    if (!j.live() || j.pid == rq.pid) continue;  // re-admission replaces its own envelope
     reserved += j.reserved_b;
     holders.push_back({j.name, j.pid, j.reserved_b});
     double res = j.res_b >= 0 ? (double)j.res_b : 0;
@@ -307,13 +344,24 @@ Decision decide(const AdmitReq& rq, const Policy& pol) {
     // test mode, the injected one).
     for (auto& v : snap.vols)
       if (v.fsid == dv.fsid && v.st == ST_OK) dv.avail_b = v.avail_b;
+    // Outstanding disk reservations on this volume. NEVER UNDER-COUNT (review
+    // 2026-10-08 SEM-3): the old per-job formula credited EVERY job with the whole drop
+    // in free space since its own admission, so two jobs that declared 30 GiB each on a
+    // volume that had dropped 20 GiB counted 20 outstanding instead of >= 40. A drop
+    // can be attributed only when exactly one live job reserves on the volume and it
+    // recorded its baseline; with two or more, who wrote what is unknowable, so every
+    // job counts its full declaration.
+    std::vector<const JobInfo*> vol_jobs;
+    for (auto& j : reg.jobs)
+      if (j.live() && j.pid != rq.pid && j.disk_gb > 0 && j.disk_fsid == dv.fsid) vol_jobs.push_back(&j);
     double outstanding = 0;
     std::vector<Holder> on_vol;
-    for (auto& j : reg.jobs) {
-      if (j.identity != "ok" || j.pid == rq.pid || j.disk_gb <= 0 || j.disk_fsid != dv.fsid) continue;
+    for (const JobInfo* jp : vol_jobs) {
+      const JobInfo& j = *jp;
       double want = j.disk_gb * kGiB;
-      double written = j.disk_avail0_b >= 0 ? j.disk_avail0_b - dv.avail_b : 0;
-      double out = std::max(0.0, want - written);
+      double credit = 0;
+      if (vol_jobs.size() == 1 && j.disk_avail0_b >= 0) credit = std::max(0.0, j.disk_avail0_b - dv.avail_b);
+      double out = std::max(0.0, want - credit);
       outstanding += out;
       if (out > 0) on_vol.push_back({j.name, j.pid, out});
     }
@@ -510,7 +558,7 @@ int cmd_admit(int argc, char** argv) {
         }
       }
     }
-    if (d.code == kExitOk || d.code == kExitQuarantined || d.code == kExitUsage) break;
+    if (d.code == kExitOk || d.code == kExitQuarantined || d.code == kExitUsage || d.final) break;
     uint64_t now = mono_ms();
     if (now >= deadline) break;
     uint64_t nap = std::min<uint64_t>(5000, deadline - now);
@@ -530,6 +578,33 @@ static std::string norm_signal(std::string s) {
     return nm ? upper(nm) : s;
   }
   return s;
+}
+
+// R13: reservations.history.jsonl and every crashes/<sig>.jsonl rotate at 1 MiB, one
+// generation kept -- they grew without bound (about 0.8 GB a year at 10k jobs a day).
+static constexpr uint64_t kLedgerRotateBytes = 1024 * 1024;
+
+// A crash ledger matters only inside crash_loop.window_s (<= 1 day <= retention_days),
+// so a ledger untouched for logs.retention_days whose signature is not quarantined can
+// go: the number of per-signature ledgers is bounded by the crash rate, not by time.
+// Runs under admission.lock (release holds it), so no concurrent append can be lost.
+static void prune_crash_ledgers(const std::string& D, int retention_days) {
+  int e = 0;
+  auto names = list_dir(D + "/crashes", 4096, &e);
+  if (e) return;
+  double cutoff = now_wall() - (double)retention_days * 86400.0;
+  for (auto& n : names) {
+    std::string stem = n;
+    if (ends_with(stem, ".jsonl.1")) stem = stem.substr(0, stem.size() - 8);
+    else if (ends_with(stem, ".jsonl")) stem = stem.substr(0, stem.size() - 6);
+    else continue;
+    struct stat st, qs;
+    std::string p = D + "/crashes/" + n;
+    if (lstat(p.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+    if ((double)st.st_mtimespec.tv_sec >= cutoff) continue;
+    if (lstat((D + "/quarantine/" + stem + ".json").c_str(), &qs) == 0) continue;  // evidence of a live quarantine
+    if (unlink(p.c_str()) == 0) logf("pruned crash ledger %s (untouched for %d days)", n.c_str(), retention_days);
+  }
 }
 
 static double last_clear_ts(const std::string& D, const std::string& sig) {
@@ -623,6 +698,7 @@ int cmd_release(int argc, char** argv) {
     if (signame.empty()) h.knull("signal"); else h.ks("signal", signame);
     h.kb("signal_inferred", inferred).kb("external_term", external).ks("identity", ident);
     h.end_obj();
+    rotate_if_needed(D + "/reservations.history.jsonl", kLedgerRotateBytes, 1);
     append_line(D + "/reservations.history.jsonl", h.out);
 
     bool crash = !signame.empty() && !external &&
@@ -634,11 +710,15 @@ int cmd_release(int argc, char** argv) {
       if (a.has("rc")) c.ki("rc", rc); else c.knull("rc");
       c.ks("cmd", one_line(cmd, 1024)).end_obj();
       std::string ledger = D + "/crashes/" + sig + ".jsonl";
+      rotate_if_needed(ledger, kLedgerRotateBytes, 1);
       append_line(ledger, c.out);
-      // count crashes inside the window, after the last manual clear of this sig
+      // count crashes inside the window, after the last manual clear of this sig; a
+      // rotation may have just moved the window's earlier crashes into .1
       double since = std::max(now - pl.p.window_s, last_clear_ts(D, sig));
-      std::string lt;
+      std::string lt, lt1;
+      read_tail(ledger + ".1", lt1, 256 * 1024);
       read_tail(ledger, lt, 256 * 1024);
+      lt = lt1 + (lt1.empty() || lt1.back() == '\n' ? "" : "\n") + lt;
       std::vector<std::string> in_window;
       for (auto& line : split(lt, '\n')) {
         NSDictionary* o = json_obj(line);
@@ -679,6 +759,7 @@ int cmd_release(int argc, char** argv) {
       }
     }
   }
+  prune_crash_ledgers(D, pl.p.logs_retention_days);
   drop_lock(fd);
   return code;
 }

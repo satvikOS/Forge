@@ -19,7 +19,10 @@
 #         die              -> exit 0 now (a crashed sensor)
 #       Exits when --parent is gone (the real sensor never outlives the governor).
 #       Appends "<pid> <start epoch>" to D/stub-sensor.pids so a gate can reap it.
-#   stub-sensor pidinfo PID...   the real sensor's line format, from `ps`
+#   stub-sensor pidinfo PID...   the real sensor's line format, from `ps` (comm=
+#                                percent-encoded, protected=0|1)
+#   stub-sensor incident --state-dir D --kind K [--note T]
+#                                makes D/incidents/<UTC>-K/summary.json; argv -> $STUB_SENSOR_LOG
 #   stub-sensor admit ...        exits $STUB_ADMIT_RC (default 0); argv -> $STUB_SENSOR_LOG
 #   stub-sensor --version
 # ============================================================================
@@ -36,6 +39,10 @@ cmd=${1:-}; (( $# )) && shift
 case $cmd in
   --version) print "forge-guardian-sensor 0.0.0-stub"; exit 0 ;;
   pidinfo)
+    # The real sensor's line: comm= percent-encoded the way env_word does it (a space is
+    # %20, an empty name `none`), and protected=0|1 from SCHEMA §5's list. $STUB_PROTECT_PIDS
+    # (space-separated) forces protected=1 for those pids, so a gate can prove the
+    # governor honours the flag on its own.
     logcall pidinfo "$@"
     for p in "$@"; do
       out=$(LC_ALL=C ps -o ppid=,uid=,lstart=,comm= -p "$p" 2>/dev/null)
@@ -43,14 +50,34 @@ case $cmd in
       if (( ${#w} < 8 )); then print -r -- "pid=$p identity=dead"; continue; fi
       REPLY=""; parse_lstart "$w[3] $w[4] $w[5] $w[6] $w[7]"; pst=$REPLY
       c=${${(j: :)w[8,-1]}:t}; c=${c[1,16]}          # p_comm: basename, 16 chars
-      print -r -- "pid=$p ppid=$w[1] pstart=$pst uid=$w[2] comm=$c identity=alive"
+      prot=0
+      case $c in
+        claude|node|Claude|Claude\ Helper*|WindowServer|loginwindow|Finder|Dock|SystemUIServer|kernel_task|launchd|sshd) prot=1 ;;
+        forge-guardian|forge-guardian-sensor|forge-guardian-s|'') prot=1 ;;
+      esac
+      (( p <= 1 )) && prot=1
+      [[ $w[2] != $UID ]] && prot=1
+      [[ " ${STUB_PROTECT_PIDS:-} " == *" $p "* ]] && prot=1
+      enc=${c//\%/%25}; enc=${enc// /%20}; [[ -n $enc ]] || enc=none
+      print -r -- "pid=$p ppid=$w[1] pstart=$pst uid=$w[2] protected=$prot comm=$enc identity=alive"
     done
     exit 0 ;;
-  admit|release|incident|snapshot|quarantine-clear)
+  incident)
+    # Like the real one: incidents/<UTC>-<kind>/summary.json. No rate limit.
+    logcall incident "$@"
+    sd="" kind="" note=""
+    while (( $# )); do
+      case $1 in --state-dir) sd=$2; shift 2 ;; --kind) kind=$2; shift 2 ;; --note) note=$2; shift 2 ;; *) shift ;; esac
+    done
+    [[ -n $sd && -d $sd && -n $kind && $kind != *[^a-z_]* ]] || exit 2
+    ts=$(TZ=UTC date +%Y-%m-%dT%H%M%SZ)
+    mkdir -p "$sd/incidents/$ts-$kind" && print -r -- "{\"kind\": \"$kind\", \"stub\": true}" > "$sd/incidents/$ts-$kind/summary.json"
+    exit ${STUB_INCIDENT_RC:-0} ;;
+  admit|release|snapshot|quarantine-clear)
     logcall $cmd "$@"
     exit ${STUB_ADMIT_RC:-0} ;;
   run) ;;
-  *) print -u2 "stub-sensor: usage: run|pidinfo|admit|--version"; exit 2 ;;
+  *) print -u2 "stub-sensor: usage: run|pidinfo|admit|incident|--version"; exit 2 ;;
 esac
 
 D=""; PARENT=0; POLL=1

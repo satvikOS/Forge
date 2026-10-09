@@ -20,6 +20,12 @@
 # to the parent's array); stub sensors are reaped only when `ps` shows they are this
 # gate's own stub on this gate's own root; a wall-clock watchdog reaps everything;
 # the one disk image is detached in the EXIT trap. Nothing outside $ROOT is written.
+# Review 2026-10-08 regressions: s13/s14 (forge-gate argv + live-governor check, forge-nproc
+# live-governor check), s17 (R5 hysteresis vs USR2 storms), s18 (FO-4 retraction on any
+# exit), s19 (R6 torn appends on ENOSPC), s20 (SEM-4 red incident), s21 (R1 FIFO envelope),
+# s22 (R12 publication onto a directory). forge-gate / forge-nproc are taken from beside
+# the governor under test, so `governor_runtime_gate.sh <old tree>/forge-guardian` runs
+# the old trio.
 # Usage: governor_runtime_gate.sh [path/to/forge-guardian]
 #   GATE_ONLY=s1,s4    run a subset          GATE_BUDGET=900   watchdog seconds
 #   FORK_POLL=5 FORK_SECONDS=60 GATE_ONLY=forks   the idle-cost measurement
@@ -189,6 +195,20 @@ wait_until() { # wait_until SECONDS 'condition' -> 0 when it held; WAITED = seco
 }
 sensor_pid() { [[ -f $D/h/sensor.env ]] && sed -n 's/^pid=//p' $D/h/sensor.env | head -1 }
 ctl() { print -r -- "$1" > $D/h/stub.ctl }
+# fake_gov H -> FGP. forge-gate and forge-nproc believe a fresh state only while
+# H/guardian.lock names a LIVE process with the recorded start time and forge-guardian
+# argv (review FO-4). The gate's own stand-in: a fork-free zsh named forge-guardian
+# (lives <= 20 min, recorded in $PIDF), holding the lock exactly as the governor takes it.
+mkdir -p $ROOT/fakegov
+print -r -- 'zmodload zsh/zselect; integer i; for (( i = 0; i < 1200; i++ )); do zselect -t 100 2>/dev/null; done' > $ROOT/fakegov/forge-guardian
+fake_gov() {
+  zsh $ROOT/fakegov/forge-guardian </dev/null >/dev/null 2>&1 &
+  FGP=$!; print $FGP >> $PIDF
+  sleep 0.2
+  mkdir -p $1/guardian.lock
+  print -r -- $FGP > $1/guardian.lock/pid
+  LC_ALL=C ps -p $FGP -o lstart= > $1/guardian.lock/started
+}
 
 print "[runtime] daemon under test: $SRC"
 print "[runtime] parent tree:       ${OLD:-unavailable (git show $OLD_REV failed)}"
@@ -405,11 +425,12 @@ if want s7; then
 print "== s7. log rotation, the aggregate cap, retention; live files kept =="
 mkdom s7 intel
 H=$D/h; mkdir -p $H/log $H/incidents/2026-01-01T000000Z-manual $H/incidents/2026-10-01T000000Z-red
-print "logs_rotate_mib=1\nlogs_cap_mib=3\nlogs_generations=2\nlogs_history_mib=6\nlogs_retention_days=30" > $H/policy.env
+# (SCHEMA §6 bounds: logs_cap_mib >= 8, so the files are sized for an 8 MiB cap)
+print "logs_rotate_mib=1\nlogs_cap_mib=8\nlogs_generations=2\nlogs_history_mib=6\nlogs_retention_days=30" > $H/policy.env
 mkf() { head -c $2 /dev/zero | tr '\0' x > $1 }
-mkf $H/log/guardian.log 1572864; mkf $H/log/guardian.out 1572864; mkf $H/log/launchd.out 1572864
+mkf $H/log/guardian.log 2621440; mkf $H/log/guardian.out 2621440; mkf $H/log/launchd.out 2621440
 mkf $H/log/guardian.log.7 1048576; mkf $H/history.jsonl.3 1048576; mkf $H/events.jsonl.2 1048576
-mkf $H/incidents/2026-01-01T000000Z-manual/blob 1048576; mkf $H/incidents/2026-10-01T000000Z-red/blob 524288
+mkf $H/incidents/2026-01-01T000000Z-manual/blob 1048576; mkf $H/incidents/2026-10-01T000000Z-red/blob 1048576
 mkf $H/keepme.bin 2097152
 touch -t 202601010000 $H/log/guardian.log.7 $H/history.jsonl.3 $H/events.jsonl.2 $H/incidents/2026-01-01T000000Z-manual/blob $H/incidents/2026-01-01T000000Z-manual
 touch -t 202610010000 $H/incidents/2026-10-01T000000Z-red/blob $H/incidents/2026-10-01T000000Z-red
@@ -418,8 +439,8 @@ start_gd
 wait_until 15 'state_is GREEN'; ck "setup: GREEN (the transition is emitted AFTER the first rotation)" $?
 sleep 1
 sz() { stat -f %z $1 2>/dev/null || print -1 }
-ck "guardian.log rotated: .1 holds the old 1.5 MiB, the live file is small" $(( $(sz $H/log/guardian.log.1) >= 1572864 && $(sz $H/log/guardian.log) < 1048576 ? 0 : 1 )) "log.1=$(sz $H/log/guardian.log.1) log=$(sz $H/log/guardian.log)"
-ck "guardian.out rotated" $(( $(sz $H/log/guardian.out.1) >= 1572864 && $(sz $H/log/guardian.out) < 1048576 ? 0 : 1 )) "out.1=$(sz $H/log/guardian.out.1) out=$(sz $H/log/guardian.out)"
+ck "guardian.log rotated: .1 holds the old 2.5 MiB, the live file is small" $(( $(sz $H/log/guardian.log.1) >= 2621440 && $(sz $H/log/guardian.log) < 1048576 ? 0 : 1 )) "log.1=$(sz $H/log/guardian.log.1) log=$(sz $H/log/guardian.log)"
+ck "guardian.out rotated" $(( $(sz $H/log/guardian.out.1) >= 2621440 && $(sz $H/log/guardian.out) < 1048576 ? 0 : 1 )) "out.1=$(sz $H/log/guardian.out.1) out=$(sz $H/log/guardian.out)"
 ck "  ...and REOPENED: the later GREEN transition is in the new guardian.out" $(grep -q 'UNKNOWN→GREEN' $H/log/guardian.out; print $?)
 ck "launchd.out truncated IN PLACE (same inode)" $(( $(sz $H/log/launchd.out) < 1048576 && $(stat -f %i $H/log/launchd.out) == li0 ? 0 : 1 )) "size=$(sz $H/log/launchd.out)"
 ck "rotated generations beyond policy (guardian.log.7, history.jsonl.3) removed" $([[ ! -e $H/log/guardian.log.7 && ! -e $H/history.jsonl.3 ]]; print $?)
@@ -548,7 +569,7 @@ fi
 if want s11; then
 print "== s11. restart-loop breaker: 6 quick restarts -> backoff, UNKNOWN published =="
 mkdom s11 intel
-print "guardian_restart_loop_backoff_s=8" > $D/h/policy.env
+print "guardian_restart_loop_backoff_s=10" > $D/h/policy.env          # SCHEMA §6 minimum
 for n in 1 2 3 4; do
   start_gd; wait_until 8 '[[ -f $D/h/state ]] && grep -q ARMED $D/h/log/guardian.log'; sleep 0.5; stop_gd
 done
@@ -563,7 +584,7 @@ t0=$EPOCHREALTIME; stop_gd
 ck "  ...TERM during the backoff is honoured at once" $(( EPOCHREALTIME - t0 < 2 ? 0 : 1 )) "$(t3 $(( EPOCHREALTIME - t0 )))s"
 start_gd; sleep 2
 ck "6th start: still in backoff" $([[ $(sj 'd["reason"]') == *'6 starts'* ]]; print $?) "$(sj 'd["reason"]')"
-wait_until 20 'state_is GREEN'; r=$?
+wait_until 30 'state_is GREEN'; r=$?
 ck "after backoff_s it governs normally again (reaches GREEN)" $r "after $(t3 $WAITED)s"
 ck "  ...and said so" $(grep -q 'restart-loop backoff over' $D/h/log/guardian.log; print $?)
 stop_gd
@@ -586,9 +607,10 @@ touch -t 202601010000 $D/hb
   print "started=$EPOCHSECONDS"; print "schema=2"; print "pstart=$vps"; print "sig=0123456789abcdef"
   print "heartbeat=$D/hb"; print "stall_s=2"; print "cmd=victim"; } > $D/h/jobs/$VP.job
 { print "pid=$DP"; print "name=already-dead"; print "priority=5"; print "can_restart=1"; print "peak_gb=1"; print "started=$EPOCHSECONDS"; print "cmd=true"; } > $D/h/jobs/$DP.job
-print "smart_interval_s=1" > $D/h/policy.env
+# SCHEMA §6 bounds smart_interval_s to >= 600 s; FORGE_GUARDIAN_SMART_S is the test override
+# (like FORGE_GUARDIAN_POLL) that re-probes every second here.
 obs OBS_VMP=4
-start_gd FORGE_GUARDIAN_SETTLE=0 FORGE_GUARDIAN_TERM_GRACE=30
+start_gd FORGE_GUARDIAN_SETTLE=0 FORGE_GUARDIAN_TERM_GRACE=30 FORGE_GUARDIAN_SMART_S=1
 wait_until 10 '! kill -0 $VP 2>/dev/null'; ck "RED -> stage 1 USR1 -> stage 3 TERM: the registered job was evicted" $? "victim log: $(tr '\n' ' ' < $D/victim.log 2>/dev/null)"
 wait_until 4 'grep -q cancel_latency $D/h/events.jsonl'
 E=$D/h/events.jsonl
@@ -608,7 +630,7 @@ wait_until 5 '[[ $(sj "d[\"disk_hardware\"]") == Failing ]]'; ck "SMART Failing 
 print -r -- "#!/bin/zsh
 print 'garbage'" > $D/diskutil
 wait_until 5 '[[ $(sj "d[\"disk_hardware\"]") == UNKNOWN ]]'; ck "unparseable SMART output -> UNKNOWN" $?
-print "smart_interval_s=1\ndisk_floors_gib_yellow=300\ndisk_floors_gib_orange=200\ndisk_floors_gib_red=100" > $D/h/policy.env.tmp; mv $D/h/policy.env.tmp $D/h/policy.env
+print "disk_floors_gib_yellow=300\ndisk_floors_gib_orange=200\ndisk_floors_gib_red=100" > $D/h/policy.env.tmp; mv $D/h/policy.env.tmp $D/h/policy.env
 wait_until 5 'grep -q "policy reloaded" $D/h/log/guardian.log'; ck "policy.env change is picked up without a restart" $?
 wait_until 3 '[[ $(sj "d[\"volumes\"][0][\"floor_gb\"]") == 300 ]]'; ck "  ...the new admission floor is published" $? "floor_gb=$(sj 'd["volumes"][0]["floor_gb"]')"
 ck "state.json is mode 0600" $([[ $(stat -f %Lp $D/h/state.json) == 600 ]]; print $?) "$(stat -f %Lp $D/h/state.json)"
@@ -626,6 +648,7 @@ print "== s13. forge-gate: freshness from BOTH clocks; optional resource fit via
 FG=${SRC:h}/forge-gate
 OLDG=""; [[ -n $OLD ]] && git -C "$top" show "${OLD_REV}:tools/guardian/forge-gate" > $ROOT/oldbin/forge-gate 2>/dev/null && OLDG=$ROOT/oldbin/forge-gate
 mkdom s13 intel; H=$D/h
+fake_gov $H                                      # a live "governor" holds the lock (FO-4)
 pub() { # pub STATE EPOCH_OFFSET
   print -r -- $1 > $H/state; print -- "{\n  \"state\": \"$1\",\n  \"epoch\": $(( EPOCHSECONDS + $2 )),\n  \"build_jobs_max\": 8\n}" > $H/state.json }
 gate() { # gate BIN [args] -> RC, OUT
@@ -661,6 +684,41 @@ ck "--peak-gb with NO sensor anywhere -> deny (fail closed)" $(( RC == 1 ? 0 : 1
 : > $D/stub.log; SB=$STUB; gate $FG --need green
 ck "no resource flags: admit is never called (v1 behaviour)" $([[ $RC == 0 && ! -s $D/stub.log ]]; print $?)
 gate $FG --need; ck "a flag without its value is a usage error (v1 looped for ever)" $(( RC == 2 ? 0 : 1 ))
+print "  -- a malformed call never admits (review 2026-10-08 SEM-2, FO-1, FO-2) --"
+SB=$STUB; ARC=0; bad=()
+for s_ in RED UNKNOWN BOGUS; do
+  pub $s_ 0
+  for w in grn grren gren unknown light '' 'green ' ' green' 'GREEN ' 'red red'; do
+    gate $FG --need "$w"; [[ $RC == 2 ]] || bad+=("$s_/'$w'->rc$RC")
+  done
+done
+ck "state RED/UNKNOWN/BOGUS + a bad --need word -> exit 2 (usage), never admitted" $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-all exit 2}"
+pub BOGUS 0; gate $FG --need red
+ck "a state word the gate does not know denies even --need red" $(( RC == 1 ? 0 : 1 )) "rc=$RC"
+pub GREEN 0; bad=(); : > $D/stub.log
+for a_ in '--peak-gb=1000' '--disk-gb=100000 --disk-path=/tmp' '--peak_gb 1000' '-peak-gb 1000' '--peakgb 1000' 'stray'; do
+  gate $FG --need green ${=a_}; [[ $RC == 2 ]] || bad+=("'$a_'->rc$RC")
+done
+ck "an unknown argument (--peak-gb=N, a misspelled flag) -> exit 2, never a skipped check" $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-all exit 2}"
+ck "  ...and admit was never consulted for them" $([[ ! -s $D/stub.log ]]; print $?)
+gate $FG --need GREEN; ck "control: --need GREEN (case-insensitive) still admits a fresh GREEN" $RC "$OUT"
+print "  -- fresh files are not a live governor (review 2026-10-08 FO-4) --"
+SB=""; pub GREEN 0
+kill -9 $FGP 2>/dev/null; wait $FGP 2>/dev/null
+gate $FG --need green
+ck "the lock holder is dead: fresh GREEN files are DENIED" $(( RC == 1 ? 0 : 1 )) "$OUT"
+rm -rf $H/guardian.lock; fake_gov $H; print "Thu Jan  1 00:00:00 2026" > $H/guardian.lock/started; pub GREEN 0
+gate $FG --need green
+ck "the lock's pid is alive but started at another time (reused pid) -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
+sleep 600 </dev/null >/dev/null 2>&1 & NG=$!; print $NG >> $PIDF; sleep 0.2
+print $NG > $H/guardian.lock/pid; LC_ALL=C ps -p $NG -o lstart= > $H/guardian.lock/started; pub GREEN 0
+gate $FG --need green
+ck "the lock names a live process that is not a forge-guardian -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
+kill $NG 2>/dev/null
+rm -rf $H/guardian.lock; pub GREEN 0; gate $FG --need green
+ck "no guardian.lock at all -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
+fake_gov $H; pub GREEN 0; gate $FG --need green
+ck "control: a live governor holding the lock -> admitted" $RC "$OUT"
 fi
 
 # ==================================================================================
@@ -669,6 +727,7 @@ print "== s14. forge-nproc: build_jobs_max minus threads reserved by OTHER live,
 FN=${SRC:h}/forge-nproc
 OLDN=""; [[ -n $OLD ]] && git -C "$top" show "${OLD_REV}:tools/guardian/forge-nproc" > $ROOT/oldbin/forge-nproc 2>/dev/null && OLDN=$ROOT/oldbin/forge-nproc
 mkdom s14 intel; H=$D/h
+fake_gov $H                                      # a live "governor" holds the lock (FO-4)
 print GREEN > $H/state; print -- "{\n  \"epoch\": $EPOCHSECONDS,\n  \"build_jobs_max\": 8\n}" > $H/state.json
 np() { FORGE_HEALTH_DIR=$H zsh ${1:-$FN} 2>&1 }
 env_() { # env_ FILE PID THREADS [started|-] [pstart]
@@ -694,6 +753,20 @@ env_ big.job $S3 40 - $( lstart_epoch $S3; print $REPLY )
 ck "never below 1" $([[ $(np) == 1 ]]; print $?) "$(np)"
 print -- "{\n  \"epoch\": $(( EPOCHSECONDS - 120 )),\n  \"build_jobs_max\": 8\n}" > $H/state.json
 ck "stale epoch -> 2 (fail safe)" $([[ $(np) == 2 ]]; print $?) "$(np)"
+print "  -- the state is believed only while its governor lives (review 2026-10-08 FO-4) --"
+rm -f $H/jobs/*.job
+fresh() { print -- "{\n  \"epoch\": $EPOCHSECONDS,\n  \"build_jobs_max\": 8\n}" > $H/state.json }
+fresh; ck "control: fresh state.json, live governor -> 8" $([[ $(np) == 8 ]]; print $?) "$(np)"
+kill -9 $FGP 2>/dev/null; wait $FGP 2>/dev/null; fresh
+ck "the governor holding the lock is dead -> 2 (its GREEN -j8 is not live)" $([[ $(np) == 2 ]]; print $?) "$(np)"
+rm -rf $H/guardian.lock; fresh
+ck "no guardian.lock -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+fake_gov $H; print "Thu Jan  1 00:00:00 2026" > $H/guardian.lock/started; fresh
+ck "lock pid alive but another start time -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+rm -rf $H/guardian.lock; fake_gov $H; fresh
+ck "control: a live governor again -> 8" $([[ $(np) == 8 ]]; print $?) "$(np)"
+env_ pad.job 0$S1 3 $EPOCHSECONDS
+ck "a non-canonical pid (0$S1) is an invalid envelope: not counted (ACT-3)" $([[ $(np) == 8 ]]; print $?) "$(np)"
 kill $S1 $S2 $S3 2>/dev/null
 fi
 
@@ -764,6 +837,174 @@ for mode in normal backoff; do
   ck "$mode: UNKNOWN published on the way out" $([[ $(st) == UNKNOWN ]]; print $?)
   stop_gd
 done
+fi
+
+# ==================================================================================
+# A victim that records each signal with its time (s17/s18), and plants its envelope.
+mkvictim() { # mkvictim -> VP (running $D/victim2 logging to $D/victim2.log)
+  print -r -- '#!/bin/zsh
+zmodload zsh/datetime
+trap '"'"'print "USR1 $EPOCHREALTIME" >> "$1"'"'"' USR1
+trap '"'"'print "TERM $EPOCHREALTIME" >> "$1"; exit 0'"'"' TERM
+while true; do sleep 0.2 & wait $!; done' > $D/victim2; chmod +x $D/victim2
+  $D/victim2 $D/victim2.log & VP=$!; print $VP >> $PIDF
+  sleep 0.3; lstart_epoch $VP
+  { print "pid=$VP"; print "name=ladder-probe"; print "priority=9"; print "can_restart=1"; print "peak_gb=1"; print "gpu=0"
+    print "started=$(( EPOCHSECONDS - 1000 ))"; print "pstart=$REPLY"; print "cmd=victim"; } > $D/h/jobs/$VP.job
+}
+hist_last_vmp() { tail -1 $D/h/history.jsonl 2>/dev/null | sed -n 's/.*"vmp":\([-0-9]*\).*/\1/p' }
+if want s17; then
+print "== s17. hysteresis counts EVIDENCE, not USR2 wake-ups (review 2026-10-08 R5), POLL=2 =="
+mkdom s17 intel
+obs OBS_VMP=4
+start_gd FORGE_GUARDIAN_POLL=2
+wait_until 8 'state_is RED'; ck "setup: vm_pressure=4 -> RED (CRITICAL_NOW)" $? "after $(t3 $WAITED)s"
+obs OBS_VMP=1
+wait_until 8 '[[ $(hist_last_vmp) == 1 ]]'; ck "setup: one poll has seen vm_pressure=1 (RED, 1 of 6 recovery polls)" $?
+n0=$(wc -l < $D/h/history.jsonl)
+t_s=$EPOCHREALTIME
+for i in {1..8}; do kill -USR2 $GP 2>/dev/null; sleep 0.15; done
+sleep 0.3
+n1=$(wc -l < $D/h/history.jsonl)
+ck "a storm of 8 USR2 re-polled the governor (>= 4 extra polls)" $(( n1 - n0 >= 4 ? 0 : 1 )) "$(( n1 - n0 )) polls in $(t3 $(( EPOCHREALTIME - t_s )))s"
+ck "  ...but RED holds: wake-up re-reads are not recovery evidence" $([[ $(st) == RED ]]; print $?) "state=$(st)"
+wait_until 25 'state_is GREEN'; r=$?
+ck "  ...RED -> GREEN only after deescalate_polls fresh polls (>= 8 s at POLL=2)" $(( r == 0 && EPOCHREALTIME - t_s >= 8 ? 0 : 1 )) "GREEN $(t3 $(( EPOCHREALTIME - t_s )))s after the storm"
+stop_gd
+mkdom s17b intel
+mkvictim
+obs OBS_VMP=4
+start_gd FORGE_GUARDIAN_POLL=2 FORGE_GUARDIAN_SETTLE=0 FORGE_GUARDIAN_TERM_GRACE=60
+wait_until 8 'grep -q ^USR1 $D/victim2.log 2>/dev/null'; ck "setup: RED stage 1 checkpointed the registered job" $?
+t_u=$(sed -n 's/^USR1 //p' $D/victim2.log | head -1)
+for i in {1..6}; do kill -USR2 $GP 2>/dev/null; sleep 0.1; done
+sleep 0.8
+ck "a USR2 storm right after stage 1 does NOT climb the ladder to a TERM" $(grep -q ^TERM $D/victim2.log 2>/dev/null; (( $? != 0 )) ; print $?) "$(tr '\n' ' ' < $D/victim2.log)"
+wait_until 10 'grep -q ^TERM $D/victim2.log 2>/dev/null'; r=$?
+t_t=$(sed -n 's/^TERM //p' $D/victim2.log | head -1)
+ck "  ...the stage-3 TERM comes >= 2 fresh polls after the USR1 (>= 3 s at POLL=2)" $(( r == 0 && t_t - t_u >= 3 ? 0 : 1 )) "USR1->TERM $(t3 $(( ${t_t:-0} - ${t_u:-0} )))s"
+stop_gd
+fi
+
+# ==================================================================================
+if want s18; then
+print "== s18. a governor that dies retracts what it published; consumers check it lives (FO-4) =="
+FG=${SRC:h}/forge-gate; FN=${SRC:h}/forge-nproc
+gn() { GATE_RC=$( FORGE_HEALTH_DIR=$D/h zsh $FG --need green >/dev/null 2>&1; print $? ); NPROC=$( FORGE_HEALTH_DIR=$D/h zsh $FN 2>/dev/null ) }
+mkdom s18 intel
+start_gd
+wait_until 15 'state_is GREEN'; ck "setup: GREEN" $?
+gn; ck "control: forge-gate admits and forge-nproc gives the GREEN -j" $([[ $GATE_RC == 0 && $NPROC -gt 2 ]]; print $?) "gate=$GATE_RC nproc=$NPROC"
+ck "state.json and status.json name their producer (guardian_pid, guardian_started = the lock's)" \
+   $([[ $(sj 'd["guardian_pid"]') == $GP && $(sj 'd["guardian_started"]') == "$(print -r -- ${(j: :)${=$(<$D/h/guardian.lock/started)}})" \
+        && $(jq_ $D/ah/status.json 'd["guardian_pid"]') == $GP ]]; print $?) "$(sj 'd["guardian_pid"]') '$(sj 'd["guardian_started"]')'"
+kill -HUP $GP
+wait_until 4 '! kill -0 $GP 2>/dev/null'; ck "SIGHUP ends the governor" $?
+ck "  ...state.json retracted to UNKNOWN, heavy_jobs_ok false" $([[ $(sj '[d["state"],d["heavy_jobs_ok"]]') == '["UNKNOWN", false]' ]]; print $?) "$(sj '[d["state"],d["heavy_jobs_ok"],d["reason"]]')"
+ck "  ...Law-7 status.json retracted to UNKNOWN" $([[ $(jq_ $D/ah/status.json 'd["state"]') == UNKNOWN ]]; print $?) "$(jq_ $D/ah/status.json 'd["state"]')"
+gn; ck "  ...forge-gate denies and forge-nproc falls back to 2" $([[ $GATE_RC == 1 && $NPROC == 2 ]]; print $?) "gate=$GATE_RC nproc=$NPROC"
+start_gd
+wait_until 15 'state_is GREEN'; ck "setup: a new governor reaches GREEN" $?
+kill -9 $GP; wait $GP 2>/dev/null
+ck "SIGKILL (no trap can run): state.json still says GREEN" $([[ $(sj 'd["state"]') == GREEN ]]; print $?)
+gn; ck "  ...but forge-gate denies and forge-nproc gives 2: the lock holder is dead" $([[ $GATE_RC == 1 && $NPROC == 2 ]]; print $?) "gate=$GATE_RC nproc=$NPROC"
+rm -rf $D/h/guardian.lock
+# An ERROR exit (set -u has killed this daemon before): the EXIT trap must retract too.
+# (a script FILE, not `zsh -c`: zsh runs no EXIT trap when a -c string dies of an error)
+print -r -- 'set -u; source "$1"; mkdir "$LOCK_D" && print $$ > "$LOCK_D/pid"; LOCK_HELD=1; DAEMON_UP=1
+trap release_lock EXIT
+EVIDENCE_COMPLETE=1; publish GREEN nominal 8
+print -r -- "${THIS_IS_NOT_SET_ANYWHERE}"' > $D/errexit.zsh
+( export FORGE_HEALTH_DIR=$D/h ARCHIE_HEALTH_DIR=$D/ah FORGE_GUARDIAN_LIB=1 PATH=$D/stub:$PATH
+  exec zsh $D/errexit.zsh $D/bin/forge-guardian ) > $D/errexit.out 2>&1
+ck "an error exit under set -u (the trap path) ..." $(grep -q 'parameter not set' $D/errexit.out; print $?) "$(tail -1 $D/errexit.out)"
+ck "  ...retracts state.json to UNKNOWN, heavy_jobs_ok false" $([[ $(sj '[d["state"],d["heavy_jobs_ok"]]') == '["UNKNOWN", false]' ]]; print $?) "$(sj '[d["state"],d["reason"]]')"
+ck "  ...and the Law-7 status.json" $([[ $(jq_ $D/ah/status.json 'd["state"]') == UNKNOWN ]]; print $?)
+ck "  ...and still back-dates the state file" $(( EPOCHSECONDS - $(stat -f %m $D/h/state) > 3600 ? 0 : 1 ))
+fi
+
+# ==================================================================================
+if want s19; then
+print "== s19. ENOSPC mid-append: the torn fragment never swallows the next record (R6) =="
+mkdir -p $ROOT/img19 $ROOT/mnt19
+if hdiutil create -size 2m -fs HFS+ -volname fgr6 $ROOT/img19/r6.dmg >/dev/null 2>&1 \
+   && hdiutil attach $ROOT/img19/r6.dmg -nobrowse -mountpoint $ROOT/mnt19 >/dev/null 2>&1; then
+  MNT=$ROOT/mnt19; print -r -- $MNT > $ROOT/mnt.path
+  mkdom s19 intel
+  ( export FORGE_HEALTH_DIR=$MNT/h ARCHIE_HEALTH_DIR=$MNT/ah FORGE_GUARDIAN_LIB=1
+    exec zsh -c 'set -u; source "$1"; M=$2
+      event before "\"n\": 0"; log "before"
+      dd if=/dev/zero of=$M/junk bs=65536 >/dev/null 2>&1; dd if=/dev/zero of=$M/junk2 bs=512 >/dev/null 2>&1
+      i=0; while (( i < 64 )) && { print x > $M/fill.$i } 2>/dev/null; do (( i++ )); done
+      printf -v pad "%9000s" ""; pad=${pad// /p}
+      event torn "\"pad\": \"$pad\""
+      log "torn line $pad"
+      rm -f $M/junk $M/junk2 $M/fill.*
+      event after "\"n\": 2"; log "after the disk was freed"' _ $D/bin/forge-guardian $MNT ) > $D/r6.out 2>&1
+  python3 -I - $MNT/h/events.jsonl $MNT/h/log/guardian.log > $D/r6.res 2>&1 <<'PY'
+import json,sys
+ev=open(sys.argv[1]).read().split("\n")
+good=[]; bad=[]
+for l in ev:
+    if not l.strip(): continue
+    try: good.append(json.loads(l)["kind"])
+    except Exception: bad.append(l[:40])
+lg=open(sys.argv[2]).read().split("\n")
+after=[l for l in lg if "after the disk was freed" in l]
+print("after" in good, len(bad), bool(after) and after[0][19:20] == " " and "torn line" not in after[0])
+PY
+  read -r ok_after nbad ok_log < $D/r6.res
+  ck "setup: the append on the full volume failed part-way (a torn fragment exists)" $(( nbad >= 1 ? 0 : 1 )) "unparseable lines: $nbad"
+  ck "events.jsonl: the record written after the disk was freed parses" $([[ $ok_after == True ]]; print $?) "unparseable lines: $nbad; $(cat $D/r6.res)"
+  ck "  ...the torn fragment is its own (single) invalid line" $(( nbad <= 1 ? 0 : 1 )) "$nbad"
+  ck "guardian.log: the line after the failure starts on its own line" $([[ $ok_log == True ]]; print $?)
+  detach
+else
+  skip "s19: could not create/attach a 2 MB disk image"
+fi
+fi
+
+# ==================================================================================
+if want s20; then
+print "== s20. every transition INTO RED records a 'red' incident through the sensor (SEM-4) =="
+mkdom s20 as
+start_gd FORGE_GUARDIAN_SENSOR_BIN=$STUB STUB_SENSOR_LOG=$D/stub.log
+wait_until 15 'state_is GREEN'; ck "setup: GREEN from the stub sensor" $?
+crit_trial 1
+ck "critical event -> RED" $(( LAT < 1.0 ? 0 : 1 )) "$(t3 $LAT)s"
+wait_until 5 '[[ -n $(print $D/h/incidents/*-red(N/)) ]]'; r=$?
+ck "an incidents/<UTC>-red bundle appears" $r "$(print $D/h/incidents/*(N:t))"
+ck "  ...requested as: incident --state-dir <domain> --kind red --note <why>" \
+   $(grep -q "incident --state-dir $D/h --kind red --note " $D/stub.log; print $?) "$(grep incident $D/stub.log | cut -d' ' -f2- | head -1)"
+stop_gd
+fi
+
+# ==================================================================================
+if want s21; then
+print "== s21. a FIFO named *.job never wedges the governor (R1) =="
+mkdom s21 intel
+start_gd
+wait_until 15 'state_is GREEN'; ck "setup: GREEN" $?
+mkfifo $D/h/jobs/424242.job
+m0=$(stat -f %m $D/h/state); sleep 4; m1=$(stat -f %m $D/h/state)
+ck "the governor keeps publishing with a FIFO in jobs/" $(( m1 >= m0 + 2 ? 0 : 1 )) "state mtime $m0 -> $m1"
+ck "  ...and the FIFO is left alone" $([[ -p $D/h/jobs/424242.job ]]; print $?)
+stop_gd
+rm -f $D/h/jobs/424242.job
+fi
+
+# ==================================================================================
+if want s22; then
+print "== s22. a publication target replaced by a directory is a FAILED publication (R12) =="
+mkdom s22 intel
+start_gd
+wait_until 15 'state_is GREEN'; ck "setup: GREEN" $?
+rm -f $D/ah/status.json; mkdir $D/ah/status.json
+wait_until 4 'grep -q "PUBLISH FAILED: status.json(errno 21)" $D/h/log/guardian.log'; r=$?
+ck "PUBLISH FAILED status.json(errno 21) is logged" $r "$(grep -m1 'PUBLISH FAILED' $D/h/log/guardian.log | cut -c21-)"
+ck "  ...with a publish_error event" $(grep -q '"kind": "publish_error", "file": "status.json", "errno": 21' $D/h/events.jsonl; print $?)
+ck "  ...and nothing is moved inside the directory" $([[ -z "$(print $D/ah/status.json/*(N))" ]]; print $?) "$(print $D/ah/status.json/*(N:t))"
+stop_gd
 fi
 
 # ==================================================================================

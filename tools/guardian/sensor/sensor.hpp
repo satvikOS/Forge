@@ -76,7 +76,11 @@ int write_atomic(const std::string& path, std::string_view data, bool full_sync 
 // Two-phase variant for publishing a PAIR of files from one snapshot.
 int write_tmp(const std::string& path, std::string_view data, std::string& tmp_out);
 int commit_tmp(const std::string& tmp, const std::string& path);
-int append_line(const std::string& path, std::string_view line);  // one O_APPEND write
+// One whole record per O_APPEND write(2). A short or failed write (a full disk) is
+// truncated back to the size the file had immediately before it, so a torn fragment
+// never glues itself to the next writer's record (review 2026-10-08 R6).
+int append_line(const std::string& path, std::string_view line);
+// generations is clamped to 1..10 (SCHEMA §6: logs.generations 1-10).
 void rotate_if_needed(const std::string& path, uint64_t max_bytes, int generations);
 std::vector<std::string> list_dir(const std::string& dir, size_t max, int* err);
 bool path_mtime(const std::string& path, double& mt, bool follow = true);
@@ -185,6 +189,9 @@ PolicyLoad load_policy(const std::string& state_dir, const std::string& policy_a
 std::string policy_env(const Policy& p, const std::string& source);
 std::string policy_json(const Policy& p);
 bool known_signal_name(const std::string& s);
+// reports.scan_interval_s, or FORGE_SENSOR_TEST_SCAN_S in test mode (the policy bound is
+// 60-86400 s; a gate cannot wait a minute per report).
+int reports_scan_interval_s(const Policy& p);
 
 // ---------------------------------------------------------------- procinfo.mm
 struct ProcInfo {
@@ -193,9 +200,23 @@ struct ProcInfo {
   int ppid = -1;
   int64_t start_s = -1, start_us = -1;
   int64_t uid = -1;
-  std::string comm;
+  std::string comm;  // raw p_comm / pbi_name bytes (pidinfo prints it percent-encoded)
 };
 ProcInfo proc_info(int pid);  // pid <= 0 is always dead
+bool proc_argv(int pid, std::vector<std::string>& argv);  // KERN_PROCARGS2
+// SCHEMA §5: canonical decimal, no sign, no leading zero, 1..99999.
+bool canonical_pid(std::string_view s, int& out);
+
+// SCHEMA §5 protected-process list (ONE list). A name is matched DECODED (raw bytes).
+bool protected_name(const std::string& comm);
+// FO-4: the domain's governor is the guardian.lock holder only while that pid is alive,
+// started at the time guardian.lock/started records (ps lstart text) and runs an argv
+// ending in forge-guardian. "" when verified (pid in *pid_out), else why not.
+std::string governor_check(const std::string& state_dir, int* pid_out);
+// SCHEMA §5: "" when PID may be signalled/admitted, else why it is protected or foreign.
+// state_dir (may be empty) adds the guardian.lock holder, the verified governor's
+// ancestors and the sensor.lock holder.
+std::string protected_why(int pid, const ProcInfo& pi, const std::string& state_dir);
 
 struct TreeUse {
   int64_t fp = -1, res = -1;
@@ -221,15 +242,28 @@ struct JobInfo {
   int64_t threads = -1, started = -1, admitted = -1;
   int64_t fp_b = -1, res_b = -1, peak_fp_b = -1, hb_age_s = -1;
   double declared_b = 0, reserved_b = 0;  // reserved = max(declared, measured peak)
+  bool peak_ok = true;    // peak_gb present, numeric, >= 0
+  bool oversize = false;  // file > 64 KiB: identity forced to unverifiable (R7)
   KV kv;
+  // A live envelope (identity ok or unverifiable) holds a reservation. Unverifiable
+  // means "never signal", NOT "free memory" (review 2026-10-08 FO-5).
+  bool live() const { return identity == "ok" || identity == "unverifiable"; }
 };
 
 std::string verify_identity(const KV& kv, int pid, const std::string& boot_uuid, ProcInfo* out);
 
+// SCHEMA §6 registry limits.
+inline constexpr size_t kMaxEnvelopes = 1024;
+inline constexpr size_t kMaxJobDirEntries = 4096;
+inline constexpr size_t kMaxEnvelopeBytes = 64 * 1024;
+
 struct Registry {
   std::vector<JobInfo> jobs;
-  int err = 0;           // errno if the registry could not be read
+  int err = 0;           // errno if the registry could not be read (completely)
   std::string errmsg;
+  // A live envelope whose declaration cannot be read: admission cannot decide (75)
+  // and the published reservation total is unavailable.
+  std::string undecidable;
 };
 // measure: walk process trees. peaks: running peak map (run mode), may be null.
 // sensor_peaks: peak footprints published by a running sensor (admit), may be null.
@@ -272,7 +306,7 @@ struct Snapshot {
   std::vector<Volume> vols;
   double disk_min_avail_gib = -1; St disk_st = ST_UNAVAIL;
   std::vector<JobInfo> jobs; St jobs_st = ST_UNAVAIL;
-  double reserved_b = -1, budget_b = -1; int overcommit = 0;
+  double reserved_b = -1, budget_b = -1; int overcommit = -1;  // -1: unavailable
   int64_t sleep_n = 0; double last_sleep_ts = -1, last_wake_ts = -1;
   double self_cpu_s = 0; int64_t self_rss_b = 0, self_fds = 0;
   int64_t errors = 0;
@@ -333,7 +367,11 @@ struct Report {
   bool jetsam_parsed = false, per_process_only = false, readable = true;
   bool incident_worthy() const;
 };
-std::vector<std::string> report_dirs();  // system + user, or FORGE_SENSOR_TEST_REPORT_DIRS
+// system + user (or FORGE_SENSOR_TEST_REPORT_DIRS), each followed by its Retired/
+// subdirectory: macOS moves every report there at its daily run (review SEM-1).
+std::vector<std::string> report_dirs();
+// A report's identity across a move into Retired/: basename + mtime second.
+std::string report_key(const std::string& name, double mtime);
 std::string classify_report_name(const std::string& name);
 Report analyze_report(const std::string& dir, const std::string& name, double mtime, int64_t size,
                       bool deep);
