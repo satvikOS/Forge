@@ -213,6 +213,25 @@ struct HlrOptions {
     // (Cylinder) is NEVER touched (byte-for-byte unchanged). The genuine boundary
     // between two DISTINCT Nurbs faces (different poles) keeps its feature edge.
     bool meshSilhouette = true;
+    // EDGE-ON TOLERANCE for that straddle test. A facet seen EDGE-ON has
+    // dot(n, viewDir) == 0 in exact arithmetic, and the test files an exact 0 on
+    // the "away" side; but the COMPUTED dot of such a facet (a normalised cross
+    // product of corner differences) is rounding noise of EITHER sign, so on a
+    // surface that is edge-on along a whole band -- a vertical blend seen from
+    // above -- every seam of the band "straddled" by coin toss. |dot| <= edgeOnDot
+    // is read as the exact zero it stands for; a facet tilted further than this is
+    // classified exactly as before.
+    // MEASURED (T-230) on the Forge app's starting part -- an 80x50x20 plate with a
+    // bore and r3 vertical fillets; importOcctSolid -> 32768 NURBS facets -- seen
+    // from the top: 15592 facets carried noise dots of 1e-20..1e-12, and the view
+    // collected 21075 edges (19411 spurious silhouettes, 36.5 s at curveTess 4).
+    // At 1e-9 it collects 1924 and takes 2.3 s. The 260 that remain are in the
+    // importer's welded border rows, which ARE tilted (by up to 1.03e-4) and
+    // project onto the fillet arcs already drawn. 1e-9 leaves every case of
+    // native_vs_occt_hlr_import byte-identical; a 1e-3 tolerance did not (it moved
+    // 3.8 mm of the lofted barrel's iso outline from visible to hidden).
+    // 0 restores the old test exactly.
+    double edgeOnDot = 1e-9;
 };
 
 // ===========================================================================
