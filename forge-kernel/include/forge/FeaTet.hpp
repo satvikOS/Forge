@@ -92,10 +92,14 @@ struct Tet {
 // NAFEMS LE1 slab, 2026-08-28): meshShape costs ~1.25 ms PER TET, and that figure is flat
 // across 1351 -> 64230 tets. So the cost is roughly LINEAR in this range, not quadratic —
 // but the constant is enormous (a production Delaunay refiner is ~3 orders of magnitude
-// faster per element), and 60k tets already takes ~79 s. Note that bowyerWatson() below
-// does point location by a linear scan over every tet ever created and never compacts dead
-// ones, which is O(N·T) BY CONSTRUCTION; the flat measured ms/tet says that scan is not
-// what dominates in the exercised range, so profile before optimising it.
+// faster per element), and 60k tets already takes ~79 s. (Those figures predate T-035. The
+// note that used to follow here — that bowyerWatson() locates each point by a linear scan
+// over every tet ever created, O(N·T) by construction — is no longer true: since T-035 a
+// point is located by a randomized visibility walk over face adjacency, its cavity grown
+// locally, and dead tets are recycled through a free list; an exhaustive scan runs only for
+// a point the walk fails to locate, and that point is counted in Mesh::bwSkippedUnlocated
+// when even the scan cannot place it. The meshShape profile after T-035 is dominated by the
+// per-tet B-rep classifier of the carve, not by insertion — T-255.)
 inline constexpr int kDefaultSeedGridBudget = 20000;
 
 struct Mesh {
@@ -115,6 +119,30 @@ struct Mesh {
     int    seedGridBudget   = 0;     // budget actually in force for this call
     double requestedEdge    = 0.0;   // targetEdge as asked for (m)
     double interiorSpacing  = 0.0;   // max(dx,dy,dz) of the interior seed lattice (m)
+
+    // ---- Bowyer-Watson insertion census (T-256) -----------------------------
+    // Every point meshShape hands the Delaunay fill (boundary samples + interior lattice)
+    // is either inserted or SKIPPED, and a skipped point is a hole in the sampling the
+    // caller asked for: a boundary sample that is not a mesh vertex leaves the surface
+    // coarser than requested there. Until T-256 the skips were printed on stderr only, so
+    // no gate could see them. MEASURED (T-035 mutation M3, naive orientation/in-sphere
+    // predicates in place of the exact ones): every asserted check of the native gate
+    // passed, and the one symptom was "1 unlocated of 3367" on stderr (NAFEMS LE1 slab,
+    // targetEdge 0.09). These fields carry that census so a gate can assert
+    // bwInsertedPoints == bwInputPoints. Diagnostics only — they do not change the mesh.
+    //   duplicate: equal to an existing vertex after the mesher's coordinate snap;
+    //   unlocated: no live tet contains it (visibility walk AND exhaustive scan failed);
+    //   noCavity:  its Delaunay cavity could not be made star-shaped from it.
+    // bwInsertedPoints + bwSkipped() == bwInputPoints whenever the fill completed. When it
+    // threw, bwFailed is set and the counts stop where the throw did (the mesh is then the
+    // shell fallback, shellTetsOnly). A Mesh built by hand leaves every field zero.
+    int  bwInputPoints      = 0;     // points handed to Bowyer-Watson
+    int  bwInsertedPoints   = 0;     // points that became Delaunay vertices
+    int  bwSkippedDuplicate = 0;
+    int  bwSkippedUnlocated = 0;
+    int  bwSkippedNoCavity  = 0;
+    bool bwFailed           = false; // Bowyer-Watson threw (non-manifold cavity / degenerate super-tet)
+    int  bwSkipped() const { return bwSkippedDuplicate + bwSkippedUnlocated + bwSkippedNoCavity; }
 };
 
 // Build a tet mesh from a TopoDS_Shape.  `targetEdge` is the desired

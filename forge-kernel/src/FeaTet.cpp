@@ -329,18 +329,37 @@ inline double vonMisesVoigt(const double s[6]) {
 //     shrink step at all, the gate fails: the fea_smoke cantilever gets a tet of 6V/L^3 =
 //     2.1e-13 (CG 27430 iterations, peak von Mises +34.5 %) and the cylinder at 0.15 / 0.075
 //     tets of ~1e-15. With orient3dNaive / insphereNaive in place of the exact predicates the
-//     gate now PASSES — the guard's band already absorbs every visibility decision the naive
-//     orientation gets wrong — and the one symptom left is a point the walk cannot locate
-//     (LE1 at 0.09, 1 of 3367, counted on stderr). Before the guard the naive mutant failed:
+//     T-035 gate PASSED — the guard's band already absorbs every visibility decision the naive
+//     orientation gets wrong — and the one symptom left was a point the walk cannot locate
+//     (LE1 at 0.09, 1 of 3367, counted on stderr only); since T-256 the gate asserts that
+//     census and the naive mutant FAILS on it. Before the guard the naive mutant failed:
 //     flat tets on box, cylinder and sphere, a non-manifold cavity on the slab at 0.075.)
-//   * a point that cannot be inserted (an exact duplicate after snapping) is skipped and
-//     COUNTED on stderr, never silently;
+//   * a point that cannot be inserted (an exact duplicate after snapping, a point no live tet
+//     contains, a cavity that cannot be star-shaped from it) is skipped and COUNTED — on
+//     stderr and, since T-256, in BwStats -> Mesh::bwSkipped*, so a gate can assert that every
+//     point it asked for became a vertex (MUTATION-TESTED: the naive-predicate mutant above,
+//     whose only symptom was that stderr line, now fails test/fea_tet_surface_conformance_gate.cpp);
 //   * each insertion costs a walk plus a local cavity, not a scan of every tet ever made.
 // The output node coordinates are the snapped ones (the tets are valid for those).
 
 struct LocalTet {
     int n[4];           // node indices; tetVolume(n[0], n[1], n[2], n[3]) > 0
 };
+
+// T-256 — the insertion census of one bowyerWatson() call (see Mesh::bwInputPoints).
+struct BwStats {
+    std::size_t input = 0, inserted = 0, duplicates = 0, unlocated = 0, rejected = 0;
+};
+
+// Stamp the census on the Mesh the caller returns. `ran` is false when Bowyer-Watson threw.
+void stampBwStats(Mesh& m, const BwStats& st, bool ran) {
+    m.bwInputPoints      = static_cast<int>(st.input);
+    m.bwInsertedPoints   = static_cast<int>(st.inserted);
+    m.bwSkippedDuplicate = static_cast<int>(st.duplicates);
+    m.bwSkippedUnlocated = static_cast<int>(st.unlocated);
+    m.bwSkippedNoCavity  = static_cast<int>(st.rejected);
+    m.bwFailed           = !ran;
+}
 
 struct FaceKey {
     int a, b, c;
@@ -378,8 +397,10 @@ inline int inSphereSign(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3&
 }
 
 std::vector<LocalTet>
-bowyerWatson(std::vector<Vec3>& pts) {
+bowyerWatson(std::vector<Vec3>& pts, BwStats& stats) {
     const int N = static_cast<int>(pts.size());
+    stats = BwStats{};
+    stats.input = static_cast<std::size_t>(N);
     if (N == 0) return {};
     // Wrap with a huge super-tetrahedron containing all points.
     double xmin=+1e30,ymin=+1e30,zmin=+1e30,xmax=-1e30,ymax=-1e30,zmax=-1e30;
@@ -483,7 +504,11 @@ bowyerWatson(std::vector<Vec3>& pts) {
     auto nextRand = [&rng]() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
     unsigned stamp = 0;
     int hint = 0;
-    std::size_t duplicates = 0, unlocated = 0, rejected = 0;
+    // Counted straight into the caller's census, so a throw below still leaves what was
+    // counted up to it.
+    std::size_t& duplicates = stats.duplicates;
+    std::size_t& unlocated  = stats.unlocated;
+    std::size_t& rejected   = stats.rejected;
 
     for (int pi = 0; pi < N; ++pi) {
         const Vec3 P = pts[pi];
@@ -618,6 +643,7 @@ bowyerWatson(std::vector<Vec3>& pts) {
         }
         for (int c : cav) { T[c].alive = false; T[c].inCav = 0; freeList.push_back(c); }
         hint = newIds.empty() ? hint : newIds.front();
+        ++stats.inserted;
     }
 
     if (duplicates + unlocated + rejected > 0) {
@@ -1589,9 +1615,10 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
     // 3. Bowyer-Watson on the boundary points (try).
     std::vector<Vec3> ptsCopy = bndPts;
     std::vector<LocalTet> bw;
+    BwStats bwStats;
     bool bwOk = true;
     try {
-        bw = bowyerWatson(ptsCopy);
+        bw = bowyerWatson(ptsCopy, bwStats);
     } catch (...) {
         bw.clear();
         bwOk = false;
@@ -1663,6 +1690,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
                 out.tets.push_back(T);
             }
             stampSeedDiag(out, targetEdge, seedBudget, seedCapped, seedSpacing);
+            stampBwStats(out, bwStats, bwOk);
             return out;
         }
     }
@@ -1670,6 +1698,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
     // 5. Shell fallback (documented).
     Mesh fb = buildShellTetFallback(bndPts, triangles, shape);
     stampSeedDiag(fb, targetEdge, seedBudget, seedCapped, seedSpacing);
+    stampBwStats(fb, bwStats, bwOk);
     return fb;
 }
 
@@ -1888,9 +1917,10 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
     // 3. Bowyer-Watson on the boundary points (the SAME backend-agnostic mesher).
     std::vector<Vec3> ptsCopy = bndPts;
     std::vector<LocalTet> bw;
+    BwStats bwStats;
     bool bwOk = true;
     try {
-        bw = bowyerWatson(ptsCopy);
+        bw = bowyerWatson(ptsCopy, bwStats);
     } catch (...) {
         bw.clear();
         bwOk = false;
@@ -1938,6 +1968,7 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
             }
             out = std::move(m);
             stampSeedDiag(out, targetEdge, seedBudget, seedCapped, seedSpacing);
+            stampBwStats(out, bwStats, bwOk);
             return true;
         }
     }
@@ -1945,6 +1976,7 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
     // 5. Shell fallback (documented; native inside-test variant).
     out = buildShellTetFallbackNative(bndPts, triangles, solid);
     stampSeedDiag(out, targetEdge, seedBudget, seedCapped, seedSpacing);
+    stampBwStats(out, bwStats, bwOk);
     return true;
 }
 
