@@ -2600,6 +2600,19 @@ jobs:
         # .node (PHANTOM=2) while accepting the dylib (PHANTOM=0). A ratchet that
         # has never failed is an unverified ratchet. The gate FAILS CLOSED if the
         # dylib is missing -- a skip that exits 0 reads exactly like a pass.
+        #
+        # ★ AND NOW AN OCCT SYMBOL CEILING ON THE DYLIB (T-291). Until then the only
+        #   --assert-symbols / --max-symbols in CI ran on forge-kernel.node in the
+        #   Node `kernel` job; this, the artifact Forge.app ships, had no symbol
+        #   count at all. The gate asserts SYMBOLS_CEILING (the dylib's measured
+        #   OCCT_SYMBOLS, 503 on 2026-10-10: Release, FORGE_BUILD_NODE_ADDON=OFF,
+        #   opencascade 7.9.3), prints the number it measured, and checks it in
+        #   both directions: 503 passes, 502 must reject. MEASURED: a source
+        #   mutation adding one OCCT call (gp_Pnt::Mirror) took the dylib to 504 --
+        #   the previous gate passed it (rc=0), this one fails (rc=1); a ceiling
+        #   with one symbol of slack (504 on the 503 dylib) fails its own
+        #   negative control. The Node job's 507 is the ADDON's ceiling and is not
+        #   touched here (T-167).
         shell: bash
         run: |
           set -euo pipefail
