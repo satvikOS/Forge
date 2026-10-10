@@ -143,7 +143,8 @@ jobs:
           persist-credentials: false
 
       # Prove the ratchet can fail BEFORE trusting the run below. A registration
-      # check that cannot go red is decoration. Seven cases, no build, ~35 s.
+      # check that cannot go red is decoration. Nine cases, no build;
+      # each case is one run of the ratchet (~5 s measured on a workstation).
       #
       # ── WHY SEVEN AND NOT THREE (T-137 defect C). ────────────────────────────
       # The three original cases all exercise the SHELL enumeration, and all three
@@ -159,7 +160,12 @@ jobs:
       #   invokes read as WIRED. Case 7 builds exactly that — an orphan caller — and
       #   requires the ratchet to stay GREEN. Run it against the one-hop version and
       #   it goes red-on-an-improvement over a gate that still runs nowhere.
-      - name: Prove the kernel registration ratchet can fail (7 cases)
+      #
+      # ★ CASES 8-9 (T-290): an ECHO of a gate's path, and a STEP NAME naming a
+      #   C++ gate, both read as WIRED (rc=0) until strip() in the ratchet learned
+      #   the rule tools/gates/shell_gate_registration_ratchet.sh already had.
+      #   MEASURED on the pre-change ratchet: both rc=0, gate not listed.
+      - name: Prove the kernel registration ratchet can fail (9 cases)
         shell: bash
         run: |
           # ★ set +e IS LOAD-BEARING. GitHub's `shell: bash` runs
@@ -288,8 +294,40 @@ jobs:
             echo "$OUT"; fails=$((fails+1))
           else echo "  control 7 (orphan caller is not wiring) correctly GREEN"; fi
 
-          [ $fails -eq 0 ] || { echo "::error::$fails of 7 proof cases failed"; exit 1; }
-          echo "  all 7 proof cases pass — the ratchet is falsifiable"
+          # 8. AN ECHO IS NOT AN INVOCATION (T-290). A phantom gate whose path
+          #    appears only in `run: echo <path>` read as WIRED, rc=0, until the
+          #    ratchet stripped echo/printf lines. RED is not enough on its own --
+          #    case 1 is also red -- so the phantom must be NAMED as unwired.
+          printf '#!/usr/bin/env bash\necho phantom\n' > forge-kernel/test/run_phantom_echo_gate.sh
+          cp .github/workflows/kernel-tests.yml /tmp/kt.bak
+          printf '\n      - name: proof m8\n        run: echo forge-kernel/test/run_phantom_echo_gate.sh\n' \
+            >> .github/workflows/kernel-tests.yml
+          OUT=$(bash "$R" 2>&1); rc=$?
+          cp /tmp/kt.bak .github/workflows/kernel-tests.yml
+          rm -f forge-kernel/test/run_phantom_echo_gate.sh
+          if [ $rc -eq 0 ] || ! printf '%s\n' "$OUT" | grep -qx '    run_phantom_echo_gate'; then
+            echo "::error::mutation 8 stayed GREEN — an echo of a gate's path is counted as CI wiring"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  mutation 8 (gate named only by an echo) caught"; fi
+
+          # 9. NOR IS A STEP NAME. The C++ and CMake enumerations match a bare
+          #    name, so a `- name:` announcing a gate over a step that builds
+          #    nothing read as WIRED, rc=0, until workflow name: values were
+          #    stripped.
+          printf 'int main(){return 0;}\n' > forge-kernel/test/phantom_name_gate.cpp
+          cp .github/workflows/kernel-tests.yml /tmp/kt.bak
+          printf '\n      - name: build phantom_name_gate (to be wired)\n        run: "true"\n' \
+            >> .github/workflows/kernel-tests.yml
+          OUT=$(bash "$R" 2>&1); rc=$?
+          cp /tmp/kt.bak .github/workflows/kernel-tests.yml
+          rm -f forge-kernel/test/phantom_name_gate.cpp
+          if [ $rc -eq 0 ] || ! printf '%s\n' "$OUT" | grep -qx '    phantom_name_gate'; then
+            echo "::error::mutation 9 stayed GREEN — a workflow step NAME is counted as CI wiring"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  mutation 9 (C++ gate named only by a step name) caught"; fi
+
+          [ $fails -eq 0 ] || { echo "::error::$fails of 9 proof cases failed"; exit 1; }
+          echo "  all 9 proof cases pass — the ratchet is falsifiable"
 
       - name: Every gate named *_gate is reachable from CI (or pinned with a reason)
         shell: bash

@@ -75,6 +75,7 @@
 #
 # COST. MEASURED on a workstation: ~5 s, dominated by the closure's greps (the
 # one-hop version was 0.22 s). It remains text processing only — bash, grep, sed,
+# perl (for strip(), as tools/gates/shell_gate_registration_ratchet.sh already does),
 # find, basename. No compiler, no SDK, no network. An unaffordable gate gets
 # disabled, and five seconds per pull request is not that.
 set -uo pipefail
@@ -231,15 +232,51 @@ step_read_occt_projection_gate"
 #   the one-hop version, which collapsed to 0 against pinned=9 until it was
 #   excluded. Nothing in the seed names it except gate-registration.yml, which is
 #   not in the seed, so the closure cannot reach it.
+#
+# ★ AN ECHO IS NOT AN INVOCATION EITHER, AND NEITHER IS A STEP NAME (T-290).
+#   Stripping comments closed one spelling of "a sentence naming the gate" and
+#   left two more open. MEASURED with this script as it was on b609b41d (T-185
+#   evidence; re-measured on work/T-185 bb68dd3c with a phantom
+#   forge-kernel/test/run_phantom_echo_gate.sh):
+#       no mention                                         -> rc=1, listed unwired
+#       + `run: echo forge-kernel/test/run_phantom_echo_gate.sh`  -> rc=0 GREEN
+#       + `run: printf '%s\n' <same path>`                         -> rc=0 GREEN
+#       + `echo "see run_phantom_echo_gate.sh"` in a reachable .sh -> rc=0 GREEN
+#   and for the C++/CMake enumerations, which match a bare NAME rather than a
+#   `.sh` basename, a workflow STEP NAME did the same:
+#       phantom_echo_gate.cpp + `- name: build phantom_echo_gate (to be wired)`
+#                                                                  -> rc=0 GREEN
+#       pinned native_vs_occt_gear + `run: echo native_vs_occt_gear`
+#                                  -> rc=1 "RED ON AN IMPROVEMENT" (asks to unpin
+#                                     a gate that still runs nowhere)
+#   tools/gates/shell_gate_registration_ratchet.sh learned this in T-185 round 1;
+#   strip() below is its rule, ported: a line whose first command word is echo or
+#   printf is dropped, and in a workflow so is every `name:` value. The comment
+#   rule stays this file's stricter `#` -> end-of-line. MEASURED on the real tree
+#   before and after: 8/8/35 unchanged, so nothing that genuinely runs was being
+#   counted through an echo, a printf or a name.
+#   ★ The same safe direction as comments: an `echo ...; bash x_gate.sh` line
+#     loses its real invocation too, which can only flag a gate, never hide one.
+#     What this still cannot see is an echo AFTER a separator on a line that runs
+#     something else (`make && echo x_gate.sh`) -- the rule anchors on the line's
+#     first command word, exactly as the shell ratchet's does.
 TMP=$(mktemp -d) || exit 2
 trap 'rm -rf "$TMP"' EXIT
 BLOB="$TMP/ci.txt"; : > "$BLOB"
 REACH=""
 
+strip() {   # strip <path> — the file's text minus everything that runs nothing
+  case "$1" in
+    *.yml|*.yaml)
+      perl -pe 's/#.*$//; s/^(\s*(?:-\s*)?(?:run:\s*)?)(?:echo|printf)\b.*$/$1/; s/^(\s*-?\s*)name:\s.*$/$1/' "$1" 2>/dev/null ;;
+    *)
+      perl -pe 's/#.*$//; s/^(\s*(?:-\s*)?(?:run:\s*)?)(?:echo|printf)\b.*$/$1/' "$1" 2>/dev/null ;;
+  esac
+}
 admit() {   # admit <path> — add a file to the CI-reachable set and its text to the blob
   REACH="$REACH$1
 "
-  sed 's/#.*$//' "$1" >> "$BLOB" 2>/dev/null
+  strip "$1" >> "$BLOB"
 }
 in_reach() { printf '%s' "$REACH" | grep -qxF -- "$1"; }
 
