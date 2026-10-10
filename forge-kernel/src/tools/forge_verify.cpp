@@ -35,6 +35,19 @@
 // `inputStep` binds INPUT() for edit trees; `outStep` writes the built STEP so a
 // caller can measure the artefact independently.
 //
+// Two OPT-IN fields hand the scorer what it measures (T-234). A row that asks for
+// neither is answered byte-for-byte as before.
+//   "mesh":"<lin>,<ang>" -> "mesh":{"lin","ang","positions":[x,y,z,..],"indices":[..]}
+//       forge::tessellate(handle, lin, ang) -- the SAME call the Node addon's
+//       tessellate() makes for cadscore_harness.mjs. positions are float32 in the
+//       kernel and are printed with 9 significant digits, so each parses back to the
+//       IDENTICAL float32 (num()'s six fixed decimals cannot round-trip a float32
+//       below 16 mm). A malformed spec answers "meshError" and costs only this field.
+//   "validity":"raw" -> "validity":{"isClosed","isManifold","isOriented",
+//       "hasSelfIntersect","badFaces","badEdges"} -- forge::heal::checkValidity's six
+//       flags, not a verdict: the CADGenBench gate the scorer applies is not the
+//       `valid` rule this tool uses (see "validity" below).
+//
 // The JSON reader here is deliberately minimal and self-contained: this tool must
 // not acquire a third-party dependency to do the one job the kernel exists for.
 
@@ -59,6 +72,7 @@
 #include <vector>
 
 #include "forge/DirectEdit.hpp"
+#include "forge/Healing.hpp"
 #include "forge/MassProps.hpp"
 #include "forge/Tessellate.hpp"
 #include "forge/Topology.hpp"
@@ -198,6 +212,67 @@ std::string num(double v) {
     std::size_t last = s.find_last_not_of('0');
     if (last != std::string::npos && s[last] == '.') --last;
     return s.substr(0, last + 1);
+}
+
+// ------------------------------------------------------------------ mesh (T-234)
+// A float32 printed so that it parses back to the SAME float32: 9 significant
+// digits always round-trip a binary32. num() cannot be used here -- six fixed
+// decimals is coarser than the float32 spacing for every |x| < 16, so the scorer
+// would be measuring a different mesh from the one the kernel made.
+inline void appendF32(std::string& out, float v) {
+    if (!std::isfinite(v)) { out += "null"; return; }
+    char buf[32];
+    const int n = std::snprintf(buf, sizeof buf, "%.9g", static_cast<double>(v));
+    if (n > 0) out.append(buf, static_cast<std::size_t>(n));
+}
+
+// "<lin>,<ang>": two finite, strictly positive numbers and nothing else. Anything
+// looser would tessellate at a tolerance the caller did not ask for.
+bool parseMeshSpec(const std::string& s, double& lin, double& ang) {
+    const char* p = s.c_str();
+    char* end = nullptr;
+    lin = std::strtod(p, &end);
+    if (end == p || *end != ',') return false;
+    const char* q = end + 1;
+    ang = std::strtod(q, &end);
+    if (end == q || *end != '\0') return false;
+    return std::isfinite(lin) && std::isfinite(ang) && lin > 0.0 && ang > 0.0;
+}
+
+// The tessellation as one JSON object, or a reason it cannot be handed out. A mesh
+// whose indices leave the vertex array, or whose coordinates are not finite, is
+// REFUSED rather than emitted: a scorer fed it would ray-cast garbage and report a
+// number, which is worse than reporting nothing.
+bool meshJson(const forge::Mesh& m, double lin, double ang, std::string& out,
+              std::string& why) {
+    if (m.positions.size() % 3 != 0) { why = "positions not a multiple of 3"; return false; }
+    if (m.indices.empty() || m.indices.size() % 3 != 0) {
+        why = m.indices.empty() ? "empty tessellation" : "indices not a multiple of 3";
+        return false;
+    }
+    const std::size_t nv = m.positions.size() / 3;
+    for (std::uint32_t i : m.indices)
+        if (i >= nv) { why = "index " + std::to_string(i) + " >= vertex count " + std::to_string(nv); return false; }
+    for (float v : m.positions)
+        if (!std::isfinite(v)) { why = "non-finite coordinate"; return false; }
+    out.clear();
+    out.reserve(64 + m.positions.size() * 12 + m.indices.size() * 7);
+    out += "{\"lin\":";
+    out += num(lin);
+    out += ",\"ang\":";
+    out += num(ang);
+    out += ",\"positions\":[";
+    for (std::size_t i = 0; i < m.positions.size(); ++i) {
+        if (i) out.push_back(',');
+        appendF32(out, m.positions[i]);
+    }
+    out += "],\"indices\":[";
+    for (std::size_t i = 0; i < m.indices.size(); ++i) {
+        if (i) out.push_back(',');
+        out += std::to_string(m.indices[i]);
+    }
+    out += "]}";
+    return true;
 }
 
 // --------------------------------------------------------------- topology
@@ -429,6 +504,11 @@ int main(int argc, char** argv) {
         // "census":"full" -> also emit the GROUND-TRUTH face census (see below)
         const bool wantCensus =
             jsonString(line, "census", censusFlag) && censusFlag == "full";
+        // T-234 opt-ins: the scorer's mesh and the raw validity flags (see header)
+        std::string meshSpec, validityFlag;
+        const bool wantMesh = jsonString(line, "mesh", meshSpec);
+        const bool wantRawValidity =
+            jsonString(line, "validity", validityFlag) && validityFlag == "raw";
 
         std::ostringstream o;
         o << "{\"id\":\"" << jsonEscape(id) << "\"";
@@ -769,6 +849,55 @@ int main(int argc, char** argv) {
                         }
                     }
                 } catch (...) { /* additive: a missing reference must not fail a build */ }
+            }
+
+            // RAW VALIDITY FLAGS (opt-in, T-234). `valid` above is THIS tool's rule:
+            // all six clean, except that a bare INPUT() is forgiven its orientation.
+            // The CADGenBench gate cadscore_harness.checkValid applied is a DIFFERENT
+            // rule -- closed && manifold && oriented && !selfIntersect && no bad
+            // faces, bad EDGES not consulted -- so a scorer reproducing it needs the
+            // flags, not a verdict computed under someone else's rule.
+            if (wantRawValidity) {
+                try {
+                    const auto v = forge::heal::checkValidity(
+                        static_cast<forge::ShapeHandle>(r.handle));
+                    o << ",\"validity\":{\"isClosed\":" << (v.isClosed ? "true" : "false")
+                      << ",\"isManifold\":" << (v.isManifold ? "true" : "false")
+                      << ",\"isOriented\":" << (v.isOriented ? "true" : "false")
+                      << ",\"hasSelfIntersect\":" << (v.hasSelfIntersect ? "true" : "false")
+                      << ",\"badFaces\":" << v.badFaces.size()
+                      << ",\"badEdges\":" << v.badEdges.size() << "}";
+                } catch (const std::exception& e) {
+                    o << ",\"validityError\":\"" << jsonEscape(e.what()) << "\"";
+                } catch (...) {
+                    o << ",\"validityError\":\"checkValidity threw a non-std exception\"";
+                }
+            }
+
+            // THE MESH (opt-in, T-234) -- the scorer's input. Emitted LAST and from a
+            // separate tessellate() call, so nothing above (genus, bores) can depend
+            // on whether it was asked for. forge::tessellate is stateless (native
+            // display mesher, K5), so the order of the two calls changes nothing.
+            if (wantMesh) {
+                double lin = 0.0, ang = 0.0;
+                if (!parseMeshSpec(meshSpec, lin, ang)) {
+                    o << ",\"meshError\":\"mesh spec '" << jsonEscape(meshSpec)
+                      << "' is not '<lin>,<ang>' with both finite and > 0\"";
+                } else {
+                    try {
+                        const forge::Mesh m = forge::tessellate(
+                            static_cast<forge::ShapeHandle>(r.handle), lin, ang);
+                        std::string js, why;
+                        if (meshJson(m, lin, ang, js, why))
+                            o << ",\"mesh\":" << js;
+                        else
+                            o << ",\"meshError\":\"" << jsonEscape(why) << "\"";
+                    } catch (const std::exception& e) {
+                        o << ",\"meshError\":\"" << jsonEscape(e.what()) << "\"";
+                    } catch (...) {
+                        o << ",\"meshError\":\"tessellate threw a non-std exception\"";
+                    }
+                }
             }
         }
 
