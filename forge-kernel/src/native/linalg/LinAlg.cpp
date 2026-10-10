@@ -15,13 +15,19 @@
 //          implicit-shift QL algorithm with Wilkinson shift (Numerical Recipes
 //          tqli/tred2), eigenvectors accumulated, results sorted ascending.
 //   GeneralizedSymmetricEigen — Cholesky-of-M reduction (G&VL §8.7.2).
-//   SparseLDLT — symmetric factorization driven from CSR assembly.
+//   SparseLDLT — symmetric factorization driven from CSR assembly: fill-reducing
+//          ordering (T-163), then multifrontal SUPERNODAL Cholesky whose dense
+//          blocks go through the dense-kernel seam (native loops, or Apple
+//          Accelerate above the measured crossover when built with
+//          FORGE_LINALG_ACCELERATE — T-157); the scalar up-looking LDLᵀ is kept
+//          as the reference oracle.
 //   conjugateGradient — Hestenes-Stiefel CG with Jacobi preconditioner.
 
 #include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -30,6 +36,21 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+// Apple Accelerate (system framework, no third-party licence) backs the dense
+// kernels of the supernodal factorization when the build asks for it
+// (forge-kernel/CMakeLists.txt defines FORGE_LINALG_ACCELERATE=1 on Apple and
+// links -framework Accelerate). Every other build — and test/native/run_native.sh,
+// which compiles this file with a bare compiler — gets the portable native loops.
+#if defined(__APPLE__) && defined(FORGE_LINALG_ACCELERATE) && FORGE_LINALG_ACCELERATE
+#ifndef ACCELERATE_NEW_LAPACK
+#define ACCELERATE_NEW_LAPACK 1
+#endif
+#include <Accelerate/Accelerate.h>
+#define FORGE_LA_ACCELERATE 1
+#else
+#define FORGE_LA_ACCELERATE 0
+#endif
 
 namespace forge {
 namespace native {
@@ -40,13 +61,105 @@ namespace {
 template <class T>
 typename ScalarTraits<T>::Real absT(const T& x) { return ScalarTraits<T>::absval(x); }
 
+// ---- DenseOp size distribution (T-157 A1). Off unless a diagnostic enables it.
+std::atomic<bool> g_opStatsOn{false};
+std::atomic<std::uint64_t> g_opCalls[kDenseOpCount][kDenseSizeBuckets];
+std::atomic<std::uint64_t> g_opNanos[kDenseOpCount][kDenseSizeBuckets];
+std::atomic<std::size_t> g_opMaxRows[kDenseOpCount];
+std::atomic<std::size_t> g_opMaxCols[kDenseOpCount];
+
+void atomicMax(std::atomic<std::size_t>& a, std::size_t v) {
+    std::size_t cur = a.load(std::memory_order_relaxed);
+    while (v > cur && !a.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {}
+}
+
+// Records one compute() of a dense op (rows x cols) and its wall time — only
+// while the diagnostic is enabled at construction.
+class DenseOpScope {
+public:
+    DenseOpScope(DenseOp op, std::size_t rows, std::size_t cols)
+        : on_(g_opStatsOn.load(std::memory_order_relaxed)), op_(static_cast<int>(op)),
+          rows_(rows), cols_(cols) {
+        if (on_) t0_ = std::chrono::steady_clock::now();
+    }
+    ~DenseOpScope() {
+        if (!on_) return;
+        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now() - t0_).count();
+        const int b = denseSizeBucket(std::max(rows_, cols_));
+        g_opCalls[op_][b].fetch_add(1, std::memory_order_relaxed);
+        g_opNanos[op_][b].fetch_add(static_cast<std::uint64_t>(ns), std::memory_order_relaxed);
+        atomicMax(g_opMaxRows[op_], rows_);
+        atomicMax(g_opMaxCols[op_], cols_);
+    }
+    DenseOpScope(const DenseOpScope&) = delete;
+    DenseOpScope& operator=(const DenseOpScope&) = delete;
+
+private:
+    bool on_;
+    int op_;
+    std::size_t rows_, cols_;
+    std::chrono::steady_clock::time_point t0_{};
+};
+
 }  // namespace
+
+int denseSizeBucket(std::size_t n) {
+    if (n < 8) return 0;
+    if (n < 32) return 1;
+    if (n < 128) return 2;
+    if (n < 512) return 3;
+    if (n < 2048) return 4;
+    return 5;
+}
+
+const char* denseOpName(DenseOp op) {
+    switch (op) {
+    case DenseOp::LU:                        return "LU";
+    case DenseOp::LLT:                       return "LLT";
+    case DenseOp::LDLT:                      return "LDLT";
+    case DenseOp::HouseholderQR:             return "HouseholderQR";
+    case DenseOp::ColPivHouseholderQR:       return "ColPivHouseholderQR";
+    case DenseOp::FullPivHouseholderQR:      return "FullPivHouseholderQR";
+    case DenseOp::SymmetricEigen:            return "SymmetricEigen";
+    case DenseOp::GeneralizedSymmetricEigen: return "GeneralizedSymmetricEigen";
+    case DenseOp::Count:                     break;
+    }
+    return "?";
+}
+
+void setDenseOpStatsEnabled(bool on) { g_opStatsOn.store(on, std::memory_order_relaxed); }
+
+DenseOpStats denseOpStats() {
+    DenseOpStats s;
+    for (int o = 0; o < kDenseOpCount; ++o) {
+        for (int b = 0; b < kDenseSizeBuckets; ++b) {
+            s.calls[o][b] = g_opCalls[o][b].load(std::memory_order_relaxed);
+            s.seconds[o][b] = 1e-9 * static_cast<double>(g_opNanos[o][b].load(std::memory_order_relaxed));
+        }
+        s.maxRows[o] = g_opMaxRows[o].load(std::memory_order_relaxed);
+        s.maxCols[o] = g_opMaxCols[o].load(std::memory_order_relaxed);
+    }
+    return s;
+}
+
+void resetDenseOpStats() {
+    for (int o = 0; o < kDenseOpCount; ++o) {
+        for (int b = 0; b < kDenseSizeBuckets; ++b) {
+            g_opCalls[o][b].store(0, std::memory_order_relaxed);
+            g_opNanos[o][b].store(0, std::memory_order_relaxed);
+        }
+        g_opMaxRows[o].store(0, std::memory_order_relaxed);
+        g_opMaxCols[o].store(0, std::memory_order_relaxed);
+    }
+}
 
 // ===========================================================================
 // LU
 // ===========================================================================
 template <class T>
 void LU<T>::compute(const Matrix<T>& A, bool fullPivot, bool rankRevealing) {
+    const DenseOpScope opScope(DenseOp::LU, A.rows(), A.cols());
     const std::size_t n = A.rows();
     n_ = n; full_ = fullPivot; ok_ = (A.rows() == A.cols());
     lu_ = A;
@@ -160,6 +273,7 @@ T LU<T>::determinant() const {
 // ===========================================================================
 template <class T>
 void LLT<T>::compute(const Matrix<T>& A) {
+    const DenseOpScope opScope(DenseOp::LLT, A.rows(), A.cols());
     const std::size_t n = A.rows();
     n_ = n; ok_ = (A.rows() == A.cols());
     L_ = Matrix<T>(n, n, T(0));
@@ -227,6 +341,7 @@ Matrix<T> LLT<T>::solve(const Matrix<T>& B) const {
 // list of 1x1 / 2x2 blocks, plus the symmetric permutation.
 template <class T>
 void LDLT<T>::compute(const Matrix<T>& Ain) {
+    const DenseOpScope opScope(DenseOp::LDLT, Ain.rows(), Ain.cols());
     using Real = typename ScalarTraits<T>::Real;
     const std::size_t n = Ain.rows();
     n_ = n; ok_ = (Ain.rows() == Ain.cols());
@@ -383,6 +498,7 @@ std::vector<T> LDLT<T>::solve(const std::vector<T>& b) const {
 // ===========================================================================
 template <class T>
 void HouseholderQR<T>::compute(const Matrix<T>& A) {
+    const DenseOpScope opScope(DenseOp::HouseholderQR, A.rows(), A.cols());
     using Real = typename ScalarTraits<T>::Real;
     const std::size_t m = A.rows(), n = A.cols();
     m_ = m; n_ = n; ok_ = (m >= n);
@@ -499,6 +615,7 @@ Matrix<T> HouseholderQR<T>::matrixQ() const {
 // ===========================================================================
 template <class T>
 void ColPivHouseholderQR<T>::compute(const Matrix<T>& A) {
+    const DenseOpScope opScope(DenseOp::ColPivHouseholderQR, A.rows(), A.cols());
     using Real = typename ScalarTraits<T>::Real;
     const std::size_t m = A.rows(), n = A.cols();
     m_ = m; n_ = n; ok_ = true; rank_ = 0;
@@ -633,6 +750,7 @@ void makeHouseholderEigen(std::vector<T>& x, T& tau) {
 
 template <class T>
 void FullPivHouseholderQR<T>::compute(const Matrix<T>& A) {
+    const DenseOpScope opScope(DenseOp::FullPivHouseholderQR, A.rows(), A.cols());
     using Real = typename ScalarTraits<T>::Real;
     const std::size_t m = A.rows(), n = A.cols();
     m_ = m; n_ = n;
@@ -800,6 +918,7 @@ std::vector<T> FullPivHouseholderQR<T>::solve(const std::vector<T>& b) const {
 // (Numerical Recipes tred2 + tqli, adapted), eigenvectors accumulated, sorted.
 // ===========================================================================
 void SymmetricEigen::compute(const MatrixD& A, bool computeVectors) {
+    const DenseOpScope opScope(DenseOp::SymmetricEigen, A.rows(), A.cols());
     const std::size_t n = A.rows();
     ok_ = (A.rows() == A.cols());
     eval_.assign(n, 0.0);
@@ -946,6 +1065,7 @@ void SymmetricEigen::compute(const MatrixD& A, bool computeVectors) {
 // ===========================================================================
 void GeneralizedSymmetricEigen::compute(const MatrixD& K, const MatrixD& M,
                                         bool computeVectors) {
+    const DenseOpScope opScope(DenseOp::GeneralizedSymmetricEigen, K.rows(), K.cols());
     const std::size_t n = K.rows();
     ok_ = (K.rows() == K.cols() && M.rows() == n && M.cols() == n);
     eval_.assign(n, 0.0);
@@ -2444,6 +2564,194 @@ std::vector<std::size_t> orderingOf(const std::vector<std::vector<std::size_t>>&
     return perm;
 }
 
+// ===========================================================================
+// DENSE KERNEL SEAM (T-157) — internals. See LinAlg.hpp for the contract.
+// All matrices are COLUMN-major with a leading dimension.
+// ===========================================================================
+std::atomic<int> g_densePolicy{static_cast<int>(DenseBackendPolicy::Auto)};
+std::atomic<std::uint64_t> g_denseCalls[3][2];
+std::atomic<std::uint64_t> g_denseMadds[3][2];
+std::atomic<int> g_denseMinAccelM[3];
+std::atomic<int> g_denseMinAccelK[3];
+std::atomic<std::uint64_t> g_denseBucketCalls[3][2][kDenseSizeBuckets];
+std::atomic<std::uint64_t> g_denseBucketMadds[3][2][kDenseSizeBuckets];
+std::atomic<std::uint64_t> g_denseAccelBelow[3];
+
+void atomicMin(std::atomic<int>& a, int v) {
+    int cur = a.load(std::memory_order_relaxed);
+    while ((cur == 0 || v < cur) && !a.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {}
+}
+
+// MEASURED crossover (Apple M-series; test/linalg_accelerate_gate.cpp A4
+// re-measures every cell, interleaved best-of-3, and prints the table). Below
+// these sizes Accelerate's per-call overhead (and, for SYRK with a thin k, its
+// blocking) loses to the plain loops:
+//   POTRF order k:         Accelerate from k >= 8   (k = 4: ~1.2x either way;
+//                          k = 8: 1.5x; k = 32: 2.5x faster)
+//   TRSM  B(m×k) := B L⁻ᵀ: from k >= 24 (2-6x faster); for short panels
+//                          (m <= 32) already from k >= 8 (2.2x); at m >= 64
+//                          and k <= 16 native is as fast or up to 5x faster
+//   SYRK  C(m×m) -= B Bᵀ:  from k >= 12 (2-25x faster); with a thin k only for
+//                          large m: k >= 8 at m >= 256 (1.3-2.5x), k >= 2 at
+//                          m >= 512 (1.2-5.7x). At m = 128 and k <= 8 Accelerate
+//                          is consistently 1.3-3x SLOWER, so no m-only rule fits.
+bool accelerateWinsImpl(DenseKernel kern, int m, int k) {
+    switch (kern) {
+    case DenseKernel::Potrf: return k >= 8;
+    case DenseKernel::Syrk:  return k >= 12 || (m >= 256 && k >= 8) || (m >= 512 && k >= 2);
+    case DenseKernel::Trsm:  return k >= 24 || (m <= 32 && k >= 8);
+    }
+    return false;
+}
+
+bool useAccelerate(DenseKernel kern, int m, int k) {
+#if FORGE_LA_ACCELERATE
+    const int pol = g_densePolicy.load(std::memory_order_relaxed);
+    if (pol == static_cast<int>(DenseBackendPolicy::ForceNative)) return false;
+    if (pol == static_cast<int>(DenseBackendPolicy::ForceAccelerate)) return true;
+    return accelerateWinsImpl(kern, m, k);
+#else
+    (void)kern; (void)m; (void)k;
+    return false;
+#endif
+}
+
+void recordDense(DenseKernel kern, bool acc, int m, int k, std::uint64_t madds) {
+    const int ki = static_cast<int>(kern), bi = acc ? 1 : 0;
+    g_denseCalls[ki][bi].fetch_add(1, std::memory_order_relaxed);
+    g_denseMadds[ki][bi].fetch_add(madds, std::memory_order_relaxed);
+    const int bk = denseSizeBucket(static_cast<std::size_t>(std::max(m, k)));
+    g_denseBucketCalls[ki][bi][bk].fetch_add(1, std::memory_order_relaxed);
+    g_denseBucketMadds[ki][bi][bk].fetch_add(madds, std::memory_order_relaxed);
+    if (acc) {
+        atomicMin(g_denseMinAccelM[ki], std::max(1, m));
+        atomicMin(g_denseMinAccelK[ki], std::max(1, k));
+        if (!accelerateWinsImpl(kern, m, k)) g_denseAccelBelow[ki].fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+// ---- portable native loops (right-looking, unit-stride inner loops) --------
+int potrfNative(int n, double* A, int lda) {
+    for (int k = 0; k < n; ++k) {
+        double* ck = A + static_cast<std::ptrdiff_t>(k) * lda;
+        const double d = ck[k];
+        if (!(d > 0.0) || !std::isfinite(d)) return k + 1;
+        const double s = std::sqrt(d);
+        ck[k] = s;
+        const double inv = 1.0 / s;
+        for (int i = k + 1; i < n; ++i) ck[i] *= inv;
+        for (int j = k + 1; j < n; ++j) {
+            const double ljk = ck[j];
+            if (ljk == 0.0) continue;
+            double* cj = A + static_cast<std::ptrdiff_t>(j) * lda;
+            for (int i = j; i < n; ++i) cj[i] -= ck[i] * ljk;
+        }
+    }
+    return 0;
+}
+void trsmNative(int m, int k, const double* L, int ldl, double* B, int ldb) {   // B := B L⁻ᵀ
+    for (int j = 0; j < k; ++j) {
+        double* bj = B + static_cast<std::ptrdiff_t>(j) * ldb;
+        for (int p = 0; p < j; ++p) {
+            const double l = L[j + static_cast<std::ptrdiff_t>(p) * ldl];
+            if (l == 0.0) continue;
+            const double* bp = B + static_cast<std::ptrdiff_t>(p) * ldb;
+            for (int i = 0; i < m; ++i) bj[i] -= bp[i] * l;
+        }
+        const double inv = 1.0 / L[j + static_cast<std::ptrdiff_t>(j) * ldl];
+        for (int i = 0; i < m; ++i) bj[i] *= inv;
+    }
+}
+void syrkNative(int m, int k, const double* B, int ldb, double* C, int ldc) {   // C -= B Bᵀ (lower)
+    for (int p = 0; p < k; ++p) {
+        const double* bp = B + static_cast<std::ptrdiff_t>(p) * ldb;
+        for (int j = 0; j < m; ++j) {
+            const double b = bp[j];
+            if (b == 0.0) continue;
+            double* cj = C + static_cast<std::ptrdiff_t>(j) * ldc;
+            for (int i = j; i < m; ++i) cj[i] -= bp[i] * b;
+        }
+    }
+}
+
+// ---- the seam ----------------------------------------------------------------
+int seamPotrf(int n, double* A, int lda) {
+    if (n <= 0) return 0;
+    const bool acc = useAccelerate(DenseKernel::Potrf, n, n);
+    recordDense(DenseKernel::Potrf, acc, n, n,
+                static_cast<std::uint64_t>(n) * static_cast<std::uint64_t>(n) * static_cast<std::uint64_t>(n) / 3u);
+#if FORGE_LA_ACCELERATE
+    if (acc) {
+        __LAPACK_int nn = n, ld = lda, info = 0;
+        char uplo = 'L';
+        dpotrf_(&uplo, &nn, A, &ld, &info);
+        return static_cast<int>(info);
+    }
+#endif
+    return potrfNative(n, A, lda);
+}
+void seamTrsm(int m, int k, const double* L, int ldl, double* B, int ldb) {
+    if (m <= 0 || k <= 0) return;
+    const bool acc = useAccelerate(DenseKernel::Trsm, m, k);
+    recordDense(DenseKernel::Trsm, acc, m, k,
+                static_cast<std::uint64_t>(m) * static_cast<std::uint64_t>(k) * static_cast<std::uint64_t>(k) / 2u);
+#if FORGE_LA_ACCELERATE
+    if (acc) {
+        cblas_dtrsm(CblasColMajor, CblasRight, CblasLower, CblasTrans, CblasNonUnit,
+                    m, k, 1.0, L, ldl, B, ldb);
+        return;
+    }
+#endif
+    trsmNative(m, k, L, ldl, B, ldb);
+}
+void seamSyrk(int m, int k, const double* B, int ldb, double* C, int ldc) {
+    if (m <= 0 || k <= 0) return;
+    const bool acc = useAccelerate(DenseKernel::Syrk, m, k);
+    recordDense(DenseKernel::Syrk, acc, m, k,
+                static_cast<std::uint64_t>(m) * static_cast<std::uint64_t>(m + 1) / 2u * static_cast<std::uint64_t>(k));
+#if FORGE_LA_ACCELERATE
+    if (acc) {
+        cblas_dsyrk(CblasColMajor, CblasLower, CblasNoTrans, m, k, -1.0, B, ldb, 1.0, C, ldc);
+        return;
+    }
+#endif
+    syrkNative(m, k, B, ldb, C, ldc);
+}
+
+// How much cheaper a factor flop is under each numeric method than under the
+// scalar up-looking LDLᵀ the Auto ordering policy was calibrated on (T-163),
+// as two factors that multiply that policy's thresholds:
+//   reorder  for the RCM+AMD decision, made on every matrix — including small
+//            ones, whose narrow supernodal fronts run the dense kernels least
+//            efficiently;
+//   nd       for the nested-dissection decision, which only matters on large
+//            matrices, whose wide fronts run the kernels at full speed (and
+//            where ND's ordering time is what must be paid back).
+// Measured compute() seconds per factor flop on the kernel's FEA corpus:
+// up-looking ~0.40 ns; supernodal with the native loops ~0.24 ns (wide fronts
+// ~0.2 ns); supernodal with Accelerate ~0.05-0.1 ns on narrow fronts and down
+// to ~0.013 ns on the widest (bracketL-static AMD, 184 GF in 2.4 s). The
+// Accelerate values were then fitted on the 10-matrix T-163 corpus
+// (test/sparse_ordering_gate.cpp fixtures), where the decisions they make have
+// a ~25 % margin on both sides: reorder 4.4 keeps Natural on bracketM-static
+// (3,510 natural flops per nonzero; reordering would cost more than it saves)
+// and reorders tube-thermal (5,480; AMD halves its time); nd 8 skips ND on
+// tube-static (best cheap 11.3 GF vs threshold 16 GF; AMD wins) and runs it on
+// bracketL-static (63.9 GF vs 46 GF; ND wins). Gated by sparse_ordering_gate
+// G6 and linalg_accelerate_gate G4.
+struct OrderingScale {
+    double reorder;
+    double nd;
+};
+OrderingScale orderingScaleFor(SparseFactorMethod method) {
+    if (method == SparseFactorMethod::UpLooking) return {1.0, 1.0};
+#if FORGE_LA_ACCELERATE
+    if (g_densePolicy.load(std::memory_order_relaxed) != static_cast<int>(DenseBackendPolicy::ForceNative))
+        return {4.4, 8.0};
+#endif
+    return {1.67, 2.0};
+}
+
 // ---------------------------------------------------------------------------
 // SparseOrdering::Auto — a COST MODEL, not "try everything" (T-163).
 //
@@ -2467,16 +2775,21 @@ std::vector<std::size_t> orderingOf(const std::vector<std::vector<std::size_t>>&
 //      Measured ND gains over the best cheap candidate are ~25 % of flops when
 //      it wins, so ND runs only if 0.25 × bestFlops > 2000 × edges, i.e.
 //      bestFlops ≥ kAutoNdFlopsPerEdge × (compressed edges).
-// A faster numeric factorization (supernodal / BLAS) lowers the time per flop
-// and must re-calibrate both constants — test/sparse_ordering_gate.cpp G6
-// fails if the policy starts costing more than it saves.
+// T-157: the two constants are flop counts AT the up-looking speed (exactly the
+// T-163 calibration, so the UpLooking method keeps T-163's policy bit for bit);
+// a faster numeric factorization makes each flop cheaper relative to the
+// (unchanged) ordering time, so the thresholds are multiplied by the method's
+// OrderingScale (above) — e.g. with Accelerate a cheap reordering must promise
+// 4x, and nested dissection 16x, more flops than at the up-looking speed.
+// test/sparse_ordering_gate.cpp G6 fails if the policy costs more than it saves.
 // ---------------------------------------------------------------------------
 constexpr double kAutoReorderFlopsPerNnz = 1000.0;
 constexpr double kAutoNdFlopsPerEdge = 8000.0;
 
 std::vector<std::size_t> chooseOrdering(const std::vector<std::vector<std::size_t>>& adj,
                                         SparseOrdering ord, SparseOrdering& chosen,
-                                        AutoOrderingReport* report = nullptr) {
+                                        AutoOrderingReport* report = nullptr,
+                                        OrderingScale scale = {1.0, 1.0}) {
     if (ord != SparseOrdering::Auto) { chosen = ord; return orderingOf(adj, ord); }
     const std::size_t n = adj.size();
     AutoOrderingReport rep;
@@ -2486,7 +2799,7 @@ std::vector<std::size_t> chooseOrdering(const std::vector<std::vector<std::size_
     SymbolicFactorStats bestS = symbolicStatsOf(adj, best);
     chosen = SparseOrdering::Natural;
     rep.naturalFlops = bestS.flops;
-    rep.reorderThresholdFlops = kAutoReorderFlopsPerNnz * static_cast<double>(std::max<std::size_t>(1, offDiag));
+    rep.reorderThresholdFlops = kAutoReorderFlopsPerNnz * scale.reorder * static_cast<double>(std::max<std::size_t>(1, offDiag));
     const auto consider = [&](std::vector<std::size_t>& p, SparseOrdering c) {
         const SymbolicFactorStats s = symbolicStatsOf(adj, p);
         if (s.flops < bestS.flops || (s.flops == bestS.flops && s.nnzL < bestS.nnzL)) {
@@ -2505,7 +2818,7 @@ std::vector<std::size_t> chooseOrdering(const std::vector<std::vector<std::size_
         if (ndFitsIndexRange(n)) {
             const NdCompressed C = ndCompress(adj);
             rep.compressedEdges = C.G.adj.size();
-            rep.ndThresholdFlops = kAutoNdFlopsPerEdge * static_cast<double>(std::max<std::size_t>(1, rep.compressedEdges));
+            rep.ndThresholdFlops = kAutoNdFlopsPerEdge * scale.nd * static_cast<double>(std::max<std::size_t>(1, rep.compressedEdges));
             if (bestS.flops >= rep.ndThresholdFlops) {
                 rep.evaluatedNd = true;
                 std::vector<std::size_t> p = postorderByEtree(adj, ndOrderCompressed(C, n));
@@ -2529,6 +2842,62 @@ void setSparseLDLTObserver(SparseFactorObserver observer, void* ctx) {
     g_ldltObserver.store(observer);
 }
 
+bool denseAccelerateAvailable() { return FORGE_LA_ACCELERATE != 0; }
+
+void setDenseBackendPolicy(DenseBackendPolicy policy) {
+    g_densePolicy.store(static_cast<int>(policy), std::memory_order_relaxed);
+}
+
+DenseBackendPolicy denseBackendPolicy() {
+    return static_cast<DenseBackendPolicy>(g_densePolicy.load(std::memory_order_relaxed));
+}
+
+bool denseAccelerateWins(DenseKernel kernel, int m, int k) {
+    return FORGE_LA_ACCELERATE != 0 && accelerateWinsImpl(kernel, m, k);
+}
+
+int densePotrf(int n, double* A, int lda) { return seamPotrf(n, A, lda); }
+void denseTrsm(int m, int k, const double* L, int ldl, double* B, int ldb) {
+    seamTrsm(m, k, L, ldl, B, ldb);
+}
+void denseSyrk(int m, int k, const double* B, int ldb, double* C, int ldc) {
+    seamSyrk(m, k, B, ldb, C, ldc);
+}
+
+DenseKernelStats denseKernelStats() {
+    DenseKernelStats s;
+    for (int k = 0; k < 3; ++k) {
+        for (int b = 0; b < 2; ++b) {
+            s.calls[k][b] = g_denseCalls[k][b].load(std::memory_order_relaxed);
+            s.madds[k][b] = g_denseMadds[k][b].load(std::memory_order_relaxed);
+            for (int q = 0; q < kDenseSizeBuckets; ++q) {
+                s.bucketCalls[k][b][q] = g_denseBucketCalls[k][b][q].load(std::memory_order_relaxed);
+                s.bucketMadds[k][b][q] = g_denseBucketMadds[k][b][q].load(std::memory_order_relaxed);
+            }
+        }
+        s.minAccelM[k] = g_denseMinAccelM[k].load(std::memory_order_relaxed);
+        s.minAccelK[k] = g_denseMinAccelK[k].load(std::memory_order_relaxed);
+        s.accelBelowCrossover[k] = g_denseAccelBelow[k].load(std::memory_order_relaxed);
+    }
+    return s;
+}
+
+void resetDenseKernelStats() {
+    for (int k = 0; k < 3; ++k) {
+        for (int b = 0; b < 2; ++b) {
+            g_denseCalls[k][b].store(0, std::memory_order_relaxed);
+            g_denseMadds[k][b].store(0, std::memory_order_relaxed);
+            for (int q = 0; q < kDenseSizeBuckets; ++q) {
+                g_denseBucketCalls[k][b][q].store(0, std::memory_order_relaxed);
+                g_denseBucketMadds[k][b][q].store(0, std::memory_order_relaxed);
+            }
+        }
+        g_denseMinAccelM[k].store(0, std::memory_order_relaxed);
+        g_denseMinAccelK[k].store(0, std::memory_order_relaxed);
+        g_denseAccelBelow[k].store(0, std::memory_order_relaxed);
+    }
+}
+
 const char* sparseOrderingName(SparseOrdering ord) {
     switch (ord) {
     case SparseOrdering::Natural:          return "Natural";
@@ -2546,7 +2915,8 @@ std::vector<std::size_t> fillReducingOrdering(const SparseCSR<double>& A,
                                               AutoOrderingReport* report) {
     if (A.rows() != A.cols()) return {};
     SparseOrdering c = ord;
-    std::vector<std::size_t> perm = chooseOrdering(buildAdjacency(A), ord, c, report);
+    std::vector<std::size_t> perm = chooseOrdering(buildAdjacency(A), ord, c, report,
+                                                   orderingScaleFor(kDefaultSparseFactorMethod));
     if (chosen) *chosen = c;
     return perm;
 }
@@ -2562,24 +2932,50 @@ std::size_t symbolicFactorNnz(const SparseCSR<double>& A,
     return symbolicFactorStats(A, perm).nnzL;
 }
 
-void SparseLDLT::compute(const SparseCSR<double>& A, SparseOrdering ordering) {
+void SparseLDLT::compute(const SparseCSR<double>& A, SparseOrdering ordering,
+                         SparseFactorMethod method) {
     if (SparseFactorObserver obs = g_ldltObserver.load())
         obs(A, g_ldltObserverCtx.load());
     const std::size_t n = A.rows();
     n_ = n;
     chosen_ = ordering;
+    method_ = method;
     ok_ = (A.rows() == A.cols());
     perm_.clear(); iperm_.clear();
-    Lp_.clear(); Li_.clear(); Lx_.clear();
-    d_.assign(n, 0.0);
+    Lp_.clear(); Li_.clear(); Lx_.clear(); d_.clear();
+    snPerm_.clear(); snStart_.clear(); snRowPtr_.clear(); snRows_.clear();
+    snValPtr_.clear(); snVal_.clear();
+    nnzL_ = 0;
     if (!ok_) return;
     if (n == 0) { Lp_.assign(1, 0); ok_ = true; return; }
 
     // ---- 1. FILL-REDUCING ORDERING (see SparseOrdering) --------------------
     std::vector<std::vector<std::size_t>> adj = buildAdjacency(A);
-    perm_ = chooseOrdering(adj, ordering, chosen_);
+    perm_ = chooseOrdering(adj, ordering, chosen_, nullptr, orderingScaleFor(method));
     iperm_.assign(n, 0);
     for (std::size_t k = 0; k < n; ++k) iperm_[perm_[k]] = k;
+    // The supernodal panels are int-indexed; a matrix of order >= INT_MAX (far
+    // beyond anything this kernel assembles) takes the size_t up-looking path.
+    if (method == SparseFactorMethod::Supernodal &&
+        n < static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        computeSupernodal(A, adj);
+    } else {
+        method_ = SparseFactorMethod::UpLooking;
+        computeUpLooking(A, adj);
+    }
+}
+
+std::size_t SparseLDLT::factorStoredEntries() const {
+    return method_ == SparseFactorMethod::Supernodal ? snVal_.size() : Lx_.size() + d_.size();
+}
+
+// ---------------------------------------------------------------------------
+// UpLooking: the scalar up-looking LDLᵀ this kernel shipped (reference oracle).
+// ---------------------------------------------------------------------------
+void SparseLDLT::computeUpLooking(const SparseCSR<double>& A,
+                                  const std::vector<std::vector<std::size_t>>& adj) {
+    const std::size_t n = n_;
+    d_.assign(n, 0.0);
 
     // Permuted strictly-lower structural pattern, grouped by COLUMN: for a
     // structural entry (oi,oj) of A, its permuted indices (i,j). When j<i it is
@@ -2629,6 +3025,7 @@ void SparseLDLT::compute(const SparseCSR<double>& A, SparseOrdering ordering) {
     const std::size_t lnz = Lp_[n];
     Li_.assign(lnz, 0);
     Lx_.assign(lnz, 0.0);
+    nnzL_ = lnz;
 
     // ---- 3. NUMERIC FACTORIZATION (up-looking sparse LDLᵀ) -----------------
     // Davis "ldl_numeric": for each row k, scatter the lower part of permuted A
@@ -2708,12 +3105,273 @@ void SparseLDLT::compute(const SparseCSR<double>& A, SparseOrdering ordering) {
     ok_ = true;
 }
 
+// ---------------------------------------------------------------------------
+// Supernodal: MULTIFRONTAL supernodal Cholesky (T-157).
+//
+// Symbolic (all O(nnz(A))-ish, reusing the T-163 analysis): the chosen
+// permutation is re-ordered by its elimination-tree POSTORDER (an equivalent
+// ordering — same fill — under which every supernode is a contiguous column
+// range and every subtree is processed before its parent); exact column counts
+// (Gilbert-Ng-Peyton) give the FUNDAMENTAL supernodes (j, j+1 merge iff
+// parent(j) = j+1, c(j) = c(j+1)+1 and j+1 has no other child), then RELAXED
+// AMALGAMATION merges a supernode into the contiguous one above it when the
+// explicit zeros stay small (always up to 4 columns; < 80 % zeros up to 16,
+// < 10 % up to 48, < 5 % beyond, at most kSnMaxCols columns — the rule of
+// Ashcraft & Grimes, "The influence of relaxed supernode partitions on the
+// multifrontal method", ACM TOMS 15(4), 1989; values as popularised by
+// CHOLMOD). Each supernode's row structure is the union of its A columns and
+// its children's structures (Liu, "The multifrontal method for sparse matrix
+// solution: theory and practice", SIAM Review 34(1), 1992).
+//
+// Numeric: for each supernode s in postorder, assemble the dense frontal
+// matrix F (order k+m: its k columns and m rows below) from A and the update
+// matrices its children left on a stack (extend-add), then
+//     F11 = L11 L11ᵀ          POTRF  (k×k)
+//     L21 = F21 L11⁻ᵀ         TRSM   (m×k)
+//     U   = F22 − L21 L21ᵀ    SYRK   (m×m, rank k)
+// through the dense-kernel seam, keep [L11; L21] and push U. A non-positive
+// pivot (POTRF info > 0) means A is not SPD: ok() = false, as before.
+// Written from the cited papers; no third-party source is copied.
+// ---------------------------------------------------------------------------
+namespace {
+constexpr int kSnMaxCols = 64;   // cap on an amalgamated supernode's width
+}  // namespace
+
+void SparseLDLT::computeSupernodal(const SparseCSR<double>& A,
+                                   const std::vector<std::vector<std::size_t>>& adj) {
+    const std::size_t n = n_;
+    ok_ = false;
+    if (n >= static_cast<std::size_t>(std::numeric_limits<int>::max())) return;   // int-indexed panels
+    // ---- 1. postorder the chosen permutation -------------------------------------
+    {
+        const PermutedPattern P0 = permutePattern(adj, perm_);
+        const std::vector<std::size_t> parent0 = eliminationTree(P0, n);
+        const std::vector<std::size_t> post0 = etreePostorder(parent0);
+        snPerm_.resize(n);
+        for (std::size_t k = 0; k < n; ++k) snPerm_[k] = perm_[post0[k]];
+    }
+    const PermutedPattern P = permutePattern(adj, snPerm_);
+    const std::vector<std::size_t> parent = eliminationTree(P, n);
+    const std::vector<std::size_t> cc = strictColumnCounts(P, parent, etreePostorder(parent));
+    nnzL_ = 0;
+    for (std::size_t c : cc) nnzL_ += c;
+    // ---- 2. fundamental supernodes ------------------------------------------------
+    std::vector<int> nchild(n, 0);
+    for (std::size_t j = 0; j < n; ++j)
+        if (parent[j] != kNoNode) ++nchild[parent[j]];
+    std::vector<int> fund;                       // first column of each fundamental supernode
+    for (std::size_t j = 0; j < n;) {
+        std::size_t l = j;
+        while (l + 1 < n && parent[l] == l + 1 && cc[l] == cc[l + 1] + 1 && nchild[l + 1] == 1) ++l;
+        fund.push_back(static_cast<int>(j));
+        j = l + 1;
+    }
+    fund.push_back(static_cast<int>(n));
+    // ---- 3. relaxed amalgamation (contiguous child into parent) ------------------
+    snStart_.clear();
+    {
+        int gk = 0;                // width of the open group
+        double gTrue = 0.0;        // structural strict-lower entries of the open group
+        for (std::size_t f = 0; f + 1 < fund.size(); ++f) {
+            const int a = fund[f], l = fund[f + 1] - 1, k = l - a + 1;
+            const double m = static_cast<double>(cc[static_cast<std::size_t>(l)]);
+            double tru = 0.0;
+            for (int j = a; j <= l; ++j) tru += static_cast<double>(cc[static_cast<std::size_t>(j)]);
+            bool merged = false;
+            if (!snStart_.empty()) {
+                const std::size_t gl = static_cast<std::size_t>(a - 1);       // open group's last column
+                if (parent[gl] != kNoNode && parent[gl] >= static_cast<std::size_t>(a) &&
+                    parent[gl] <= static_cast<std::size_t>(l)) {
+                    const int kk = gk + k;
+                    const double stored = static_cast<double>(kk) * (kk - 1) / 2.0 + static_cast<double>(kk) * m;
+                    const double z = stored > 0.0 ? (stored - (gTrue + tru)) / stored : 0.0;
+                    if (kk <= kSnMaxCols &&
+                        (kk <= 4 || (kk <= 16 && z < 0.8) || (kk <= 48 && z < 0.1) || z < 0.05)) {
+                        gk = kk;
+                        gTrue += tru;
+                        merged = true;
+                    }
+                }
+            }
+            if (!merged) { snStart_.push_back(a); gk = k; gTrue = tru; }
+        }
+        snStart_.push_back(static_cast<int>(n));
+    }
+    const int ns = static_cast<int>(snStart_.size()) - 1;
+    std::vector<int> snOf(n);
+    for (int s = 0; s < ns; ++s)
+        for (int c = snStart_[static_cast<std::size_t>(s)]; c < snStart_[static_cast<std::size_t>(s) + 1]; ++c)
+            snOf[static_cast<std::size_t>(c)] = s;
+    // ---- 4. supernodal tree and row structures -------------------------------------
+    std::vector<int> firstKid(static_cast<std::size_t>(ns), -1), nextKid(static_cast<std::size_t>(ns), -1);
+    for (int s = ns - 1; s >= 0; --s) {
+        const std::size_t l = static_cast<std::size_t>(snStart_[static_cast<std::size_t>(s) + 1] - 1);
+        if (parent[l] == kNoNode) continue;
+        const int ps = snOf[parent[l]];
+        nextKid[static_cast<std::size_t>(s)] = firstKid[static_cast<std::size_t>(ps)];
+        firstKid[static_cast<std::size_t>(ps)] = s;
+    }
+    snRowPtr_.assign(static_cast<std::size_t>(ns) + 1, 0);
+    snRows_.clear();
+    {
+        std::vector<int> mark(n, -1), rows;
+        for (int s = 0; s < ns; ++s) {
+            const int f = snStart_[static_cast<std::size_t>(s)], l = snStart_[static_cast<std::size_t>(s) + 1] - 1;
+            rows.clear();
+            for (int j = f; j <= l; ++j)
+                for (std::size_t q = P.ptr[static_cast<std::size_t>(j)]; q < P.ptr[static_cast<std::size_t>(j) + 1]; ++q) {
+                    const std::size_t i = P.idx[q];
+                    if (i > static_cast<std::size_t>(l) && mark[i] != s) { mark[i] = s; rows.push_back(static_cast<int>(i)); }
+                }
+            for (int c = firstKid[static_cast<std::size_t>(s)]; c >= 0; c = nextKid[static_cast<std::size_t>(c)])
+                for (std::size_t q = snRowPtr_[static_cast<std::size_t>(c)]; q < snRowPtr_[static_cast<std::size_t>(c) + 1]; ++q) {
+                    const int i = snRows_[q];
+                    if (i > l && mark[static_cast<std::size_t>(i)] != s) { mark[static_cast<std::size_t>(i)] = s; rows.push_back(i); }
+                }
+            std::sort(rows.begin(), rows.end());
+            snRows_.insert(snRows_.end(), rows.begin(), rows.end());
+            snRowPtr_[static_cast<std::size_t>(s) + 1] = snRows_.size();
+        }
+    }
+    snValPtr_.assign(static_cast<std::size_t>(ns) + 1, 0);
+    std::size_t maxFront = 0;
+    for (int s = 0; s < ns; ++s) {
+        const std::size_t k = static_cast<std::size_t>(snStart_[static_cast<std::size_t>(s) + 1] - snStart_[static_cast<std::size_t>(s)]);
+        const std::size_t m = snRowPtr_[static_cast<std::size_t>(s) + 1] - snRowPtr_[static_cast<std::size_t>(s)];
+        snValPtr_[static_cast<std::size_t>(s) + 1] = snValPtr_[static_cast<std::size_t>(s)] + (k + m) * k;
+        maxFront = std::max(maxFront, k + m);
+    }
+    snVal_.assign(snValPtr_[static_cast<std::size_t>(ns)], 0.0);
+    // ---- 5. permuted LOWER triangle of A by column (the entries the up-looking
+    //         path reads too: CSR row oi's (oi, oj) with perm(oi) >= perm(oj)) -----
+    std::vector<std::size_t> spos(n);
+    for (std::size_t k = 0; k < n; ++k) spos[snPerm_[k]] = k;
+    std::vector<std::size_t> cp(n + 1, 0);
+    const auto& rp = A.rowPtr();
+    const auto& ci = A.colIdx();
+    const auto& av = A.values();
+    for (std::size_t oi = 0; oi < n; ++oi)
+        for (std::size_t q = rp[oi]; q < rp[oi + 1]; ++q)
+            if (spos[oi] >= spos[ci[q]]) ++cp[spos[ci[q]] + 1];
+    for (std::size_t j = 0; j < n; ++j) cp[j + 1] += cp[j];
+    std::vector<int> crow(cp[n]);
+    std::vector<double> cval(cp[n]);
+    {
+        std::vector<std::size_t> w(cp.begin(), cp.end() - 1);
+        for (std::size_t oi = 0; oi < n; ++oi)
+            for (std::size_t q = rp[oi]; q < rp[oi + 1]; ++q) {
+                const std::size_t i = spos[oi], j = spos[ci[q]];
+                if (i >= j) { crow[w[j]] = static_cast<int>(i); cval[w[j]++] = av[q]; }
+            }
+    }
+    // ---- 6. numeric multifrontal --------------------------------------------------
+    std::vector<int> loc(n, -1);
+    std::vector<double> front(maxFront * maxFront);
+    std::vector<double> stack;          // update matrices, m×m column-major, children on top
+    std::vector<std::size_t> stackOff;  // their offsets, one per pending supernode
+    std::vector<int> stackSn;
+    for (int s = 0; s < ns; ++s) {
+        const int f = snStart_[static_cast<std::size_t>(s)];
+        const int k = snStart_[static_cast<std::size_t>(s) + 1] - f;
+        const int* rows = snRows_.data() + snRowPtr_[static_cast<std::size_t>(s)];
+        const int m = static_cast<int>(snRowPtr_[static_cast<std::size_t>(s) + 1] - snRowPtr_[static_cast<std::size_t>(s)]);
+        const int Fs = k + m;
+        const std::size_t ld = static_cast<std::size_t>(Fs);
+        std::fill(front.begin(), front.begin() + static_cast<std::ptrdiff_t>(ld * ld), 0.0);
+        for (int j = 0; j < k; ++j) loc[static_cast<std::size_t>(f + j)] = j;
+        for (int t = 0; t < m; ++t) loc[static_cast<std::size_t>(rows[t])] = k + t;
+        // assemble A
+        for (int j = f; j < f + k; ++j) {
+            double* col = front.data() + static_cast<std::size_t>(j - f) * ld;
+            for (std::size_t q = cp[static_cast<std::size_t>(j)]; q < cp[static_cast<std::size_t>(j) + 1]; ++q)
+                col[loc[static_cast<std::size_t>(crow[q])]] += cval[q];
+        }
+        // extend-add the children's updates (they are the top entries of the stack)
+        int nkids = 0;
+        for (int c = firstKid[static_cast<std::size_t>(s)]; c >= 0; c = nextKid[static_cast<std::size_t>(c)]) ++nkids;
+        for (int t = 0; t < nkids; ++t) {
+            const int c = stackSn.back();
+            const std::size_t off = stackOff.back();
+            const int* rc = snRows_.data() + snRowPtr_[static_cast<std::size_t>(c)];
+            const int mc = static_cast<int>(snRowPtr_[static_cast<std::size_t>(c) + 1] - snRowPtr_[static_cast<std::size_t>(c)]);
+            const double* U = stack.data() + off;
+            for (int b = 0; b < mc; ++b) {
+                double* col = front.data() + static_cast<std::size_t>(loc[static_cast<std::size_t>(rc[b])]) * ld;
+                const double* ub = U + static_cast<std::size_t>(b) * static_cast<std::size_t>(mc);
+                for (int a2 = b; a2 < mc; ++a2) col[loc[static_cast<std::size_t>(rc[a2])]] += ub[a2];
+            }
+            stack.resize(off);
+            stackOff.pop_back();
+            stackSn.pop_back();
+        }
+        // factor the front
+        if (seamPotrf(k, front.data(), Fs) != 0) { ok_ = false; return; }
+        if (m > 0) {
+            seamTrsm(m, k, front.data(), Fs, front.data() + k, Fs);
+            seamSyrk(m, k, front.data() + k, Fs, front.data() + static_cast<std::size_t>(k) * ld + static_cast<std::size_t>(k), Fs);
+        }
+        double* panel = snVal_.data() + snValPtr_[static_cast<std::size_t>(s)];
+        std::copy(front.begin(), front.begin() + static_cast<std::ptrdiff_t>(ld * static_cast<std::size_t>(k)), panel);
+        if (m > 0) {
+            const std::size_t off = stack.size();
+            stack.resize(off + static_cast<std::size_t>(m) * static_cast<std::size_t>(m));
+            for (int b = 0; b < m; ++b) {
+                const double* src = front.data() + static_cast<std::size_t>(k + b) * ld + static_cast<std::size_t>(k);
+                std::copy(src, src + m, stack.data() + off + static_cast<std::size_t>(b) * static_cast<std::size_t>(m));
+            }
+            stackOff.push_back(off);
+            stackSn.push_back(s);
+        }
+    }
+    ok_ = true;
+}
+
 std::vector<double> SparseLDLT::solve(const std::vector<double>& b) const {
     const std::size_t n = n_;
     std::vector<double> x(n, 0.0);
     if (!ok_ || b.size() != n) return x;
     if (n == 0) return x;
 
+
+    if (method_ == SparseFactorMethod::Supernodal) {
+        // P A Pᵀ = L Lᵀ: forward L y = P b, backward Lᵀ z = y, x = Pᵀ z — one
+        // supernode (diagonal block + panel) at a time.
+        std::vector<double> y(n);
+        for (std::size_t k = 0; k < n; ++k) y[k] = b[snPerm_[k]];
+        const int ns = static_cast<int>(snStart_.size()) - 1;
+        for (int s = 0; s < ns; ++s) {
+            const std::size_t f = static_cast<std::size_t>(snStart_[static_cast<std::size_t>(s)]);
+            const std::size_t k = static_cast<std::size_t>(snStart_[static_cast<std::size_t>(s) + 1]) - f;
+            const std::size_t m = snRowPtr_[static_cast<std::size_t>(s) + 1] - snRowPtr_[static_cast<std::size_t>(s)];
+            const std::size_t ld = k + m;
+            const double* P = snVal_.data() + snValPtr_[static_cast<std::size_t>(s)];
+            const int* rows = snRows_.data() + snRowPtr_[static_cast<std::size_t>(s)];
+            for (std::size_t j = 0; j < k; ++j) {
+                const double* col = P + j * ld;
+                const double xj = y[f + j] / col[j];
+                y[f + j] = xj;
+                for (std::size_t i = j + 1; i < k; ++i) y[f + i] -= col[i] * xj;
+                for (std::size_t t = 0; t < m; ++t) y[static_cast<std::size_t>(rows[t])] -= col[k + t] * xj;
+            }
+        }
+        for (int s = ns - 1; s >= 0; --s) {
+            const std::size_t f = static_cast<std::size_t>(snStart_[static_cast<std::size_t>(s)]);
+            const std::size_t k = static_cast<std::size_t>(snStart_[static_cast<std::size_t>(s) + 1]) - f;
+            const std::size_t m = snRowPtr_[static_cast<std::size_t>(s) + 1] - snRowPtr_[static_cast<std::size_t>(s)];
+            const std::size_t ld = k + m;
+            const double* P = snVal_.data() + snValPtr_[static_cast<std::size_t>(s)];
+            const int* rows = snRows_.data() + snRowPtr_[static_cast<std::size_t>(s)];
+            for (std::size_t jj = k; jj-- > 0;) {
+                const double* col = P + jj * ld;
+                double sum = y[f + jj];
+                for (std::size_t i = jj + 1; i < k; ++i) sum -= col[i] * y[f + i];
+                for (std::size_t t = 0; t < m; ++t) sum -= col[k + t] * y[static_cast<std::size_t>(rows[t])];
+                y[f + jj] = sum / col[jj];
+            }
+        }
+        for (std::size_t k = 0; k < n; ++k) x[snPerm_[k]] = y[k];
+        return x;
+    }
     // Permute b -> y in the factorization ordering: y[k] = b[perm_[k]].
     std::vector<double> y(n);
     for (std::size_t k = 0; k < n; ++k) y[k] = b[perm_[k]];

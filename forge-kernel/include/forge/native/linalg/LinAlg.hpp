@@ -75,6 +75,7 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 #include <vector>
 
@@ -693,51 +694,160 @@ std::size_t symbolicFactorNnz(const SparseCSR<double>& A,
                               const std::vector<std::size_t>& perm);
 
 // ---------------------------------------------------------------------------
-// Sparse SPD direct solver — up-looking sparse Cholesky (LDLT form), factor
-// once / solve many. Operates on the symmetric SPD matrix given in CSR.
+// Sparse SPD direct solver — sparse Cholesky (supernodal by default, T-157;
+// the up-looking LDLᵀ it replaced is kept as the oracle), factor once / solve
+// many. Operates on the symmetric SPD matrix given in CSR.
 //   <- Eigen SimplicialLDLT  (the 10 FE/CFD/normal-equation sites)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// DENSE KERNEL SEAM (T-157). The supernodal sparse Cholesky below hands its
+// dense blocks to three kernels: POTRF (k×k Cholesky of a supernode's diagonal
+// block), TRSM (its sub-diagonal panel, B := B·L⁻ᵀ) and SYRK (the Schur
+// complement update, C := C − B·Bᵀ). Each call runs either the portable native
+// loops or — in an Apple build compiled with FORGE_LINALG_ACCELERATE — Apple's
+// Accelerate (LAPACK dpotrf, CBLAS dtrsm / dsyrk), but only above the MEASURED
+// per-kernel crossover (test/linalg_accelerate_gate.cpp, A4): below it the
+// call overhead makes Accelerate lose and the native loop runs.
+// ---------------------------------------------------------------------------
+enum class DenseKernel : int { Potrf = 0, Trsm = 1, Syrk = 2 };
+enum class DenseBackend : int { Native = 0, Accelerate = 1 };
+// Auto = the measured crossover; the Force* values are a diagnostic override
+// for A/B gates (process-global; set it only while no factorization runs).
+enum class DenseBackendPolicy : int { Auto = 0, ForceNative = 1, ForceAccelerate = 2 };
+bool denseAccelerateAvailable();                  // compiled with Accelerate
+void setDenseBackendPolicy(DenseBackendPolicy policy);
+DenseBackendPolicy denseBackendPolicy();
+// Would a call of these dimensions run on Accelerate under the Auto policy?
+// (potrf: n = order; trsm: m rows of B, k = order of L; syrk: m = order of C,
+// k = inner dimension.) The single source of truth for the dispatch.
+bool denseAccelerateWins(DenseKernel kernel, int m, int k);
+// The three kernels themselves, through the dispatch above (and counted in the
+// statistics below). Column-major with leading dimensions; lower triangles.
+//   densePotrf  A(n×n) = L Lᵀ in place (lower triangle referenced and written);
+//               returns 0, or j+1 when the j-th pivot is not positive (not SPD).
+//   denseTrsm   B(m×k) := B L⁻ᵀ, L the k×k lower-triangular factor (non-unit).
+//   denseSyrk   C(m×m) := C − B Bᵀ on the lower triangle, B m×k.
+int densePotrf(int n, double* A, int lda);
+void denseTrsm(int m, int k, const double* L, int ldl, double* B, int ldb);
+void denseSyrk(int m, int k, const double* B, int ldb, double* C, int ldc);
+// Size buckets of a dense call's LARGER dimension: <8, 8-31, 32-127, 128-511,
+// 512-2047, >=2048 (the A1 size distribution, test/linalg_accelerate_gate.cpp).
+inline constexpr int kDenseSizeBuckets = 6;
+int denseSizeBucket(std::size_t n);
+// Process-wide counters of the three kernels (relaxed atomics): calls and
+// multiply-adds per kernel and backend, per size bucket, the smallest (m, k)
+// ever sent to Accelerate, and the calls sent there below the crossover.
+struct DenseKernelStats {
+    std::uint64_t calls[3][2] = {{0, 0}, {0, 0}, {0, 0}};
+    std::uint64_t madds[3][2] = {{0, 0}, {0, 0}, {0, 0}};  // multiply-adds
+    int minAccelM[3] = {0, 0, 0};    // 0 = never sent to Accelerate
+    int minAccelK[3] = {0, 0, 0};
+    // [kernel][backend][bucket of max(m, k)]
+    std::uint64_t bucketCalls[3][2][kDenseSizeBuckets] = {};
+    std::uint64_t bucketMadds[3][2][kDenseSizeBuckets] = {};
+    // Calls that ran on Accelerate although denseAccelerateWins() says the
+    // native loop is faster at that size (only ForceAccelerate can cause it):
+    // 0 under the Auto policy is the evidence that the Accelerate path is not
+    // used below the crossover.
+    std::uint64_t accelBelowCrossover[3] = {0, 0, 0};
+};
+DenseKernelStats denseKernelStats();
+void resetDenseKernelStats();
+
+// Size distribution of the classic DENSE factorizations/eigensolvers (A1 of
+// T-157: which dense sizes the production solvers actually hand this library).
+// Off by default — when disabled a compute() pays one relaxed atomic load.
+enum class DenseOp : int {
+    LU = 0, LLT, LDLT, HouseholderQR, ColPivHouseholderQR, FullPivHouseholderQR,
+    SymmetricEigen, GeneralizedSymmetricEigen, Count
+};
+inline constexpr int kDenseOpCount = static_cast<int>(DenseOp::Count);
+const char* denseOpName(DenseOp op);
+struct DenseOpStats {
+    std::uint64_t calls[kDenseOpCount][kDenseSizeBuckets] = {};
+    double seconds[kDenseOpCount][kDenseSizeBuckets] = {};
+    std::size_t maxRows[kDenseOpCount] = {};
+    std::size_t maxCols[kDenseOpCount] = {};
+};
+void setDenseOpStatsEnabled(bool on);   // diagnostic; not thread-scoped
+DenseOpStats denseOpStats();
+void resetDenseOpStats();
+
+// How SparseLDLT factors numerically. Both produce the same solution to
+// round-off (gated in test/linalg_accelerate_gate.cpp, A3).
+//   Supernodal  multifrontal supernodal Cholesky (relaxed amalgamation),
+//               dense blocks through the seam above. The DEFAULT.
+//   UpLooking   the scalar up-looking LDLᵀ (Davis' LDL) this kernel shipped —
+//               kept as the reference oracle and fallback.
+enum class SparseFactorMethod { Supernodal, UpLooking };
+inline constexpr SparseFactorMethod kDefaultSparseFactorMethod = SparseFactorMethod::Supernodal;
+
 class SparseLDLT {
 public:
     SparseLDLT() = default;
     explicit SparseLDLT(const SparseCSR<double>& A,
-                        SparseOrdering ord = kDefaultSparseOrdering) {
-        compute(A, ord);
+                        SparseOrdering ord = kDefaultSparseOrdering,
+                        SparseFactorMethod method = kDefaultSparseFactorMethod) {
+        compute(A, ord, method);
     }
     // `ord` selects the fill-reducing ordering; the default is the kernel-wide
     // measured choice (kDefaultSparseOrdering). Every ordering is a permutation,
     // so solve() returns the same answer to round-off whichever is used.
     void compute(const SparseCSR<double>& A,
-                 SparseOrdering ord = kDefaultSparseOrdering);
+                 SparseOrdering ord = kDefaultSparseOrdering,
+                 SparseFactorMethod method = kDefaultSparseFactorMethod);
     bool ok() const { return ok_; }              // false if not SPD
     std::vector<double> solve(const std::vector<double>& b) const;
 
-    // Diagnostic (for the large-scale test): number of stored nonzeros in the
-    // strictly-lower factor L. Memory footprint is O(nnz(L)), NOT O(n²).
-    std::size_t factorNnz() const { return Lx_.size(); }
+    // Structural number of nonzeros in the strictly-lower factor L (exact; the
+    // same for both methods). Memory footprint is O(nnz(L)), NOT O(n²).
+    std::size_t factorNnz() const { return nnzL_; }
+    // Doubles actually stored for the factor: nnz(L)+n for UpLooking; for
+    // Supernodal the dense panels, i.e. also each diagonal block's upper
+    // triangle and the explicit zeros relaxed amalgamation admits.
+    std::size_t factorStoredEntries() const;
     // Which ordering was actually used. Equal to the `ord` argument except for
     // SparseOrdering::Auto, where it names the candidate that won.
     SparseOrdering chosenOrdering() const { return chosen_; }
-    // The fill-reducing permutation used (perm[k] = original index at k).
+    // The fill-reducing permutation chosen (perm[k] = original index at k).
+    // The supernodal method additionally applies the elimination-tree
+    // postorder of this permutation internally — an equivalent ordering with
+    // exactly the same fill.
     const std::vector<std::size_t>& permutation() const { return perm_; }
+    SparseFactorMethod method() const { return method_; }
+    std::size_t supernodeCount() const { return snStart_.empty() ? 0 : snStart_.size() - 1; }
 
 private:
-    // TRUE sparse LDLᵀ. The matrix is reordered by a fill-reducing permutation
-    // (see SparseOrdering above), symbolically analyzed (elimination tree +
-    // column counts give the exact fill), then factored up-looking. L is stored
-    // in compressed-sparse-COLUMN form (strictly lower, unit diagonal implicit);
-    // D is the diagonal of the LDLᵀ decomposition of the PERMUTED matrix.
-    //
+    void computeUpLooking(const SparseCSR<double>& A,
+                          const std::vector<std::vector<std::size_t>>& adj);
+    void computeSupernodal(const SparseCSR<double>& A,
+                           const std::vector<std::vector<std::size_t>>& adj);
+
     // perm_[k]  = original index placed at permuted position k  (P: new<-old)
     // iperm_[i] = permuted position of original index i          (Pᵀ)
     std::vector<std::size_t> perm_, iperm_;
+    // ---- UpLooking: L in compressed-sparse-COLUMN form (strictly lower, unit
+    // diagonal implicit); D the diagonal of the LDLᵀ of the PERMUTED matrix.
     std::vector<std::size_t> Lp_;   // column pointers into Li_/Lx_  (size n+1)
     std::vector<std::size_t> Li_;   // row indices of L (strictly lower)
     std::vector<double>      Lx_;   // numeric values of L
     std::vector<double>      d_;    // diagonal D of the permuted factorization
+    // ---- Supernodal: P A Pᵀ = L Lᵀ (Cholesky; LDLᵀ with D = diag(L)²) with
+    // P the postordered permutation snPerm_. Supernode s owns the contiguous
+    // columns [snStart_[s], snStart_[s+1]) and, below them, the ascending rows
+    // snRows_[snRowPtr_[s] .. snRowPtr_[s+1]); its (k+m)×k panel (column-major,
+    // diagonal block first) is snVal_[snValPtr_[s] ..].
+    std::vector<std::size_t> snPerm_;
+    std::vector<int>         snStart_;
+    std::vector<std::size_t> snRowPtr_;
+    std::vector<int>         snRows_;
+    std::vector<std::size_t> snValPtr_;
+    std::vector<double>      snVal_;
+    std::size_t nnzL_ = 0;
     std::size_t n_ = 0;
     bool ok_ = false;
     SparseOrdering chosen_ = kDefaultSparseOrdering;
+    SparseFactorMethod method_ = kDefaultSparseFactorMethod;
 };
 
 // ---------------------------------------------------------------------------

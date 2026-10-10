@@ -2719,6 +2719,19 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
     # counting exactly what they counted before.
     target_link_libraries(forge_kernel_core PRIVATE ${OCCT_LIBS} TKBO TKG2d)
 
+    # T-157 — Apple Accelerate (a SYSTEM framework: no third-party code, no
+    # licence, no OCCT) backs the dense POTRF/TRSM/SYRK kernels of the supernodal
+    # sparse Cholesky in src/native/linalg/LinAlg.cpp above their measured
+    # crossover (test/linalg_accelerate_gate.cpp). forge_kernel_core ONLY: the
+    # Node addon target is untouched and compiles LinAlg.cpp without the define,
+    # i.e. with the portable native loops. -DFORGE_LINALG_ACCELERATE=OFF gives the
+    # native-only build for A/B.
+    option(FORGE_LINALG_ACCELERATE "Use Apple Accelerate for dense linalg kernels (Apple only)" ON)
+    if(APPLE AND FORGE_LINALG_ACCELERATE)
+        target_compile_definitions(forge_kernel_core PRIVATE FORGE_LINALG_ACCELERATE=1)
+        target_link_libraries(forge_kernel_core PRIVATE "-framework Accelerate")
+    endif()
+
     if(APPLE)
         # Normal shared lib: rpath to the OCCT dylibs, but NO `-undefined
         # dynamic_lookup` — every symbol must resolve at link time (the proof).
