@@ -26,6 +26,8 @@ signal (`archdisc-Models/scripts/forge_law7.py`).
 ## Install, operate, remove
 
 ```sh
+zsh tools/guardian/forge-guardian-install install --dry-run   # what install would do + the
+                                                        # reservation preflight; changes nothing
 zsh tools/guardian/forge-guardian-install install      # builds the sensor, stages, validates,
                                                         # installs, starts, verifies, or rolls back
 forge-guardian-ctl status                               # first line: RUNNING pid=… (launchd-supervised)
@@ -42,6 +44,85 @@ symlinks into `current`. Nothing is ever written in place (a running zsh reads i
 incrementally). The LaunchAgent `com.archdisc.forge.guardian` is generated for the resolving user
 (escaped, `plutil`-linted, read back); `RunAtLoad`, `KeepAlive`, `ThrottleInterval 30`,
 `ProcessType Standard`, `Nice 5`, logs in `~/.forge-health/log/launchd.{out,err}`.
+
+### What an install does, how long it takes, how it exits
+
+`forge-guardian-install install --dry-run` reads the domain and prints what `install` would do —
+it writes, builds, starts and signals nothing (launchctl is only asked to `print`). `install`
+(after staging, before the cutover), `install --dry-run` and `status` run the **reservation
+preflight** (report only): v2 admission holds every live envelope's reservation,
+`max(declared peak_gb, measured)`, against the heavy budget `RAM − memory.os_reserve_gb`, so a live
+envelope whose declaration *alone* exceeds that budget (on this 36 GiB Mac: the archie-sidecar's v1
+envelope declared 31 GiB against 36 − 6 = 30) is reported as `RESERVATION EXCEEDS THE HEAVY BUDGET …
+heavy admission will be denied while it is registered.` Every job declaring more than
+`memory.light_job_gb` is then denied until that job is re-registered with a declaration that fits,
+or stops. The installer never edits, re-registers or signals that job or any other service.
+
+The budget it prints is the engine's. `admit` reads `policy.json` at every call and rejects the
+*whole* file when any key is outside SCHEMA §6's bounds (the defaults, `os_reserve` 6, apply then).
+So the preflight asks a sensor for exactly that evaluation (`forge-guardian-sensor policy
+--state-dir ~/.forge-health --env`, read-only): `install` asks the staged sensor (the one that
+admits after the install), `--dry-run` asks `FORGE_GUARDIAN_SENSOR_PREBUILT` or the installed
+sensor, and `status` asks the installed sensor. When no sensor can answer (for example a dry run
+from sources before the first v2 install, or a rollback to v1), the installer checks only `memory.os_reserve_gb`, against the
+engine's bound 2 – RAM−2 GiB. The line says which of these it did and why a value was rejected.
+
+The envelopes it counts are the engine's too (SCHEMA §5, §6), rule for rule: an envelope larger
+than 64 KiB is read up to 64 KiB and counted as `unverifiable` (it used to be skipped: a false
+all-clear); `peak_gb` is read as `strtod` reads it, so `31.0`, `3.1e1`, ` 31` and `31.` are 31 GiB,
+not "unreadable"; the first occurrence of a key wins, keys after `cmd` included; a zombie is dead;
+and a registry the engine cannot read completely (more than 1024 envelopes or 4096 entries, an
+envelope it cannot open, `jobs` not a readable directory) is reported as `UNREADABLE REGISTRY`,
+because every admission then exits 75. `install_gate.sh` 0c checks each rule against the real
+sensor's own reading of the same envelope.
+
+**The cutover never shows a stop-time GREEN.** The hand-copied v1 governor's TERM trap publishes
+GREEN "guardian stopped" (`heavy_jobs_ok: true`, a fresh epoch). So a running governor that is not
+positively a v2 one is not TERMed: its identity is proven (launchd's pid, argv, start time), it is
+SIGSTOPped and re-verified, its whole process tree is frozen, UNKNOWN is published into
+`state.json`, the Law-7 `status.json` and a fresh `state`, the tree is SIGKILLed (no trap runs), and
+only then is the label booted out. A launchd KeepAlive respawn in that instant finds a governed
+domain and refuses. The same holds for `rollback` and `uninstall`. A v2 governor is booted out
+normally: its own TERM trap publishes UNKNOWN. Rolling back *to* v1 still lets v1 publish GREEN
+"armed" when it starts, without evidence. That is v1's behaviour, not the installer's.
+
+**It waits for evidence, not just a process.** After the bootstrap verifies (launchd pid = the
+plist's program = the lock holder, `state` republished; `FORGE_GUARDIAN_VERIFY_S`, default 40),
+`install` waits up to `FORGE_GUARDIAN_EVIDENCE_S` (default **120**) for `state.json` to say
+`evidence_complete: true` with a state other than UNKNOWN. A healthy install therefore takes about
+`deescalate_polls × poll_s` (6 × 5 s ≈ **30 s**) longer than the restart itself. A new governor
+earns GREEN, it does not assume it.
+
+| exit | meaning |
+|---|---|
+| 0 | done (installed and evidenced, rolled back, uninstalled, or already installed) |
+| 1 | failed; a failed install/rollback is rolled back to the state before the run (including when the new service stops running or publishing while its evidence is awaited) |
+| 2 | usage, or refused (e.g. the real launchctl for a home that is not this user's; `--dry-run` with anything but install) |
+| 3 | another `forge-guardian-install` holds the install lock |
+| **4** | **installed and LEFT RUNNING, but its evidence did not become complete** within `FORGE_GUARDIAN_EVIDENCE_S`; the message names what is missing. Not rolled back: the v1 it would return to reported health it never measured. The new governor keeps heavy admission closed and says why (`forge-guardian-ctl status`, `diagnose`) |
+| 70 | internal error |
+
+**Installer restarts count toward the restart-loop breaker** (decision, 2026-10-09). The governor
+backs off (UNKNOWN, gates closed, no sensor, 300 s) after 5 starts within 900 s
+(`guardian_restart_loop`). Every start counts, deliberate ones included: install, upgrade,
+rollback, the rollback inside a failed install, `forge-guardian-ctl restart`. The breaker exists
+to stop a loop, and from the governor's side an install loop looks the same as a crash loop.
+So an install whose restart is the governor's fifth start within 15 minutes exits 4 with
+"evidence is incomplete: restart_loop": the new governor runs, keeps the gates closed for the
+300 s backoff and then governs normally on its own. Wait it out, or (deliberately, as the gates
+do) remove `~/.forge-health/guardian.starts` before installing.
+
+**Process identity across time zones.** A v2 governor's `guardian.lock/pstart` holds its start in
+epoch seconds; the installer, the soak, the sensor, `forge-gate`, `forge-nproc` and
+`forge-guardian-ctl` compare that number (±1 s), never the local-time `lstart` text, so a caller
+with another `TZ` still recognises a live governor. A
+`pstart` that is present but not an epoch identifies nobody. Only a lock without `pstart` (v1's)
+is compared by its `started` text.
+
+**Soak.** `soak/forge-guardian-soak start|status|stop` records its own process as
+`<pid> TAB <lstart> TAB <start epoch>`. `stop` signals only that verified process. If it refuses
+(the recorded pid is not running, is not this soak, or started at another time), it says
+`not signalling` and exits **1**. It also exits 1 if the soak is still running 10 s after TERM.
 
 **Coverage, stated plainly.** A user LaunchAgent runs while this user is logged in. It is not a
 boot-time service: nothing is governed before login, and a logout stops it. It is not a hardware
@@ -81,8 +162,10 @@ missing, stale, future-dated or unparseable state denies; a sensor reading that 
 `unavailable`, never a default. The old governor published thermal = 100 % for months on this Mac
 because `pmset -g therm` prints no `CPU_Speed_Limit` on Apple Silicon.
 
-**4. Admission is a reservation, not a look.** `admit` decides under one lock: identity-verified
-reservations (max of declared and measured peak) plus the new job must fit `RAM − os_reserve`, and
+**4. Admission is a reservation, not a look.** `admit` decides under one lock: the reservations of
+every live envelope — identity verified or unverifiable (an unverifiable job is never signalled, but
+its memory is not free), each the max of declared and measured peak — plus the new job must fit
+`RAM − os_reserve`, and
 the new job plus every reservation not yet resident must fit what is available now. Two jobs can
 no longer pass the same gate on the same headroom.
 
@@ -104,9 +187,18 @@ no longer pass the same gate on the same headroom.
 ## Bounds
 
 Idle cost measured on this Mac: sensor 0.05 % of one core and 7 MiB RSS; the governor's steady
-state forks only its poll sleep. Logs, history, events and incidents share a 64 MiB cap with
-rotation; a full disk never truncates a published file (write, fsync, rename — or keep the old one
-and go stale, which closes the gates).
+state forks only its poll sleep. Logs, history, events, incidents and the release ledgers
+(`reservations.history.jsonl`, `crashes/`) share a 64 MiB cap (`logs.cap_mib`, SCHEMA §2) with
+rotation. Housekeeping never deletes live files, crash ledgers, `events/` or
+`incidents/.ratelimit/`; when those alone exceed the cap, the newest incident and each `.1`
+generation are kept too, so the total can stay above the cap (logged once; SCHEMA §2). A full
+disk never truncates a published file. Each one is written to a temporary file beside it and
+renamed over the old one; a failed write is never renamed, so the old file stays and goes stale,
+which closes the gates. Only the sensor also flushes the data before the rename
+(`F_FULLFSYNC`, else `fsync`). The governor's and the installer's publications are not fsynced: a
+power loss can lose or truncate their latest write, which readers then treat as missing or
+unparseable, and fail closed (rule 3). A failed append is cut back off, so no record is ever glued
+to a fragment (SCHEMA §7.2).
 
 ## Tests
 
@@ -120,17 +212,23 @@ for observation commands. CI: `guardian` and `guardian_v2` jobs in `.github/work
 | `test/governor_runtime_gate.sh` | real daemon: no-sensor fallback, sensor death, stale/malformed snapshots, USR2 latency, skew, logs/cap, disk-full, Law-7 dir safety, notifications, restart breaker |
 | `test/sensor_gate.sh` | native signals with status, injection, session classification, reports, torn writes, idle cost |
 | `test/admission_gate.sh` | serialized reservations (8 concurrent → exactly the fitting subset), identity, quarantine |
-| `test/forge_job_admission_gate.sh` | forge-job exit mapping, crash release, legacy path |
-| `test/install_gate.sh` | install/upgrade/rollback/uninstall, plist escaping, real home untouched |
+| `test/forge_job_admission_gate.sh` | forge-job exit mapping, crash release, legacy path; the resilience harness's forge-job dimensions ported to zsh (D1 cooperative shed here, D3 is `forge_job_usage_gate.sh`) |
+| `test/install_gate.sh` | install/upgrade/rollback/uninstall, plist escaping, no stop-time GREEN at any v1 cutover (sampled ≤ 10 ms, KeepAlive respawn modelled), reservation preflight against the engine's budget (`os_reserve` as a real sensor evaluates `policy.json`) and over the envelopes the engine counts (56 single-envelope cases, preflight vs the sensor's `snapshot`), lock identity across time zones, real home untouched |
 | `test/guardian_single_instance_gate.sh` | one governor per domain, fail-open on a stale lock, 11 mutations |
 | `test/forge_job_usr1_gate.sh`, `test/forge_job_usage_gate.sh` | USR1 is cooperative; `--help` costs no gate slot |
 | `forge-guardian-actuator-test`, `forge-guardian-selftest` | shed targeting; classifier vectors (library mode) |
-| `forge-kernel/test/resilience_harness.mjs` | scored family benchmark + 4 reintroduced production defects |
+| `forge-kernel/test/resilience_harness.mjs` | scored family benchmark + 4 reintroduced production defects (JS: no Guardian gate runs it by default; `FJ_RUN_JS_HARNESS=1` opts in) |
 
-Test hooks (never set in production): `FORGE_GUARDIAN_SENSOR=0`, `FORGE_GUARDIAN_SENSOR_BIN`,
-`FORGE_GUARDIAN_POLL`, `FORGE_GUARDIAN_SETTLE`, `FORGE_GUARDIAN_TERM_GRACE`,
-`FORGE_GUARDIAN_NOTIFY_CMD`, `FORGE_GUARDIAN_DISKUTIL`, `FORGE_GUARDIAN_HOME`,
-`FORGE_GUARDIAN_LAUNCHCTL`, and the sensor's `FORGE_SENSOR_TEST=1` injection family.
+Test hooks (never set in production). Governor: `FORGE_GUARDIAN_SENSOR=0`,
+`FORGE_GUARDIAN_SENSOR_BIN`, `FORGE_GUARDIAN_POLL`, `FORGE_GUARDIAN_SMART_S` (the SMART interval;
+policy `smart_interval_s` is ≥ 600 s), `FORGE_GUARDIAN_SETTLE`, `FORGE_GUARDIAN_TERM_GRACE`,
+`FORGE_GUARDIAN_UNKNOWN_NOTIFY_S` (how long UNKNOWN lasts before it is notified, default 120),
+`FORGE_GUARDIAN_NOTIFY_CMD`, `FORGE_GUARDIAN_NOTIFY=1` (an unsupervised governor uses the desktop
+notifier), `FORGE_GUARDIAN_DISKUTIL`, and `FORGE_GUARDIAN_LIB=1` (sourcing defines the functions
+and returns: the selftest, the actuator test and several gates run it as a library). Installer and ctl:
+`FORGE_GUARDIAN_HOME`, `FORGE_GUARDIAN_LAUNCHCTL`, `FORGE_GUARDIAN_SENSOR_PREBUILT`,
+`FORGE_GUARDIAN_INSTALL_TESTS` and `FORGE_GUARDIAN_TEST_TIMEOUT` (`--run-tests`). Sensor: the
+`FORGE_SENSOR_TEST=1` injection family.
 
 ## Known limits
 

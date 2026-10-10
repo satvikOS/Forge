@@ -88,12 +88,20 @@ bool get_int(Ctx& c, id v, const std::string& where, int64_t lo, int64_t hi, int
   return true;
 }
 
-// memory.os_reserve_gb: 2 .. RAM/2 (in GiB).
-double ram_half_gib() {
+// memory.os_reserve_gb: 2 .. RAM-2 (in GiB). It was 2 .. RAM/2, which REJECTED the
+// shipped default of 6 on an 8 GiB Mac (RAM/2 = 4): the installed policy.json, a copy of
+// policy.default.json, was refused whole at every start (review 2026-10-08 round 2).
+// RAM-2 keeps at least 2 GiB of budget whatever the reserve. FORGE_SENSOR_TEST_MEMSIZE_B
+// (test mode only) stands in for hw.memsize so the 8 GiB case is testable on any Mac.
+double ram_reserve_max_gib() {
   uint64_t m = 0;
+  if (const char* e = test_env("FORGE_SENSOR_TEST_MEMSIZE_B")) {
+    int64_t v;
+    if (parse_i64(e, v) && v > 0) return (double)v / kGiB - 2.0;
+  }
   size_t len = sizeof m;
   if (sysctlbyname("hw.memsize", &m, &len, nullptr, 0) != 0 || len != sizeof m || m == 0) return 1e6;
-  return (double)m / kGiB / 2.0;
+  return (double)m / kGiB - 2.0;
 }
 
 bool get_bool(Ctx& c, id v, const std::string& where, bool& out) {
@@ -168,7 +176,7 @@ bool overlay(Ctx& c, Policy& p, NSDictionary* root) {
       if (!get_dict(c, v, k, d)) return false;
       FOR_KEYS(d)
         std::string w = "memory." + k;
-        if (k == "os_reserve_gb") { if (!get_number(c, v, w, 2, ram_half_gib(), p.os_reserve_gb)) return false; }
+        if (k == "os_reserve_gb") { if (!get_number(c, v, w, 2, ram_reserve_max_gib(), p.os_reserve_gb)) return false; }
         else if (k == "instant_margin_gb") { if (!get_number(c, v, w, 0, 16, p.instant_margin_gb)) return false; }
         else if (k == "enforce_instant_fit") { if (!get_bool(c, v, w, p.enforce_instant_fit)) return false; }
         else if (k == "light_job_gb") { if (!get_number(c, v, w, 0, 2, p.light_job_gb)) return false; }

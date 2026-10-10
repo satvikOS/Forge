@@ -21,9 +21,10 @@
 #
 # A LIVE GOVERNOR (review 2026-10-08 FO-4). Fresh files are not enough: a governor
 # killed by SIGKILL (or jetsam) leaves a fresh GREEN behind for up to 60 s. The
-# domain's guardian.lock must name a LIVE process whose start time (ps lstart, C
-# locale) equals guardian.lock/started and whose argv ends in forge-guardian;
-# otherwise deny, whatever the state file says.
+# domain's guardian.lock must name a LIVE process whose start time equals the lock's
+# (guardian.lock/pstart, epoch seconds +-1 -- or, for a v1 lock without it, the lstart
+# text in guardian.lock/started) and whose argv ends in forge-guardian; otherwise deny,
+# whatever the state file says.
 #
 # The resource flags are optional. With any of them the state check is followed by
 # `forge-guardian-sensor admit --dry-run` -- the same memory/disk fit the admission
@@ -74,9 +75,18 @@ else
   done
 fi
 
+# utc_epoch "LSTART TEXT PRINTED UNDER TZ=UTC" -> REPLY epoch seconds, or empty
+utc_epoch() { local TZ=UTC LC_ALL=C v=""; strftime -r -s v '%a %b %d %H:%M:%S %Y' "$1" 2>/dev/null; REPLY=$v }
 # governor_alive -> 0, or 1 with DENY_WHY. One `ps` fork.
+# The holder's start is compared as EPOCH seconds (+-1 s) when guardian.lock/pstart
+# exists (every v2 governor writes it): ps prints lstart in UTC here and it is read back
+# in UTC, so the caller's time zone and locale never enter. THE BUG THIS CLOSES (review
+# 2026-10-08 round 2, FO-4 regression): the lock's local-time `started` TEXT was compared
+# with this caller's local time, so `TZ=UTC forge-gate` -- or any gate after a system
+# time-zone change -- denied a live governor as "pid reused". A lock without pstart (the
+# v1 governor's) keeps that text comparison, so the gate keeps working across an install.
 governor_alive() {
-  local L="$STATE_DIR/guardian.lock" p="" s="" out
+  local L="$STATE_DIR/guardian.lock" p="" s="" ps_="" out ep
   local -a w
   if [[ ! -d $L || -L $L ]]; then
     DENY_WHY="no governor holds $L (guardian not running?). Start it: forge-guardian-ctl start"; return 1
@@ -86,16 +96,33 @@ governor_alive() {
   if ! [[ $p == [1-9]* && $p == <1-99999> ]]; then
     DENY_WHY="guardian.lock/pid does not name a process ('${p[1,20]}')"; return 1
   fi
-  [[ -f $L/started && ! -L $L/started ]] && s=$(<"$L/started" 2>/dev/null)
-  s=${(j: :)${=s}}
-  [[ -n $s ]] || { DENY_WHY="guardian.lock records no start time: the holder cannot be verified"; return 1; }
+  # `-L` too: a DANGLING symlink fails `-e`, and was read as "no pstart" -- the weaker v1
+  # text path (SCHEMA §2.1: a symlinked pstart identifies nobody; review round 2, verify)
+  if [[ -e $L/pstart || -L $L/pstart ]]; then
+    [[ -f $L/pstart && ! -L $L/pstart ]] && ps_=$(<"$L/pstart" 2>/dev/null)
+    ps_=${ps_//[[:space:]]/}
+    [[ $ps_ == [1-9]* && $ps_ == <-> && ${#ps_} -le 12 ]] || { DENY_WHY="guardian.lock/pstart is not an epoch ('${ps_[1,20]}'): the holder cannot be verified"; return 1; }
+  else
+    [[ -f $L/started && ! -L $L/started ]] && s=$(<"$L/started" 2>/dev/null)
+    s=${(j: :)${=s}}
+    [[ -n $s ]] || { DENY_WHY="guardian.lock records no start time: the holder cannot be verified"; return 1; }
+  fi
   if ! kill -0 $p 2>/dev/null; then
     DENY_WHY="the governor (pid $p, guardian.lock) is not running: its last state is not live evidence"; return 1
   fi
-  out=$(LC_ALL=C ps -ww -p $p -o lstart=,args= 2>/dev/null)
+  if [[ -n $ps_ ]]; then
+    out=$(TZ=UTC LC_ALL=C ps -ww -p $p -o lstart=,args= 2>/dev/null)
+  else
+    out=$(LC_ALL=C ps -ww -p $p -o lstart=,args= 2>/dev/null)
+  fi
   w=(${=out})
   if (( ${#w} < 6 )); then DENY_WHY="cannot inspect the governor pid $p"; return 1; fi
-  if [[ ${(j: :)w[1,5]} != "$s" ]]; then
+  if [[ -n $ps_ ]]; then
+    utc_epoch "${(j: :)w[1,5]}"; ep=$REPLY
+    if ! [[ $ep == <-> ]] || (( ep - ps_ > 1 || ps_ - ep > 1 )); then
+      DENY_WHY="pid $p is not the governor that took guardian.lock (it started at epoch ${ep:-?}, guardian.lock/pstart says $ps_): pid reused"; return 1
+    fi
+  elif [[ ${(j: :)w[1,5]} != "$s" ]]; then
     DENY_WHY="pid $p is not the governor that took guardian.lock (started '${(j: :)w[1,5]}', lock says '$s'): pid reused"; return 1
   fi
   if [[ ${w[-1]:t} != forge-guardian ]]; then

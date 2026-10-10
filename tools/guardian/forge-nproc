@@ -11,8 +11,9 @@
 # below 1, never above build_jobs_max.
 #
 # A LIVE GOVERNOR (review 2026-10-08 FO-4): a fresh state.json is believed only while
-# the domain's guardian.lock names a live process with the recorded start time (ps
-# lstart, C locale) and forge-guardian argv -- the check forge-gate makes. A governor
+# the domain's guardian.lock names a live process with the recorded start time
+# (guardian.lock/pstart, epoch seconds +-1; a v1 lock's lstart text in `started`) and
+# forge-guardian argv -- the check forge-gate makes. A governor
 # killed by SIGKILL/jetsam used to leave its GREEN -j8 in force for up to 60 s.
 #
 # Fork-light: one `ps` for the governor check, then one more only if some envelope
@@ -27,6 +28,8 @@ SJ="$STATE_DIR/state.json"
 # Fail SAFE, not fast: with no guardian, assume we must be conservative.
 fallback() { print -r -- 2; exit 0; }
 is_pid() { [[ $1 == [1-9]* && $1 == <1-99999> ]] }   # canonical (SCHEMA §5)
+# lstart text printed under TZ=UTC -> REPLY epoch seconds (no fork)
+utc_epoch() { local TZ=UTC LC_ALL=C v=""; strftime -r -s v '%a %b %d %H:%M:%S %Y' "$1" 2>/dev/null; REPLY=$v }
 
 [[ -f $SJ && -r $SJ ]] || fallback
 typeset -A st
@@ -42,12 +45,28 @@ jmax=$match[1]
 (( jmax >= 1 )) || fallback
 
 L="$STATE_DIR/guardian.lock"
-[[ -d $L && ! -L $L && -f $L/pid && ! -L $L/pid && -f $L/started && ! -L $L/started ]] || fallback
+[[ -d $L && ! -L $L && -f $L/pid && ! -L $L/pid ]] || fallback
 gp=$(<"$L/pid"); gp=${gp//[[:space:]]/}
-gs=$(<"$L/started"); gs=${(j: :)${=gs}}
-is_pid "$gp" && [[ -n $gs ]] && kill -0 $gp 2>/dev/null || fallback
-w=(${=$(LC_ALL=C ps -ww -p $gp -o lstart=,args= 2>/dev/null)})
-(( ${#w} >= 6 )) && [[ ${(j: :)w[1,5]} == "$gs" && ${w[-1]:t} == forge-guardian ]] || fallback
+is_pid "$gp" && kill -0 $gp 2>/dev/null || fallback
+if [[ -e $L/pstart || -L $L/pstart ]]; then   # a dangling symlink is a pstart that names nobody, never "no pstart"
+  # v2 lock: the holder's start as EPOCH seconds, +-1 -- ps prints it in UTC and it is
+  # read back in UTC, so this caller's zone and locale never enter (review 2026-10-08
+  # round 2, FO-4 regression: `TZ=UTC forge-nproc` fell back to 2 under a live governor).
+  [[ -f $L/pstart && ! -L $L/pstart ]] || fallback
+  gps=$(<"$L/pstart"); gps=${gps//[[:space:]]/}
+  [[ $gps == [1-9][0-9](#c0,11) ]] || fallback
+  w=(${=$(TZ=UTC LC_ALL=C ps -ww -p $gp -o lstart=,args= 2>/dev/null)})
+  (( ${#w} >= 6 )) && [[ ${w[-1]:t} == forge-guardian ]] || fallback
+  utc_epoch "${(j: :)w[1,5]}"; ep=$REPLY
+  [[ $ep == <-> ]] && (( ep - gps <= 1 && gps - ep <= 1 )) || fallback
+else
+  # a v1 lock (no pstart): the lstart text, compared in this caller's zone
+  [[ -f $L/started && ! -L $L/started ]] || fallback
+  gs=$(<"$L/started"); gs=${(j: :)${=gs}}
+  [[ -n $gs ]] || fallback
+  w=(${=$(LC_ALL=C ps -ww -p $gp -o lstart=,args= 2>/dev/null)})
+  (( ${#w} >= 6 )) && [[ ${(j: :)w[1,5]} == "$gs" && ${w[-1]:t} == forge-guardian ]] || fallback
+fi
 
 # ---- threads reserved by other live jobs (best effort) ------------------------
 typeset -a want

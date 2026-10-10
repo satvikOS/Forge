@@ -541,6 +541,10 @@ std::string encode_env(const Snapshot& s) {
     kv(p + "hb_age_s", std::to_string(j.hb_age_s));
     kv(p + "declared_b", fmt_num(std::floor(j.declared_b), 0));
     kv(p + "sig", env_word(j.sig));
+    // additive: WHICH envelope this verdict is about. Two envelopes can name one pid (a
+    // reused pid's stale file beside the live job's); a verdict keyed by pid alone let
+    // the governor reap the live job's envelope or keep the stale one.
+    kv(p + "file", env_word(j.file));
   }
   kv("reserved_b", s.reserved_b >= 0 ? fmt_num(std::floor(s.reserved_b), 0) : "-1");
   kv("budget_b", s.budget_b >= 0 ? fmt_num(std::floor(s.budget_b), 0) : "-1");

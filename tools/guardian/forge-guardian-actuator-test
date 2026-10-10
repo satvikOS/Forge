@@ -206,7 +206,7 @@ if zsh "${0:A:h}/sensor/build.sh" --out "$SB" >"$SB/build.log" 2>&1 && [[ -x $SB
   plant pflag.job "$PV" pflag 9 1 $EPOCHSECONDS
   for flag in 1 0; do
     print -r -- "#!/bin/zsh
-[[ \$1 == pidinfo ]] || exit 2; p=\$2
+[[ \$1 == pidinfo ]] || exit 2; p=\${@[-1]}                # the governor asks: pidinfo --state-dir D PID
 out=\$(LC_ALL=C ps -o ppid=,uid=,lstart= -p \$p 2>/dev/null); w=(\${=out})
 (( \${#w} >= 7 )) || { print \"pid=\$p identity=dead\"; exit 0; }
 zmodload zsh/datetime; LC_ALL=C strftime -r -s t '%a %b %d %H:%M:%S %Y' \"\$w[3] \$w[4] \$w[5] \$w[6] \$w[7]\"
@@ -218,6 +218,48 @@ print \"pid=\$p ppid=\$w[1] pstart=\$t uid=\$w[2] protected=$flag comm=ordinary-
   chk "  ...as protected (not for some other reason)"              1 "$(grep -c "REFUSED to signal protected pid=$PV " "$LOG" 2>/dev/null)"
   SENSOR_BIN="$SB/pidinfo-stub-0"; signal_job "$JOBS_DIR/pflag.job" USR1 >/dev/null 2>&1; r=$?; sleep 0.4
   chk "  control: the same stub with protected=0 is signalled"     "0:USR1" "$r:$(head -1 $O6 2>/dev/null)"
+  # protected=1 that only the DOMAIN knows (review 2026-10-08 round 2, verify 4a): the
+  # holder of this domain's sensor.lock is protected whatever its name (SCHEMA §5), and the
+  # real sensor says so only when asked `pidinfo --state-dir D`. c249d838's governor asked
+  # `pidinfo PID`, got protected=0 comm=lockholder, and SIGUSR1'd it. A compiled holder of
+  # an fcntl write lock on $STATE_DIR/sensor.lock (the sensor's own lock), registered as a
+  # valid job: nothing may reach it.
+  O7=$(mktemp)
+  cat > "$SB/lockholder.c" <<'C'
+#include <fcntl.h>
+#include <signal.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+static const char* out;
+static void h(int s) { int fd = open(out, O_WRONLY | O_APPEND | O_CREAT, 0600);
+  if (fd >= 0) { const char* m = s == SIGUSR1 ? "USR1\n" : "TERM\n"; write(fd, m, strlen(m)); close(fd); } }
+int main(int c, char** v) { if (c < 4) return 2; out = v[2]; int life = atoi(v[3]);
+  int fd = open(v[1], O_RDWR | O_CREAT, 0600); struct flock q; memset(&q, 0, sizeof q);
+  q.l_type = F_WRLCK; q.l_whence = SEEK_SET; if (fd < 0 || fcntl(fd, F_SETLK, &q) != 0) return 1;
+  signal(SIGUSR1, h); signal(SIGTERM, h); for (int i = 0; i < life * 10; i++) usleep(100000); return 0; }
+C
+  if xcrun clang -O1 -o "$SB/lockholder" "$SB/lockholder.c" >>"$SB/build.log" 2>&1; then
+    "$SB/lockholder" "$STATE_DIR/sensor.lock" "$O7" 60 & LKP=$!; print $LKP >> "$PIDS"
+    sleep 0.4
+    plant lockholder.job "$LKP" lockholder 9 1 $EPOCHSECONDS
+    SENSOR_BIN=$SB/forge-guardian-sensor
+    pi=$("$SENSOR_BIN" pidinfo --state-dir "$STATE_DIR" $LKP 2>/dev/null)
+    print "  pidinfo --state-dir: $pi"
+    chk "the real sensor marks this domain's sensor.lock holder protected=1 (and only with --state-dir)" "1:0" \
+        "$([[ $pi == *' protected=1 '* ]] && print 1 || print 0):$("$SENSOR_BIN" pidinfo $LKP 2>/dev/null | grep -c ' protected=1 ')"
+    B=$(grep -c "REFUSED to signal protected pid=$LKP " "$LOG" 2>/dev/null)
+    signal_job "$JOBS_DIR/lockholder.job" USR1 >/dev/null 2>&1; r=$?
+    signal_job "$JOBS_DIR/lockholder.job" TERM >/dev/null 2>&1; r2=$?
+    sleep 0.5
+    chk "sensor.lock holder registered as a valid job: signal_job refuses USR1 and TERM" "1 1:" "$r $r2:$(cat $O7 2>/dev/null | tr '\n' ' ')"
+    chk "  ...as protected (pidinfo --state-dir said protected=1)"  2 "$(( $(grep -c "REFUSED to signal protected pid=$LKP " "$LOG" 2>/dev/null) - ${B:-0} ))"
+    chk "  ...and it is alive"                                       alive "$(kill -0 $LKP 2>/dev/null && print alive || print DEAD)"
+    kill -9 $LKP 2>/dev/null
+  else
+    chk "built the sensor.lock holder (see $SB/build.log)" built FAILED
+  fi
+  rm -f "$O7"
   SENSOR_BIN=$SAVED_SENSOR_BIN
   kill -9 $HP $PV 2>/dev/null
 else

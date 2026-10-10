@@ -17,9 +17,13 @@
 #   * legacy path (no sensor anywhere): an atomic envelope with v1 keys in order,
 #     schema=2, boot, pstart (checked against `ps -o lstart`), owner, cmd LAST,
 #     removed on exit; a newline in --name cannot forge an earlier key;
-#   * then re-runs, unchanged, forge_job_usr1_gate.sh, forge_job_usage_gate.sh and the
-#     resilience harness dimensions cooperative_shed and query_costs_no_slot
+#   * the resilience harness's D1 cooperative_shed dimension, ported to zsh (register,
+#     survive a USR1 shed, checkpoint, finish rc 0, release the envelope);
+#   * then re-runs, unchanged, forge_job_usr1_gate.sh and forge_job_usage_gate.sh (the
+#     latter IS the harness's D3 query_costs_no_slot, check for check)
 #     (skip with FJ_SKIP_COMPANIONS=1).
+#   NATIVE ONLY: forge-kernel/test/resilience_harness.mjs (JS) is never run by default --
+#   no node (user rule, 2026-10-08). FJ_RUN_JS_HARNESS=1 is the only way to reach it.
 #
 # HERMETIC: a private FORGE_HEALTH_DIR / ARCHIE_HEALTH_DIR under mktemp, the sensor is
 # test/stub-sensor-admit via FORGE_GUARDIAN_SENSOR_BIN, every process this gate starts
@@ -356,6 +360,46 @@ if kill -0 $WP 2>/dev/null; then kill -9 $WP; RC=TIMEOUT; else wait $WP; RC=$?; 
 ck "legacy: USR1 while forge-gate waits does not kill the wrapper; the job runs (rc 0)" \
   $(t eval '[[ $RC == 0 ]] && grep -q FINISHED $M') "rc=$RC"
 
+# ---- D1 cooperative_shed: a native port of resilience_harness.mjs d1_cooperative_shed --
+# The JS harness is not run (native-only rule). Its forge-job dimensions are covered here:
+# D3 query_costs_no_slot is forge_job_usage_gate.sh (below), check for check; D1 is
+# forge_job_usr1_gate.sh plus the two observables it lacks -- the wrapper REGISTERED an
+# envelope before it was shed, and released it on exit -- so all six of D1's checks are
+# ported here, on the legacy path ($LB/forge-job: no sibling sensor; a private domain whose
+# gate stub admits).
+print "== D1 cooperative_shed (native port of the JS resilience harness; node is never run) =="
+W1=$ROOT/coop; mkdir -m 700 -p $W1/bin $W1/jobs $W1/log
+print '#!/bin/zsh\nexit 0' > $W1/bin/forge-gate; chmod +x $W1/bin/forge-gate
+cat > $W1/child.sh <<'COOP'
+#!/bin/zsh
+# A well-behaved registered job: checkpoints on USR1, then finishes its work.
+MARK="$1"
+: > "$MARK"
+trap 'print GOT_USR1 >> "$MARK"' USR1
+i=0
+while (( i < 14 )); do
+  print "TICK $i" >> "$MARK"
+  sleep 0.4 & wait $!        # interruptible: a foreground sleep defers the trap
+  i=$(( i + 1 ))
+done
+print FINISHED_CLEANLY >> "$MARK"
+COOP
+chmod +x $W1/child.sh
+env -u FORGE_GUARDIAN_SENSOR_BIN FORGE_HEALTH_DIR=$W1 $LB/forge-job --name coop-probe --priority 9 --peak-gb 1 --restartable --need orange -- $W1/child.sh $W1/mark > $W1/out 2>&1 &
+WP=$!; print $WP >> $PIDFILE
+seen=0; for i in {1..30}; do e_=($W1/jobs/*.job(N.)); (( ${#e_} )) && { seen=1; break }; sleep 0.2; done
+ck "D1: the wrapper REGISTERED an envelope (an unregistered job is invisible to the shedder)" $(( seen ? 0 : 1 )) "seen=$seen"
+sleep 1.5; kill -USR1 $WP 2>/dev/null; sleep 3
+alive=0; kill -0 $WP 2>/dev/null && alive=1
+ck "D1: the wrapper SURVIVES the cooperative SIGUSR1" $(( alive ? 0 : 1 )) "alive=$alive"
+for i in {1..150}; do kill -0 $WP 2>/dev/null || break; sleep 0.1; done
+if kill -0 $WP 2>/dev/null; then kill -9 $WP; RC=TIMEOUT; else wait $WP; RC=$?; fi
+ck "D1: the signal REACHED the job, which checkpointed and continued" $(t grep -q GOT_USR1 $W1/mark)
+ck "D1: the job exits rc=0 after being shed (158 = 128+SIGUSR1 = the defect)" $(t test "$RC" = 0) "rc=$RC"
+ck "D1: the job completed its WHOLE run, not a truncated one" $(t grep -q FINISHED_CLEANLY $W1/mark) "ticks=$(grep -c TICK $W1/mark 2>/dev/null)/14"
+e_=($W1/jobs/*.job(N))
+ck "D1: the registration is released on exit (no phantom job file)" $(( ${#e_} == 0 ? 0 : 1 )) "leftover=${#e_}"
+
 if [[ ${FJ_SKIP_COMPANIONS:-0} != 1 ]]; then
   print "== companions, unchanged =="
   for g in forge_job_usr1_gate.sh forge_job_usage_gate.sh; do
@@ -364,7 +408,10 @@ if [[ ${FJ_SKIP_COMPANIONS:-0} != 1 ]]; then
   done
   REPO=${HERE:h:h:h}
   HARN=$REPO/forge-kernel/test/resilience_harness.mjs
-  if [[ -f $HARN ]] && command -v node >/dev/null; then
+  if [[ ${FJ_RUN_JS_HARNESS:-0} != 1 ]]; then
+    # Not a pass and not a failure: recorded. D1 is ported above, D3 is the usage gate.
+    print "    SKIP resilience_harness.mjs (JS) not run: native-only rule (node is never invoked by default; FJ_RUN_JS_HARNESS=1 opts in). Its D1/D3 checks run natively above."
+  elif [[ -f $HARN ]] && command -v node >/dev/null; then
     for dim in cooperative_shed query_costs_no_slot; do
       for attempt in 1 2 3; do
         jo=$ROOT/harness.$dim.$attempt.jsonl

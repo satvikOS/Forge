@@ -367,12 +367,24 @@ int write_atomic(const std::string& path, std::string_view data, bool full_sync)
 int append_line(const std::string& path, std::string_view line) {
   std::string buf(line);
   if (buf.empty() || buf.back() != '\n') buf += '\n';
-  int fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600);
+  int fd = open(path.c_str(), O_RDWR | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600);
+  if (fd < 0 && errno == EACCES)  // write-only: append without the guard below
+    fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600);
   if (fd < 0) return errno;
   struct stat st;
   if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {  // never append into a FIFO or device
     close(fd);
     return EINVAL;
+  }
+  // A file that does not end in a newline ends in ANOTHER writer's torn fragment (a
+  // process killed between its short write and its undo, or an older writer that never
+  // undid one). Our record starts on a new line then, so the fragment stays one invalid
+  // line of its own and never takes this record with it (review 2026-10-08 R6, round 2:
+  // the governor's fragment swallowed the sensor's next events.jsonl record). The guard
+  // byte is part of this append: a short write below cuts it off again with the rest.
+  if (st.st_size > 0) {
+    char last = '\n';
+    if (pread(fd, &last, 1, st.st_size - 1) == 1 && last != '\n') buf.insert(buf.begin(), '\n');
   }
   // One write(2) per line: O_APPEND makes it a single positioned append, so lines from
   // the governor and the sensor interleave whole.

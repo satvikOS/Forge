@@ -19,7 +19,7 @@
 #         die              -> exit 0 now (a crashed sensor)
 #       Exits when --parent is gone (the real sensor never outlives the governor).
 #       Appends "<pid> <start epoch>" to D/stub-sensor.pids so a gate can reap it.
-#   stub-sensor pidinfo PID...   the real sensor's line format, from `ps` (comm=
+#   stub-sensor pidinfo [--state-dir D] PID...   the real sensor's line format, from `ps` (comm=
 #                                percent-encoded, protected=0|1)
 #   stub-sensor incident --state-dir D --kind K [--note T]
 #                                makes D/incidents/<UTC>-K/summary.json; argv -> $STUB_SENSOR_LOG
@@ -44,6 +44,8 @@ case $cmd in
     # (space-separated) forces protected=1 for those pids, so a gate can prove the
     # governor honours the flag on its own.
     logcall pidinfo "$@"
+    # `pidinfo --state-dir D PID...` (the governor passes its domain, like the real sensor)
+    [[ ${1:-} == --state-dir ]] && { (( $# >= 2 )) || exit 2; shift 2; }
     for p in "$@"; do
       out=$(LC_ALL=C ps -o ppid=,uid=,lstart=,comm= -p "$p" 2>/dev/null)
       w=(${=out})

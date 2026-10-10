@@ -102,19 +102,33 @@ slurp() { # slurp FILE -> REPLY: first line of a REGULAR file, opened without bl
 }
 canon_pid() { [[ $1 == [1-9][0-9](#c0,4) ]] }               # SCHEMA §5: no sign, no leading 0, <= 99999
 lstart_of() { local s; s=$(LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null); print -r -- ${(j: :)${=s}} }
+# Start second as EPOCH: lstart is local time, so comparing its TEXT fails for a reader in
+# another TZ than the writer (review 2026-10-08 FO-4). Printed by ps in UTC and parsed back
+# in UTC (C locale), it is the true epoch second -- no caller zone, no DST fold.
+pstart_of() {
+  local s v=""; REPLY=""
+  s=$(TZ=UTC LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null); s=${(j: :)${=s}}
+  [[ -n "$s" ]] || return 1
+  local TZ=UTC LC_ALL=C
+  strftime -r -s v '%a %b %d %H:%M:%S %Y' "$s" 2>/dev/null
+  REPLY=$v; [[ "$REPLY" == <-> ]]
+}
 
 # ---- the soak's own identity ------------------------------------------------------
-# $DIR/pid is "<pid><TAB><lstart>" of the soak process itself. It used to hold `$$`,
+# $DIR/pid is "<pid><TAB><lstart><TAB><start epoch>" of the soak process itself (the
+# epoch is what is compared: a `stop` from another TZ must still recognise it; a file
+# without it is compared by lstart text, as before). It used to hold `$$`,
 # which in the `( ... ) &!` subshell is the PARENT's pid -- already dead -- so `stop`
 # could not stop a running soak, `status` called it gone, and `start` let a second one
 # run beside it (review 2026-10-08 ACT-4). Nothing is signalled unless the pid is
 # canonical, alive, runs `forge-guardian-soak start`, and started when recorded.
-SOAK_PID=""; SOAK_START=""
-read_pidfile() { # read_pidfile DIR -> SOAK_PID SOAK_START (empty start = an old-format file)
-  SOAK_PID=""; SOAK_START=""
+SOAK_PID=""; SOAK_START=""; SOAK_PSTART=""
+read_pidfile() { # read_pidfile DIR -> SOAK_PID SOAK_START SOAK_PSTART (empty start = an old-format file)
+  local -a f
+  SOAK_PID=""; SOAK_START=""; SOAK_PSTART=""
   slurp "$1/pid" || return 1
-  SOAK_PID=${REPLY%%$'\t'*}
-  [[ "$REPLY" == *$'\t'* ]] && SOAK_START=${REPLY#*$'\t'}
+  f=("${(@ps:\t:)REPLY}")
+  SOAK_PID=${f[1]:-}; SOAK_START=${f[2]:-}; SOAK_PSTART=${f[3]:-}
   return 0
 }
 soak_alive() { # soak_alive DIR : the recorded soak process is alive and is that soak
@@ -124,7 +138,11 @@ soak_alive() { # soak_alive DIR : the recorded soak process is alive and is that
   kill -0 "$SOAK_PID" 2>/dev/null || return 1
   a=$(ps -ww -o args= -p "$SOAK_PID" 2>/dev/null)
   [[ "$a" == *forge-guardian-soak\ start(| *) ]] || return 1
-  [[ -z "$SOAK_START" || "$(lstart_of $SOAK_PID)" == "${(j: :)${=SOAK_START}}" ]]
+  if [[ -n "$SOAK_PSTART" ]]; then        # present: the epoch is the identity, never the text
+    [[ "$SOAK_PSTART" == [1-9][0-9](#c0,11) ]] && pstart_of $SOAK_PID && (( REPLY - SOAK_PSTART <= 1 && SOAK_PSTART - REPLY <= 1 ))
+  else
+    [[ -z "$SOAK_START" || "$(lstart_of $SOAK_PID)" == "${(j: :)${=SOAK_START}}" ]]
+  fi
 }
 
 # ---- processes of THIS domain -------------------------------------------------------
@@ -135,12 +153,24 @@ soak_alive() { # soak_alive DIR : the recorded soak process is alive and is that
 # counted every governor on the machine, so a soak of the live domain stopped as
 # "duplicate instances" whenever any private test governor ran (review 2026-10-08).
 lock_holder() {
-  local p s
+  local p s ps_=""
   slurp "$STATE_DIR/guardian.lock/pid" || return 1; p=${REPLY//[[:space:]]/}
-  slurp "$STATE_DIR/guardian.lock/started" || return 1; s=${(j: :)${=REPLY}}
-  canon_pid "$p" && [[ -n "$s" ]] && kill -0 "$p" 2>/dev/null || return 1
-  local now; now=$(ps -p "$p" -o lstart= 2>/dev/null); now=${(j: :)${=now}}
-  [[ "$now" == "$s" || "$(lstart_of $p)" == "$s" ]] || return 1
+  canon_pid "$p" && kill -0 "$p" 2>/dev/null || return 1
+  # guardian.lock/pstart (epoch seconds) when the governor wrote one: TZ-safe, ±1 s. A
+  # pstart that is present but unreadable or not an epoch proves nothing and is never a
+  # reason to fall back to the text (the sensor's governor_check rule). Only a lock
+  # without pstart (an older governor) is compared by the lstart text in `started`.
+  if [[ -e "$STATE_DIR/guardian.lock/pstart" || -L "$STATE_DIR/guardian.lock/pstart" ]]; then
+    [[ ! -L "$STATE_DIR/guardian.lock/pstart" ]] && slurp "$STATE_DIR/guardian.lock/pstart" || return 1
+    ps_=${REPLY//[[:space:]]/}
+    [[ "$ps_" == [1-9][0-9](#c0,11) ]] || return 1
+    pstart_of $p && (( REPLY - ps_ <= 1 && ps_ - REPLY <= 1 )) || return 1
+  else
+    slurp "$STATE_DIR/guardian.lock/started" || return 1; s=${(j: :)${=REPLY}}
+    [[ -n "$s" ]] || return 1
+    local now; now=$(ps -p "$p" -o lstart= 2>/dev/null); now=${(j: :)${=now}}
+    [[ "$now" == "$s" || "$(lstart_of $p)" == "$s" ]] || return 1
+  fi
   local a; a=$(ps -ww -o args= -p "$p" 2>/dev/null); a=${a%%[[:space:]]##}
   [[ "$a" == (*/|)forge-guardian ]] || return 1
   print -r -- $p
@@ -167,7 +197,7 @@ domain_pids() { # $1 = guardian|sensor : pids of THIS domain's governor / sensor
 
 write_status() { # write_status DIR STATUS REASON
   local d=$1 st=$2 why=$3
-  print -r -- "{\"status\": \"$st\", \"reason\": \"${why//\"/'}\", \"ts\": $EPOCHSECONDS, \"pid\": ${MY_PID:-0}, \"pid_started\": \"${MY_START:-}\", \"deadline\": ${DEADLINE:-0}, \"samples\": ${NS:-0}, \"probes_ok\": ${PROBE_OK:-0}, \"probes_bad\": ${PROBE_BAD:-0}}" > "$d/status.json.tmp" \
+  print -r -- "{\"status\": \"$st\", \"reason\": \"${why//\"/'}\", \"ts\": $EPOCHSECONDS, \"pid\": ${MY_PID:-0}, \"pid_started\": \"${MY_START:-}\", \"pid_pstart\": ${MY_PSTART:-0}, \"deadline\": ${DEADLINE:-0}, \"samples\": ${NS:-0}, \"probes_ok\": ${PROBE_OK:-0}, \"probes_bad\": ${PROBE_BAD:-0}}" > "$d/status.json.tmp" \
     && mv -f "$d/status.json.tmp" "$d/status.json"
 }
 
@@ -192,7 +222,8 @@ run_soak() {
   MY_START=$(lstart_of $MY_PID)
   NAP_PID=0
   trap '(( NAP_PID > 0 )) && kill $NAP_PID 2>/dev/null; write_status "$DIR" STOPPED "signalled"; exit 0' TERM INT
-  print -r -- "$MY_PID"$'\t'"$MY_START" > "$DIR/pid.tmp" && mv -f "$DIR/pid.tmp" "$DIR/pid"
+  pstart_of $MY_PID; MY_PSTART=$REPLY
+  print -r -- "$MY_PID"$'\t'"$MY_START"$'\t'"$MY_PSTART" > "$DIR/pid.tmp" && mv -f "$DIR/pid.tmp" "$DIR/pid"
   write_status "$DIR" RUNNING "started"
   while (( EPOCHSECONDS < DEADLINE )); do
     local -a gp sp

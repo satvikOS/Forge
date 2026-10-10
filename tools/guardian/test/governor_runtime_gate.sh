@@ -23,9 +23,10 @@
 # Review 2026-10-08 regressions: s13/s14 (forge-gate argv + live-governor check, forge-nproc
 # live-governor check), s17 (R5 hysteresis vs USR2 storms), s18 (FO-4 retraction on any
 # exit), s19 (R6 torn appends on ENOSPC), s20 (SEM-4 red incident), s21 (R1 FIFO envelope),
-# s22 (R12 publication onto a directory). forge-gate / forge-nproc are taken from beside
-# the governor under test, so `governor_runtime_gate.sh <old tree>/forge-guardian` runs
-# the old trio.
+# s22 (R12 publication onto a directory), s23 (ctl's figures in the C locale from any caller
+# locale; ctl's evidence total = the governor's housekeeping set). forge-gate / forge-nproc /
+# forge-guardian-ctl are taken from beside the governor under test, so
+# `governor_runtime_gate.sh <old tree>/forge-guardian` runs the old tools.
 # Usage: governor_runtime_gate.sh [path/to/forge-guardian]
 #   GATE_ONLY=s1,s4    run a subset          GATE_BUDGET=900   watchdog seconds
 #   FORK_POLL=5 FORK_SECONDS=60 GATE_ONLY=forks   the idle-cost measurement
@@ -201,12 +202,20 @@ ctl() { print -r -- "$1" > $D/h/stub.ctl }
 # (lives <= 20 min, recorded in $PIDF), holding the lock exactly as the governor takes it.
 mkdir -p $ROOT/fakegov
 print -r -- 'zmodload zsh/zselect; integer i; for (( i = 0; i < 1200; i++ )); do zselect -t 100 2>/dev/null; done' > $ROOT/fakegov/forge-guardian
+# utc_pstart PID -> REPLY = its start in EPOCH seconds: this gate's own oracle (ps prints
+# lstart in UTC and it is read back in UTC), independent of the code under test.
+utc_pstart() { local s; s=$(TZ=UTC LC_ALL=C ps -o lstart= -p $1 2>/dev/null); local TZ=UTC LC_ALL=C v=""
+  strftime -r -s v '%a %b %d %H:%M:%S %Y' "${(j: :)${=s}}" 2>/dev/null; REPLY=$v }
+# fake_gov H [legacy]: the lock the way the v2 governor writes it -- pid, pstart (epoch),
+# started (lstart text) -- or, with `legacy`, the v1 way (no pstart). Review 2026-10-08
+# round 2 (FO-4): pstart is what every reader compares, in any time zone.
 fake_gov() {
   zsh $ROOT/fakegov/forge-guardian </dev/null >/dev/null 2>&1 &
   FGP=$!; print $FGP >> $PIDF
   sleep 0.2
   mkdir -p $1/guardian.lock
   print -r -- $FGP > $1/guardian.lock/pid
+  if [[ ${2:-} != legacy ]]; then utc_pstart $FGP; print -r -- $REPLY > $1/guardian.lock/pstart; fi
   LC_ALL=C ps -p $FGP -o lstart= > $1/guardian.lock/started
 }
 
@@ -613,6 +622,9 @@ obs OBS_VMP=4
 start_gd FORGE_GUARDIAN_SETTLE=0 FORGE_GUARDIAN_TERM_GRACE=30 FORGE_GUARDIAN_SMART_S=1
 wait_until 10 '! kill -0 $VP 2>/dev/null'; ck "RED -> stage 1 USR1 -> stage 3 TERM: the registered job was evicted" $? "victim log: $(tr '\n' ' ' < $D/victim.log 2>/dev/null)"
 wait_until 4 'grep -q cancel_latency $D/h/events.jsonl'
+# (a victim that dies at once has its cancel_latency logged in the TERM's own poll and its
+# envelope reaped one poll LATER: wait for that poll rather than race it -- round-1 flake)
+wait_until 4 'grep -q "\"kind\": \"reap\", \"pid\": $VP," $D/h/events.jsonl'
 E=$D/h/events.jsonl
 ck "shed events: USR1 then TERM, carrying the job signature" $(grep -q '"kind": "shed", "sig": "0123456789abcdef", "signal": "USR1", "pid": '$VP $E && grep -q '"signal": "TERM", "pid": '$VP $E; print $?)
 ck "cancel_latency event (TERM sent -> pid gone)" $(grep -q '"kind": "cancel_latency", "pid": '$VP', "s": ' $E; print $?) "$(grep -m1 -o '"kind": "cancel_latency".*' $E)"
@@ -707,18 +719,54 @@ SB=""; pub GREEN 0
 kill -9 $FGP 2>/dev/null; wait $FGP 2>/dev/null
 gate $FG --need green
 ck "the lock holder is dead: fresh GREEN files are DENIED" $(( RC == 1 ? 0 : 1 )) "$OUT"
-rm -rf $H/guardian.lock; fake_gov $H; print "Thu Jan  1 00:00:00 2026" > $H/guardian.lock/started; pub GREEN 0
+rm -rf $H/guardian.lock; fake_gov $H; print $(( $(<$H/guardian.lock/pstart) - 100 )) > $H/guardian.lock/pstart; pub GREEN 0
 gate $FG --need green
-ck "the lock's pid is alive but started at another time (reused pid) -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
+ck "the lock's pid is alive but guardian.lock/pstart is 100 s off (reused pid) -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
+rm -rf $H/guardian.lock; fake_gov $H legacy; print "Thu Jan  1 00:00:00 2026" > $H/guardian.lock/started; pub GREEN 0
+gate $FG --need green
+ck "a v1 lock (no pstart) whose started text names another start (reused pid) -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
+rm -rf $H/guardian.lock; fake_gov $H; print "garbage" > $H/guardian.lock/pstart; pub GREEN 0
+gate $FG --need green
+ck "a guardian.lock/pstart that is not an epoch -> deny (never a fall-back to the text)" $(( RC == 1 ? 0 : 1 )) "$OUT"
+# SCHEMA §2.1: a symlinked pstart identifies nobody (review 2026-10-08 round 2, verify):
+# a DANGLING one failed `-e` and was read as "no pstart", i.e. the v1 text path -- and
+# the text (written in this zone) matched, so the gate admitted on an unverifiable lock.
+rm -rf $H/guardian.lock; fake_gov $H; rm -f $H/guardian.lock/pstart; ln -s $H/no-such-pstart $H/guardian.lock/pstart; pub GREEN 0
+gate $FG --need green
+ck "a DANGLING guardian.lock/pstart symlink -> deny (never read as 'no pstart', the v1 text path)" $(( RC == 1 ? 0 : 1 )) "$OUT"
+rm -rf $H/guardian.lock; fake_gov $H; mv $H/guardian.lock/pstart $H/pstart.real; ln -s $H/pstart.real $H/guardian.lock/pstart; pub GREEN 0
+gate $FG --need green
+ck "a guardian.lock/pstart SYMLINKED to the right epoch -> deny (a symlink identifies nobody)" $(( RC == 1 ? 0 : 1 )) "$OUT"
+rm -f $H/pstart.real
+bad=()
+rm -rf $H/guardian.lock; fake_gov $H                    # the forms below all name THIS live governor
+for v in "0$FGP" "+$FGP" "$(( FGP + 4294967296 ))"; do
+  print -r -- "$v" > $H/guardian.lock/pid; pub GREEN 0
+  gate $FG --need green; (( RC == 1 )) || bad+=("'$v'->rc$RC")
+done
+print -r -- $FGP > $H/guardian.lock/pid; pub GREEN 0; gate $FG --need green; ctl_rc=$RC
+ck "a non-canonical guardian.lock/pid (0N, +N, 2^32+N) naming the live governor -> deny; the canonical form admits" $(( ${#bad} == 0 && ctl_rc == 0 ? 0 : 1 )) "${bad[*]:-all denied}; canonical rc=$ctl_rc"
 sleep 600 </dev/null >/dev/null 2>&1 & NG=$!; print $NG >> $PIDF; sleep 0.2
-print $NG > $H/guardian.lock/pid; LC_ALL=C ps -p $NG -o lstart= > $H/guardian.lock/started; pub GREEN 0
+print $NG > $H/guardian.lock/pid; utc_pstart $NG; print $REPLY > $H/guardian.lock/pstart; LC_ALL=C ps -p $NG -o lstart= > $H/guardian.lock/started; pub GREEN 0
 gate $FG --need green
-ck "the lock names a live process that is not a forge-guardian -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
+ck "the lock names a live process that is not a forge-guardian (its start right) -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
 kill $NG 2>/dev/null
 rm -rf $H/guardian.lock; pub GREEN 0; gate $FG --need green
 ck "no guardian.lock at all -> deny" $(( RC == 1 ? 0 : 1 )) "$OUT"
 fake_gov $H; pub GREEN 0; gate $FG --need green
 ck "control: a live governor holding the lock -> admitted" $RC "$OUT"
+# THE ROUND-2 REGRESSION (FO-4): the lock's start was compared as local-time TEXT, so a
+# caller in another time zone (TZ=UTC from a tool or CI, a system time-zone change) was
+# denied by a live governor. guardian.lock/pstart is an epoch: every caller agrees.
+bad=()
+for e in TZ=UTC TZ=America/Los_Angeles TZ=Asia/Kolkata LC_ALL=de_DE.UTF-8 "LC_ALL=de_DE.UTF-8 TZ=Pacific/Auckland"; do
+  pub GREEN 0; OUT=$( env ${=e} FORGE_HEALTH_DIR=$H zsh $FG --need green 2>&1 ); RC=$?
+  (( RC == 0 )) || bad+=("$e->rc$RC:${OUT[1,120]}")
+done
+ck "a live governor's lock is recognised under TZ=UTC, America/Los_Angeles, Asia/Kolkata, de_DE, de_DE+Auckland -> admitted" $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-all admitted}"
+rm -rf $H/guardian.lock; fake_gov $H legacy; pub GREEN 0; gate $FG --need green
+ck "v1 compatibility: a lock with no pstart, read in the writer's zone -> admitted" $RC "$OUT"
+rm -rf $H/guardian.lock; fake_gov $H
 fi
 
 # ==================================================================================
@@ -761,10 +809,31 @@ kill -9 $FGP 2>/dev/null; wait $FGP 2>/dev/null; fresh
 ck "the governor holding the lock is dead -> 2 (its GREEN -j8 is not live)" $([[ $(np) == 2 ]]; print $?) "$(np)"
 rm -rf $H/guardian.lock; fresh
 ck "no guardian.lock -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
-fake_gov $H; print "Thu Jan  1 00:00:00 2026" > $H/guardian.lock/started; fresh
-ck "lock pid alive but another start time -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+fake_gov $H; print $(( $(<$H/guardian.lock/pstart) - 100 )) > $H/guardian.lock/pstart; fresh
+ck "lock pid alive but guardian.lock/pstart 100 s off -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+rm -rf $H/guardian.lock; fake_gov $H legacy; print "Thu Jan  1 00:00:00 2026" > $H/guardian.lock/started; fresh
+ck "v1 lock (no pstart): pid alive but another start text -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+rm -rf $H/guardian.lock; fake_gov $H; print -r -- "0$FGP" > $H/guardian.lock/pid; fresh
+ck "a non-canonical guardian.lock/pid (0N) naming the live governor -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+rm -rf $H/guardian.lock; fake_gov $H; rm -f $H/guardian.lock/pstart; ln -s $H/no-such-pstart $H/guardian.lock/pstart; fresh
+ck "a DANGLING guardian.lock/pstart symlink -> 2 (never the v1 text path; SCHEMA §2.1)" $([[ $(np) == 2 ]]; print $?) "$(np)"
+rm -rf $H/guardian.lock; fake_gov $H; mv $H/guardian.lock/pstart $H/pstart.real; ln -s $H/pstart.real $H/guardian.lock/pstart; fresh
+ck "a guardian.lock/pstart SYMLINKED to the right epoch -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+rm -f $H/pstart.real
+sleep 600 </dev/null >/dev/null 2>&1 & NG=$!; print $NG >> $PIDF; sleep 0.2
+rm -rf $H/guardian.lock; mkdir -p $H/guardian.lock; print $NG > $H/guardian.lock/pid; utc_pstart $NG; print $REPLY > $H/guardian.lock/pstart; fresh
+ck "the lock names a live process that is not a forge-guardian (its start right) -> 2" $([[ $(np) == 2 ]]; print $?) "$(np)"
+kill $NG 2>/dev/null
 rm -rf $H/guardian.lock; fake_gov $H; fresh
 ck "control: a live governor again -> 8" $([[ $(np) == 8 ]]; print $?) "$(np)"
+bad=()
+for e in TZ=UTC TZ=America/Los_Angeles TZ=Asia/Kolkata LC_ALL=de_DE.UTF-8 "LC_ALL=de_DE.UTF-8 TZ=Pacific/Auckland"; do
+  fresh; v=$( env ${=e} FORGE_HEALTH_DIR=$H zsh $FN 2>&1 ); [[ $v == 8 ]] || bad+=("$e->$v")
+done
+ck "a live governor's lock is recognised under TZ=UTC, America/Los_Angeles, Asia/Kolkata, de_DE, de_DE+Auckland -> 8 (FO-4 round 2)" $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-all 8}"
+rm -rf $H/guardian.lock; fake_gov $H legacy; fresh
+ck "v1 compatibility: a lock with no pstart, read in the writer's zone -> 8" $([[ $(np) == 8 ]]; print $?) "$(np)"
+rm -rf $H/guardian.lock; fake_gov $H; fresh
 env_ pad.job 0$S1 3 $EPOCHSECONDS
 ck "a non-canonical pid (0$S1) is an invalid envelope: not counted (ACT-3)" $([[ $(np) == 8 ]]; print $?) "$(np)"
 kill $S1 $S2 $S3 2>/dev/null
@@ -921,47 +990,139 @@ ck "an error exit under set -u (the trap path) ..." $(grep -q 'parameter not set
 ck "  ...retracts state.json to UNKNOWN, heavy_jobs_ok false" $([[ $(sj '[d["state"],d["heavy_jobs_ok"]]') == '["UNKNOWN", false]' ]]; print $?) "$(sj '[d["state"],d["reason"]]')"
 ck "  ...and the Law-7 status.json" $([[ $(jq_ $D/ah/status.json 'd["state"]') == UNKNOWN ]]; print $?)
 ck "  ...and still back-dates the state file" $(( EPOCHSECONDS - $(stat -f %m $D/h/state) > 3600 ? 0 : 1 ))
+# Round-2 residual: VTALRM, PROF and SYS (and ABRT, EMT) are trappable and terminate by
+# default; each left the governor dead behind a fresh published state. Each is an orderly
+# stop now. One fresh domain per signal (the restart-loop breaker counts starts).
+bad=()
+for sg in VTALRM PROF SYS ABRT EMT; do
+  mkdom s18_$sg intel
+  start_gd
+  wait_until 8 '[[ -d $D/h/guardian.lock && -f $D/h/state.json ]]'; sleep 0.5
+  kill -$sg $GP 2>/dev/null
+  wait_until 4 '! kill -0 $GP 2>/dev/null' || bad+=("$sg:still-alive")
+  r_=$(sj 'd["reason"]'); a_=$(jq_ $D/ah/status.json 'd["reason"]')
+  [[ $r_ == "guardian stopped (SIG$sg)" && $a_ == "guardian stopped (SIG$sg)" && ! -d $D/h/guardian.lock ]] || bad+=("$sg:'$r_'/'$a_'")
+  stop_gd
+done
+ck "SIGVTALRM, SIGPROF, SIGSYS, SIGABRT, SIGEMT: an orderly stop -- state.json and status.json say 'guardian stopped (SIG...)', lock released" $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-all retracted}"
+# Round-2 FO-4 regression, end to end with the REAL governor: it records its start as an
+# EPOCH (guardian.lock/pstart, published as guardian_pstart) and every caller recognises it
+# from any time zone or locale -- forge-gate, forge-nproc and forge-guardian-ctl.
+CTL=${SRC:h}/forge-guardian-ctl
+mkdom s18tz intel
+start_gd
+wait_until 15 'state_is GREEN'; ck "setup: a real governor at GREEN" $?
+utc_pstart $GP; gps=$REPLY; lps=$(<$D/h/guardian.lock/pstart 2>/dev/null)
+ck "guardian.lock/pstart is the governor's start in epoch seconds (+-1), and state.json/status.json publish it as guardian_pstart" \
+   $([[ $lps == <-> ]] && (( lps - gps <= 1 && gps - lps <= 1 )) && [[ $(sj 'd["guardian_pstart"]') == $lps && $(jq_ $D/ah/status.json 'd["guardian_pstart"]') == $lps ]]; print $?) "lock=$lps ps=$gps"
+ctl_st() { env "$@" FORGE_GUARDIAN_HOME=$D/home FORGE_HEALTH_DIR=$D/h FORGE_GUARDIAN_LAUNCHCTL=/usr/bin/false zsh $CTL status 2>/dev/null | head -1 }
+mkdir -p $D/home
+bad=()
+for e in TZ=UTC TZ=America/Los_Angeles TZ=Asia/Kolkata LC_ALL=de_DE.UTF-8 "LC_ALL=de_DE.UTF-8 TZ=Pacific/Auckland"; do
+  g_=$( env ${=e} FORGE_HEALTH_DIR=$D/h zsh $FG --need green >/dev/null 2>&1; print $? )
+  n_=$( env ${=e} FORGE_HEALTH_DIR=$D/h zsh $FN 2>/dev/null )
+  c_=$( ctl_st ${=e} )
+  [[ $g_ == 0 && $n_ -gt 2 && $c_ == "RUNNING pid=$GP "* ]] || bad+=("$e: gate=$g_ nproc=$n_ ctl='${c_[1,60]}'")
+done
+ck "the live governor is recognised under TZ=UTC, America/Los_Angeles, Asia/Kolkata, de_DE, de_DE+Auckland by forge-gate, forge-nproc and ctl status" \
+   $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-all recognised}"
+stop_gd
+# ctl never takes a stale or foreign lock for the governor (status only: read-only)
+mkdom s18ctl intel; H=$D/h; mkdir -p $D/home
+print GREEN > $H/state; print -- "{\n  \"state\": \"GREEN\",\n  \"epoch\": $EPOCHSECONDS,\n  \"build_jobs_max\": 8\n}" > $H/state.json
+ctl_h() { env TZ=UTC FORGE_GUARDIAN_HOME=$D/home FORGE_HEALTH_DIR=$H FORGE_GUARDIAN_LAUNCHCTL=/usr/bin/false zsh $CTL status 2>/dev/null | head -1 }
+bad=()
+fake_gov $H; c_=$(ctl_h); [[ $c_ == "RUNNING pid=$FGP "* ]] || bad+=("control:'$c_'")
+print $(( $(<$H/guardian.lock/pstart) - 100 )) > $H/guardian.lock/pstart; c_=$(ctl_h); [[ $c_ == RUNNING* ]] && bad+=("reused:'$c_'")
+rm -rf $H/guardian.lock; fake_gov $H; print -r -- "0$FGP" > $H/guardian.lock/pid; c_=$(ctl_h); [[ $c_ == RUNNING* ]] && bad+=("non-canonical:'$c_'")
+rm -rf $H/guardian.lock; fake_gov $H; print garbage > $H/guardian.lock/pstart; c_=$(ctl_h); [[ $c_ == RUNNING* ]] && bad+=("bad-pstart:'$c_'")
+sleep 600 </dev/null >/dev/null 2>&1 & NG=$!; print $NG >> $PIDF; sleep 0.2
+rm -rf $H/guardian.lock; mkdir -p $H/guardian.lock; print $NG > $H/guardian.lock/pid; utc_pstart $NG; print $REPLY > $H/guardian.lock/pstart
+c_=$(ctl_h); [[ $c_ == RUNNING* ]] && bad+=("not-forge-guardian:'$c_'")
+kill $NG 2>/dev/null; wait $NG 2>/dev/null; c_=$(ctl_h); [[ $c_ == RUNNING* ]] && bad+=("dead:'$c_'")
+ck "ctl status (TZ=UTC) names only a verified governor: control RUNNING; reused pstart, 0N pid, bad pstart, a non-forge-guardian, a dead pid -> not RUNNING" \
+   $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-as expected}"
+# SCHEMA §2.1 (review 2026-10-08 round 2, verify): ctl read the lock through symlinks -- a
+# pstart symlinked to the right epoch verified, and a DANGLING one was "no pstart", so the
+# lstart text (this zone's: ctl_h0 runs in the writer's zone) verified instead.
+ctl_h0() { env FORGE_GUARDIAN_HOME=$D/home FORGE_HEALTH_DIR=$H FORGE_GUARDIAN_LAUNCHCTL=/usr/bin/false zsh $CTL status 2>/dev/null | head -1 }
+bad=()
+rm -rf $H/guardian.lock; fake_gov $H; c_=$(ctl_h0); [[ $c_ == "RUNNING pid=$FGP "* ]] || bad+=("control:'$c_'")
+rm -f $H/guardian.lock/pstart; ln -s $H/no-such-pstart $H/guardian.lock/pstart; c_=$(ctl_h0); [[ $c_ == RUNNING* ]] && bad+=("dangling:'$c_'")
+rm -rf $H/guardian.lock; fake_gov $H; mv $H/guardian.lock/pstart $H/pstart.real; ln -s $H/pstart.real $H/guardian.lock/pstart
+c_=$(ctl_h); [[ $c_ == RUNNING* ]] && bad+=("symlinked:'$c_'")
+rm -f $H/guardian.lock/pstart; mv $H/pstart.real $H/guardian.lock/pstart; mv $H/guardian.lock/pid $H/pid.real; ln -s $H/pid.real $H/guardian.lock/pid
+c_=$(ctl_h); [[ $c_ == RUNNING* ]] && bad+=("symlinked-pid:'$c_'")
+rm -f $H/pid.real
+ck "ctl status never reads guardian.lock through a symlink: control RUNNING; a dangling pstart symlink (writer's zone), a pstart or pid symlinked to the right value -> not RUNNING" \
+   $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-as expected}"
 fi
 
 # ==================================================================================
 if want s19; then
-print "== s19. ENOSPC mid-append: the torn fragment never swallows the next record (R6) =="
-mkdir -p $ROOT/img19 $ROOT/mnt19
-if hdiutil create -size 2m -fs HFS+ -volname fgr6 $ROOT/img19/r6.dmg >/dev/null 2>&1 \
-   && hdiutil attach $ROOT/img19/r6.dmg -nobrowse -mountpoint $ROOT/mnt19 >/dev/null 2>&1; then
-  MNT=$ROOT/mnt19; print -r -- $MNT > $ROOT/mnt.path
-  mkdom s19 intel
-  ( export FORGE_HEALTH_DIR=$MNT/h ARCHIE_HEALTH_DIR=$MNT/ah FORGE_GUARDIAN_LIB=1
-    exec zsh -c 'set -u; source "$1"; M=$2
-      event before "\"n\": 0"; log "before"
-      dd if=/dev/zero of=$M/junk bs=65536 >/dev/null 2>&1; dd if=/dev/zero of=$M/junk2 bs=512 >/dev/null 2>&1
-      i=0; while (( i < 64 )) && { print x > $M/fill.$i } 2>/dev/null; do (( i++ )); done
-      printf -v pad "%9000s" ""; pad=${pad// /p}
-      event torn "\"pad\": \"$pad\""
-      log "torn line $pad"
-      rm -f $M/junk $M/junk2 $M/fill.*
-      event after "\"n\": 2"; log "after the disk was freed"' _ $D/bin/forge-guardian $MNT ) > $D/r6.out 2>&1
-  python3 -I - $MNT/h/events.jsonl $MNT/h/log/guardian.log > $D/r6.res 2>&1 <<'PY'
-import json,sys
-ev=open(sys.argv[1]).read().split("\n")
-good=[]; bad=[]
-for l in ev:
-    if not l.strip(): continue
-    try: good.append(json.loads(l)["kind"])
-    except Exception: bad.append(l[:40])
-lg=open(sys.argv[2]).read().split("\n")
-after=[l for l in lg if "after the disk was freed" in l]
-print("after" in good, len(bad), bool(after) and after[0][19:20] == " " and "torn line" not in after[0])
-PY
-  read -r ok_after nbad ok_log < $D/r6.res
-  ck "setup: the append on the full volume failed part-way (a torn fragment exists)" $(( nbad >= 1 ? 0 : 1 )) "unparseable lines: $nbad"
-  ck "events.jsonl: the record written after the disk was freed parses" $([[ $ok_after == True ]]; print $?) "unparseable lines: $nbad; $(cat $D/r6.res)"
-  ck "  ...the torn fragment is its own (single) invalid line" $(( nbad <= 1 ? 0 : 1 )) "$nbad"
-  ck "guardian.log: the line after the failure starts on its own line" $([[ $ok_log == True ]]; print $?)
-  detach
-else
-  skip "s19: could not create/attach a 2 MB disk image"
+print "== s19. ENOSPC mid-append: the torn record is taken back, every line parses, the next record survives (R6) =="
+# Two arms. `dd`: no sensor binary, so the governor's undo is `dd ... seek=N` (and a stub
+# sensor without `append` falls back to the same). `helper`: the real sensor's
+# `append --truncate-to N --if-size M` -- built from the tree beside the governor under
+# test unless RUNTIME_SENSOR_BIN names a prebuilt one. In both, the governor's own three
+# JSONL/log appends (events.jsonl, history.jsonl, guardian.log) hit a volume with 0 bytes
+# free and the last block's slack, so each write is SHORT; then a second writer (the
+# sensor) and the governor append again. Round 1 left `{"ts": 1791506480.` behind and the
+# sensor's next record was glued to it (review 2026-10-08 round 2).
+jsonl_bad() { # jsonl_bad FILE -> non-empty lines that are not one whole JSON value (plutil: native)
+  local l; integer n=0
+  while IFS= read -r l || [[ -n $l ]]; do
+    [[ -z $l ]] && continue
+    print -r -- "$l" | plutil -convert json -o /dev/null - >/dev/null 2>&1 || (( n++ ))
+  done < $1
+  print $n
+}
+R19S=${RUNTIME_SENSOR_BIN:-}
+if [[ -z $R19S && -x ${SRC:h}/sensor/build.sh ]] && command -v xcrun >/dev/null 2>&1; then
+  zsh ${SRC:h}/sensor/build.sh --out $ROOT/s19bin > $ROOT/s19build.log 2>&1 && R19S=$ROOT/s19bin/forge-guardian-sensor
 fi
+print -r -- 'set -u
+source "$1"; M=$2; arm=$3
+event before "\"n\": 0"; log "before"; pub_values; REASON=nominal; history_append
+for bs in 65536 4096 512 1; do dd if=/dev/zero bs=$bs 2>/dev/null >> $M/fill; done
+printf -v pad "%9000s" ""; pad=${pad// /p}
+event torn "\"pad\": \"$pad\""
+log "torn line $pad"
+REASON="torn-history $pad"; history_append
+rm -f $M/fill
+if [[ $arm == helper ]]; then "$SENSOR_BIN" append --file $M/h/events.jsonl --line "{\"ts\": 2.0, \"kind\": \"other_writer\"}"
+else print -r -- "{\"ts\": 2.0, \"kind\": \"other_writer\"}" >> $M/h/events.jsonl; fi
+event after "\"n\": 2"; log "after the disk was freed"; REASON=after; history_append' > $ROOT/r19.zsh
+for arm in dd helper; do
+  if [[ $arm == helper && ( -z $R19S || ! -x $R19S ) ]]; then skip "s19 helper arm: no sensor binary (see $ROOT/s19build.log)"; continue; fi
+  mkdir -p $ROOT/img19$arm $ROOT/mnt19$arm
+  if hdiutil create -size 2m -fs HFS+ -volname fgr6 $ROOT/img19$arm/r6.dmg >/dev/null 2>&1 \
+     && hdiutil attach $ROOT/img19$arm/r6.dmg -nobrowse -mountpoint $ROOT/mnt19$arm >/dev/null 2>&1; then
+    MNT=$ROOT/mnt19$arm; print -r -- $MNT > $ROOT/mnt.path
+    mkdom s19$arm intel
+    ( export FORGE_HEALTH_DIR=$MNT/h ARCHIE_HEALTH_DIR=$MNT/ah FORGE_GUARDIAN_LIB=1
+      unset FORGE_GUARDIAN_SENSOR_BIN; [[ $arm == helper ]] && export FORGE_GUARDIAN_SENSOR_BIN=$R19S
+      exec zsh $ROOT/r19.zsh $D/bin/forge-guardian $MNT $arm ) > $D/r6.out 2>&1
+    EVF=$MNT/h/events.jsonl; HIF=$MNT/h/history.jsonl; LGF=$MNT/h/log/guardian.log
+    ck "$arm: setup -- each append on the full volume failed part-way and was reported" \
+       $(grep -q 'APPEND FAILED: events.jsonl' $LGF && grep -q 'APPEND FAILED: history.jsonl' $LGF; print $?) "$(grep -c 'APPEND FAILED' $LGF) APPEND FAILED lines"
+    ck "$arm: ...each torn record was TAKEN BACK (the file kept its previous length), none left behind" \
+       $(! grep -q 'a partial record remains' $LGF && grep -q 'the record was not written; the file keeps its previous length' $LGF; print $?) "$(grep -m2 'APPEND FAILED' $LGF | cut -c21-130)"
+    eb=$(jsonl_bad $EVF); hb=$(jsonl_bad $HIF)
+    ck "$arm: events.jsonl -- every line parses ($eb invalid), no torn record, and before/other_writer/after all present" \
+       $(( eb == 0 ? 0 : 1 )) "$(grep -c . $EVF) lines; kinds: $(grep -o '"kind": *"[a-z_]*"' $EVF | tr '\n' ' ')"
+    ck "$arm: ...the other writer's record and the governor's next one both survive" \
+       $(grep -q '"kind": "other_writer"' $EVF && grep -q '"kind": "after"' $EVF && ! grep -q '"kind": "torn"' $EVF; print $?)
+    ck "$arm: history.jsonl -- every line parses ($hb invalid); the torn history record is gone, the next one is there" \
+       $(( hb == 0 ? 0 : 1 )) "$(grep -c . $HIF) lines"
+    ck "$arm: ...history: 'after' present, 'torn-history' absent" $(grep -q '"r":"after"' $HIF && ! grep -q 'torn-history' $HIF; print $?)
+    ck "$arm: guardian.log -- no torn text; every line starts with its timestamp" \
+       $(! grep -q 'torn line' $LGF && ! grep -vqE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ' $LGF && grep -q 'after the disk was freed' $LGF; print $?)
+    detach
+  else
+    skip "s19 $arm arm: could not create/attach a 2 MB disk image"
+  fi
+done
 fi
 
 # ==================================================================================
@@ -1005,6 +1166,82 @@ ck "PUBLISH FAILED status.json(errno 21) is logged" $r "$(grep -m1 'PUBLISH FAIL
 ck "  ...with a publish_error event" $(grep -q '"kind": "publish_error", "file": "status.json", "errno": 21' $D/h/events.jsonl; print $?)
 ck "  ...and nothing is moved inside the directory" $([[ -z "$(print $D/ah/status.json/*(N))" ]]; print $?) "$(print $D/ah/status.json/*(N:t))"
 stop_gd
+fi
+
+# ==================================================================================
+if want s23; then
+print "== s23. forge-guardian-ctl: C-locale numbers from any locale; the evidence total is the governor's set =="
+# Review 2026-10-08 round 2 (verify-install-r2, CORE scope): `status` and `reservations`
+# formatted GiB/MiB with printf %.1f in the CALLER's locale, so the same figure read '0.6'
+# or '0,6' depending on who asked ('36,0 GiB' under de_DE: install_gate's section-10 strings
+# failed under LANG=de_DE). And `status` summed log/, history, events and incidents WITHOUT
+# dot-files (incidents/.ratelimit), reservations.history.jsonl* or crashes/ -- not the set the
+# governor's housekeeping holds under logs.cap_mib (R13) -- so 'X MiB of N MiB cap' read low.
+# No governor runs here: status/reservations are read-only reports over a fixed domain.
+CTL=${SRC:h}/forge-guardian-ctl
+mkdom s23 intel; H=$D/h; mkdir -p $D/home $H/log $H/crashes $H/incidents/.ratelimit
+sleep 600 </dev/null >/dev/null 2>&1 & JP=$!; print $JP >> $PIDF; sleep 0.2
+utc_pstart $JP
+print -r -- "pid=$JP
+pstart=$REPLY
+name=locale-job
+peak_gb=2.5
+priority=normal
+can_restart=0
+gpu=0" > $H/jobs/$JP.job
+# GiB figures chosen off every .x5 tie: 0.5588 36 1.5 30 2.5 1.2 1.3 100
+print -r -- "pid=$JP
+ts_s=$EPOCHSECONDS
+version=gate
+seq=1
+errors=0
+mem_avail_b=600000000
+mem_total_b=38654705664
+mem_compressed_b=1610612736
+budget_b=32212254720
+reserved_b=2684354560
+overcommit=0
+jobs_n=1
+job0_pid=$JP
+job0_identity=ok
+job0_fp_b=1288490188
+job0_peak_fp_b=1395864371
+job0_reserved_b=2684354560
+vol_n=1
+vol0_mount=/
+vol0_avail_b=107374182400
+vol0_growth_b_min=0
+vol0_st=ok" > $H/sensor.env
+# the evidence aggregate (SCHEMA §2): 1 MiB log + a crash ledger + the reservations history +
+# the incidents' rate-limit stamp = 1677722 bytes = 1.6 MiB in 4 files
+head -c 1048576 /dev/zero > $H/log/guardian.log
+head -c 314573 /dev/zero > $H/crashes/0123456789abcdef.jsonl
+head -c 209715 /dev/zero > $H/reservations.history.jsonl
+head -c 104858 /dev/zero > $H/incidents/.ratelimit/red
+ctl_o() { local c=$1; shift
+  env -u LC_ALL -u LC_NUMERIC -u LANG "$@" FORGE_GUARDIAN_HOME=$D/home FORGE_HEALTH_DIR=$H FORGE_GUARDIAN_LAUNCHCTL=/usr/bin/false zsh $CTL $c 2>&1 }
+bad=()
+for e in LC_ALL=C LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 LC_NUMERIC=fr_FR.UTF-8 "LC_ALL=de_DE.UTF-8 TZ=Pacific/Auckland"; do
+  so=$(ctl_o status ${=e}); ro=$(ctl_o reservations ${=e})
+  for w in "avail 0.6 / total 36.0 GiB, compressed 1.5" "reservations: reserved 2.5 / budget 30.0 GiB, overcommit=0" \
+           "footprint=1.2GiB reserved=2.5GiB" "/  100.0 GiB free" "logs+evidence: 1.6 MiB of 64 MiB cap (4 files)"; do
+    [[ $so == *"$w"* ]] || bad+=("$e status lacks '$w'")
+  done
+  sl=("${(@f)so}"); rl=("${(@f)ro}")
+  [[ $ro == *"reserved 2.5 GiB of budget 30.0 GiB (memory 36.0 GiB, available now 0.6 GiB), overcommit=0"* ]] || bad+=("$e reservations header: '${rl[1]:-}'")
+  rw=(${(M)rl:#locale-job*})
+  [[ ${rw[1]:-} == locale-job*" ok "*" 2.5 "*" 1.3 "*" 2.5 "* ]] || bad+=("$e reservations row: '${rw[1]:-}'")
+  cm=(${(M)sl:#*[0-9],[0-9]*} ${(M)rl:#*[0-9],[0-9]*})
+  (( ${#cm} )) && bad+=("$e ${#cm} line(s) with a decimal comma, e.g. '${cm[1]}'")
+done
+ck "ctl status/reservations print the same C-decimal figures under C, de_DE (LC_ALL and LANG), fr_FR LC_NUMERIC, de_DE+Auckland" \
+   $(( ${#bad} == 0 ? 0 : 1 )) "${bad[*]:-identical everywhere}"
+# The governor's own housekeeping total over the same domain (library mode: nothing pruned,
+# 1.6 MiB is far under the 64 MiB cap) is the figure ctl must report.
+hk=$( export FORGE_GUARDIAN_LIB=1 FORGE_HEALTH_DIR=$H ARCHIE_HEALTH_DIR=$D/ah; source $D/bin/forge-guardian >/dev/null 2>&1
+      load_policy >/dev/null 2>&1; housekeeping >/dev/null 2>&1; print -r -- ${HK_TOTAL:-?} )
+ck "  ...and the governor's housekeeping counts the same 1677722 bytes that ctl reports as 1.6 MiB" $([[ $hk == 1677722 ]]; print $?) "HK_TOTAL=$hk"
+kill $JP 2>/dev/null; wait $JP 2>/dev/null
 fi
 
 # ==================================================================================

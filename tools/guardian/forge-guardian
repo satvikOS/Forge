@@ -77,6 +77,9 @@ zmodload -F zsh/files b:zf_mv b:zf_rm b:zf_mkdir 2>/dev/null
 # is read, so a FIFO named *.job can never block the governor (review 2026-10-08 R1:
 # `mkfifo jobs/424242.job` wedged it in open(2) -- nothing published, nothing actuated).
 zmodload -F zsh/system b:sysopen b:sysread 2>/dev/null
+# syswrite/sysseek/systell: a JSONL record is appended with ONE counted write, so a short
+# write (ENOSPC) knows exactly which bytes it left behind and can take them back (R6).
+zmodload -F zsh/system b:syswrite b:sysseek f:systell 2>/dev/null
 (( ${+builtins[zf_mv]} ))    || zf_mv()    { command mv "$@" }
 (( ${+builtins[zf_rm]} ))    || zf_rm()    { command rm "$@" }
 (( ${+builtins[zf_mkdir]} )) || zf_mkdir() { command mkdir "$@" }
@@ -198,7 +201,14 @@ release_lock() {
 }
 # Signals whose default action would end the daemon silently: each now runs the orderly
 # stop (publish UNKNOWN, stop the sensor). Subshells reset them (see notify).
-typeset -ga STOP_SIGNALS; STOP_SIGNALS=(HUP QUIT ALRM USR1 PIPE XCPU XFSZ)
+# VTALRM PROF SYS ABRT EMT (review 2026-10-08 round 2, FO-4 residual): trappable and
+# terminating by default too; after any of them the governor was dead while state.json
+# and the Law-7 status.json stayed a fresh GREEN. Not trapped: KILL and STOP (they cannot
+# be), and the synchronous fault signals SEGV BUS ILL FPE TRAP -- a handler that returns
+# re-runs a real faulting instruction and would hang the governor instead of ending it
+# (a hang is worse: launchd restarts a dead governor, never a wedged one). A real abort()
+# still kills (it restores the default action before re-raising).
+typeset -ga STOP_SIGNALS; STOP_SIGNALS=(HUP QUIT ALRM USR1 PIPE XCPU XFSZ VTALRM PROF SYS ABRT EMT)
 POLL=${FORGE_GUARDIAN_POLL:-5}
 ESCALATE_N=2      # 2 polls (~10s) to escalate — fast enough to beat an OOM
 DEESCALATE_N=6    # 6 polls (~30s) to relax — slow, so we do not flap
@@ -214,34 +224,83 @@ GUARDIAN_VERSION=2.0.0
 PROTECTED_RE='(^|/)(claude|node|WindowServer|loginwindow|Finder|kernel_task|launchd|forge-guardian)$'
 
 # ---- appends (guardian.log, events.jsonl, history.jsonl) ------------------------
-# One record per line (SCHEMA §7). A write that fails part-way (ENOSPC) leaves its
-# partial bytes behind with no newline, and the NEXT record appended to that file
-# used to be glued onto the fragment and lost with it (review 2026-10-08 R6:
-# `{"ts":...,"kind{"ts": ..., "kind": "transition", ...}` -- the RED->GREEN
-# transition itself unreadable). So after a failed append, the next successful
-# append to that file starts with "\n": the torn fragment becomes its own invalid
-# line and every later record parses. The first failure of a streak is logged and
-# reported as a publish_error (best effort: the disk that refused one file usually
-# refuses the others too).
-typeset -gA APPEND_TORN
+# One WHOLE record per line, or none (SCHEMA §7). THE BUG (review 2026-10-08 R6): on a
+# full volume write(2) fills the last block's slack and returns short, leaving a torn
+# fragment with no newline, and the next record appended to that file -- ours or the
+# sensor's -- was glued onto it and lost (`{"ts":...,"kind{"ts": ..., "kind":
+# "transition", ...}`: the RED->GREEN transition itself unreadable). Round 1 only
+# started our NEXT record on a new line, so the fragment stayed an invalid line and the
+# sensor's next events.jsonl record was still swallowed by it (round 2).
+#
+# Now each record is ONE counted write on an O_APPEND fd (syswrite -c: the bytes that
+# made it). A short write ends exactly at systell(fd); while the file still ends there
+# (no other writer appended after it) those bytes are cut off again, so the file keeps
+# its previous length -- every line parses and the next record, anyone's, survives.
+# The cut needs ftruncate, which zsh has no builtin for: `forge-guardian-sensor append
+# --truncate-to N --if-size M` (it re-checks the size in-process right before cutting),
+# else `dd` when no sensor binary exists (then nothing else appends to the domain's
+# files). That fork happens ONLY on a failed write: the steady state stays fork-free.
+# A file that does not end in a newline (another writer's fragment that could not be
+# undone) gets our record on a new line, so a fragment is never more than its own line.
+# The first failure of a streak is logged and reported as a publish_error (best effort:
+# the disk that refused one file usually refuses the others too).
+typeset -gA APPEND_TORN APPEND_FAILING
 APPEND_IN_ERR=0
-append_rec() { # append_rec FILE LINE -> 0, or 1 when the append failed
-  local f=$1 pre=""
-  (( ${+APPEND_TORN[$f]} )) && pre=$'\n'
-  if print -r -- "$pre$2" 2>/dev/null >> "$f"; then
-    [[ -n $pre ]] && unset "APPEND_TORN[$f]"
-    return 0
+APPEND_UNDO_HELPER=1    # 0: the sensor binary has no `append` subcommand (an older one)
+append_undo() { # append_undo FILE N M: cut FILE back to N bytes iff it is still M bytes long
+  local f=${1:A} rc
+  local -A st
+  if [[ -n ${SENSOR_BIN:-} ]] && (( APPEND_UNDO_HELPER )); then
+    "$SENSOR_BIN" append --file "$f" --truncate-to "$2" --if-size "$3" </dev/null >/dev/null 2>&1; rc=$?
+    (( rc == 2 )) || return $rc          # 0 cut; 1 not cut (it grew: another writer's record)
+    APPEND_UNDO_HELPER=0                 # usage error: a sensor that predates `append`
   fi
-  if (( ! ${+APPEND_TORN[$f]} )); then
-    APPEND_TORN[$f]=1
-    if (( ! APPEND_IN_ERR )); then
-      APPEND_IN_ERR=1
-      log "APPEND FAILED: ${f:t} -- a partial record may remain; the next append to it starts on a new line"
-      event publish_error "\"file\": \"${f:t}\", \"errno\": -1"
-      APPEND_IN_ERR=0
+  zstat -H st -- "$f" 2>/dev/null && (( st[size] == $3 )) || return 1
+  dd if=/dev/null of="$f" bs=1 seek="$2" 2>/dev/null </dev/null >/dev/null
+}
+append_rec() { # append_rec FILE LINE -> 0, or 1 when the append failed (nothing torn is left when it can be helped)
+  local LC_ALL=C                       # byte lengths, not characters
+  local f=$1 data="$2"$'\n' fd last="" known=0 end left=0
+  local -i n=0
+  local -A st
+  # (a symlinked log or ledger is followed, as `print >>` always did: a gate keeps the
+  # evidence of a full volume on another disk that way; the TARGET must be a regular file)
+  if ! sysopen -r -a -o creat,nonblock,cloexec -m 600 -u fd -- "$f" 2>/dev/null; then
+    append_failed "$f" 0; return 1
+  fi
+  if ! zstat -H st -f $fd 2>/dev/null || (( (st[mode] & 8#170000) != 8#100000 )); then
+    exec {fd}>&- 2>/dev/null; append_failed "$f" 0; return 1          # never into a FIFO or device
+  fi
+  if (( st[size] == 0 )); then known=1; last=$'\n'
+  elif sysseek -u $fd -w start $(( st[size] - 1 )) 2>/dev/null && sysread -s 1 -i $fd last 2>/dev/null; then known=1; fi
+  if (( known )); then [[ $last == $'\n' ]] || data=$'\n'$data
+  elif (( ${+APPEND_TORN[$f]} )); then data=$'\n'$data; fi
+  if syswrite -c n -o $fd -- "$data" 2>/dev/null; then
+    exec {fd}>&- 2>/dev/null; unset "APPEND_TORN[$f]" "APPEND_FAILING[$f]"; return 0
+  fi
+  # Short or failed: our bytes are exactly [end - n, end).
+  if (( n > 0 )); then
+    end=$(( systell(fd) ))
+    left=1
+    if zstat -H st -f $fd 2>/dev/null && (( st[size] == end && end >= n )) && append_undo "$f" $(( end - n )) $end; then
+      left=0
     fi
   fi
+  exec {fd}>&- 2>/dev/null
+  append_failed "$f" $left
   return 1
+}
+append_failed() { # append_failed FILE LEFT: LEFT=1 when a torn fragment could not be taken back
+  local f=$1
+  if (( $2 )); then APPEND_TORN[$f]=1; fi
+  (( APPEND_IN_ERR || ${+APPEND_FAILING[$f]} )) && return 0     # reported once per streak
+  APPEND_FAILING[$f]=1
+  APPEND_IN_ERR=1
+  if (( $2 )); then log "APPEND FAILED: ${f:t} -- a partial record remains (it could not be cut off); the next append to it starts on a new line"
+  else log "APPEND FAILED: ${f:t} -- the record was not written; the file keeps its previous length"; fi
+  event publish_error "\"file\": \"${f:t}\", \"errno\": -1"
+  APPEND_IN_ERR=0
+  return 0
 }
 log() { local _t; strftime -s _t '%Y-%m-%dT%H:%M:%S' $EPOCHSECONDS; append_rec "$LOG" "$_t $1"; return 0; }
 emit() { print -r -- "$1"; log "$1"; }
@@ -320,7 +379,7 @@ POL_RANGE=(
   logs_incident_max_kib 64:4096  logs_retention_days 1:365
   notifications_min_interval_s 60:86400  reports_scan_interval_s 60:86400  smart_interval_s 600:604800
 )
-# decimal keys, in thousandths (memory.os_reserve_gb's upper bound is RAM/2: see policy_value)
+# decimal keys, in thousandths (memory.os_reserve_gb's upper bound is RAM-2: see policy_value)
 typeset -gA POL_DEC_RANGE
 POL_DEC_RANGE=( memory_os_reserve_gb 2000:-1  memory_instant_margin_gb 0:16000  memory_light_job_gb 0:2000 )
 # required_signals: a set drawn from these five that contains at least the core four
@@ -338,9 +397,17 @@ policy_value() { # policy_value KEY VALUE -> REPLY normalised, or 1 when the val
   fi
   if (( ${+POL_DEC_RANGE[$k]} )); then
     lo=${POL_DEC_RANGE[$k]%%:*}; hi=${POL_DEC_RANGE[$k]##*:}
-    (( hi < 0 )) && hi=$(( RAM_BYTES * 1000 / 1073741824 / 2 ))
+    # memory.os_reserve_gb: 2 .. RAM-2 GiB (SCHEMA §6). It was RAM/2, which refused the
+    # shipped default 6 on an 8 GiB Mac (RAM/2 = 4), so the installed policy.json lost
+    # that key at every start. RAM-2 leaves at least 2 GiB of budget whatever the reserve.
+    # RAM_BYTES is the hook a library-mode test sets to stand in for another Mac.
+    (( hi < 0 )) && hi=$(( RAM_BYTES * 1000 / 1073741824 - 2000 ))
     is_udec "$v" && (( ${#v} <= 12 )) || return 1
     to_milli "$v"; (( REPLY >= lo && REPLY <= hi )) || return 1
+    # to_milli keeps three decimals, so 6.0005 was 6000 thousandths and passed an upper bound
+    # of 6 that the sensor refuses whole (review 2026-10-08 round 2, verify item 5): AT the
+    # bound, any non-zero digit past the third decimal is over it.
+    (( REPLY == hi )) && [[ $v == *.* && ${${v#*.}[4,-1]} == *[1-9]* ]] && return 1
     REPLY=$v; return 0
   fi
   case $k in
@@ -457,6 +524,11 @@ EV_SOURCE=fallback; SENSOR_AGE=-1; SENSOR_FRESH=0; SENSOR_ENABLED=0; SENSOR_PID=
 SENSOR_STARTED=0; SENSOR_LAST_FRESH=0; SENSOR_GIVEUP_UNTIL=0; SENSOR_STARTS=(); SNAP_TS=0
 SNAP_PID=""; LAST_CRIT_N=0; PREV_POLL_EPOCH=0
 GPU_JOBS=0; ENV_RESERVED_MILLI=0; ENV_JOBS_OK=0
+# The registry (SCHEMA §6 limits): JOBS_ST ok|unavailable, published like the sensor's
+# jobs_st. ENV_LIMIT = the 1024-envelope limit; above it nothing is counted, and at most
+# ENV_LIMIT envelopes per poll are read -- only to reap the dead (REAP_CURSOR: where the
+# next over-limit batch starts).
+JOBS_ST=ok; JOBS_WHY=""; ENV_LIMIT=1024; REAP_CURSOR=0
 # RES_*_OK=0: the sensor said that quantity is unavailable (-1). It is then PUBLISHED as
 # -1 and overcommit as null -- never as a measured-looking 0.0 (review 2026-10-08 SEM-6).
 RES_FROM=envelopes; RES_RESERVED_MILLI=0; RES_BUDGET_MILLI=0; RES_OVERCOMMIT=0; RES_JOBS=0
@@ -475,8 +547,11 @@ POLL_FRESH=1; WAKE_POLL=0; NEED_ESC=0; LAST_SEQ=""; LAST_SEQ_PID=""; LAST_POLL_T
 # Daemon lifecycle: DAEMON_UP once this process governs the domain; STOP_PUBLISHED once
 # it has published its own exit. GUARD_LSTART: this process's `ps -o lstart=` text in the
 # C locale, as recorded in guardian.lock/started and published for consumers (FO-4).
-DAEMON_UP=0; STOP_PUBLISHED=0; GUARD_LSTART=""
-typeset -gA SV SJOB_ID SJOB_HB EV IDCACHE ANCESTORS CANCEL_T0 STALLED UNVERIFIABLE_NOTED
+# GUARD_PSTART: its start in EPOCH seconds, as recorded in guardian.lock/pstart and
+# published as guardian_pstart (-1 when unknown) -- the time-zone-proof form of the same.
+DAEMON_UP=0; STOP_PUBLISHED=0; GUARD_LSTART=""; GUARD_PSTART=-1
+typeset -gA SV SJOB_ID SJOB_HB SJOB_FID EV IDCACHE ANCESTORS CANCEL_T0 STALLED UNVERIFIABLE_NOTED
+SJOB_HAS_FILE=0; SJOBS_ST=ok
 ANCESTORS_DONE=0; ENV_MTIME=0
 SENSOR_ENV="$STATE_DIR/sensor.env"
 OUT_F="$STATE_DIR/log/guardian.out"; PUB_ERRNO=0; STARTS_IN_WINDOW=0; HK_NEXT=0; PUB_REASON=""
@@ -583,6 +658,8 @@ pub_values() {
     P_OVERCOMMIT=$(( P_RES_MILLI > P_BUDGET_MILLI ))
     P_RES_JOBS=$O_JOBS
   fi
+  # an unavailable registry (SCHEMA §6) has no reservation total and no job count
+  if [[ $JOBS_ST != ok ]]; then r_ok=0; P_RES_JOBS=-1; fi
   if (( r_ok )); then milli_1dp $P_RES_MILLI; P_RES_GB=$REPLY; else P_RES_GB=-1; fi
   if (( b_ok )); then milli_1dp $P_BUDGET_MILLI; P_BUDGET_GB=$REPLY; else P_BUDGET_GB=-1; fi
   # overcommit is a comparison of the two: unknown (JSON null) when either side is
@@ -631,12 +708,14 @@ publish() {
   \"critical_now\": $crit,
   \"thermal_state\": \"$O_THERM_STATE\",
   \"admission\": {\"heavy_open\": $heavy, \"reason\": \"$adm\"},
-  \"reservations\": {\"reserved_gb\": $P_RES_GB, \"budget_gb\": $P_BUDGET_GB, \"overcommit\": $oc, \"jobs\": $P_RES_JOBS},
+  \"reservations\": {\"reserved_gb\": $P_RES_GB, \"budget_gb\": $P_BUDGET_GB, \"overcommit\": $oc, \"jobs\": $P_RES_JOBS, \"status\": \"$JOBS_ST\"},
+  \"jobs_st\": \"$JOBS_ST\",
   \"volumes\": [$vols],
   \"disk_hardware\": \"$DISK_HW\",
   \"guardian\": {\"pid\": $$, \"version\": \"$GUARDIAN_VERSION\", \"started\": $GUARD_STARTED},
   \"guardian_pid\": $$,
   \"guardian_started\": \"$gls\",
+  \"guardian_pstart\": $GUARD_PSTART,
   \"observables\": {
     \"vm_pressure_level\": $P_VMP,
     \"free_pct\": $P_FREE,
@@ -682,7 +761,8 @@ publish() {
   \"iso\": \"$iso\",
   \"evidence_complete\": $ec,
   \"guardian_pid\": $$,
-  \"guardian_started\": \"$gls\"
+  \"guardian_started\": \"$gls\",
+  \"guardian_pstart\": $GUARD_PSTART
 }" || fail+="${fail:+ }${AH_F:t}(errno $PUB_ERRNO)"
   fi
   if [[ -n $fail ]]; then
@@ -767,10 +847,18 @@ job_prio() { read_envelope "$1"; REPLY=${EV[priority]:-5}; is_uint "$REPLY" && (
 # Pure zsh: v1 piped through sort|awk, and awk's $2 cut every path at its first
 # space, so a domain under a path with a space in it could never shed anything.
 # `(N.)`: regular files only -- never a FIFO, directory or symlink (review R1).
+# Over the registry limit (SCHEMA §6) only the first 1024 envelopes by name are read: the
+# shed order is then partial, and says so in the log, rather than a poll that reads every
+# file of a flooded jobs/ (each one is still identity-checked before any signal).
 shed_list() {
-  local f r; local -a rows
+  local f r; local -a rows envs
   SHED_LIST=()
-  for f in "$JOBS_DIR"/*.job(N.); do job_prio "$f"; rows+=("$REPLY $f"); done
+  envs=("$JOBS_DIR"/*.job(N.))
+  if (( ${#envs} > ENV_LIMIT )); then
+    log "shed list: ${#envs} envelopes exceed the registry limit $ENV_LIMIT -- only the first $ENV_LIMIT by name are considered"
+    envs=(${envs[1,ENV_LIMIT]})
+  fi
+  for f in $envs; do job_prio "$f"; rows+=("$REPLY $f"); done
   for r in ${(On)rows}; do SHED_LIST+=("${r#* }"); done
 }
 shed_order() { shed_list; (( ${#SHED_LIST} )) && print -rl -- $SHED_LIST; return 0 }
@@ -785,19 +873,48 @@ shed_order() { shed_list; (( ${#SHED_LIST} )) && print -rl -- $SHED_LIST; return
 # fatal under `set -u`. resilience_harness.mjs D5 died exactly so (json_esc:3:
 # speculative: parameter not set), mid-shed, leaving its victims orphaned.
 parse_lstart() { local LC_ALL=C v=""; strftime -r -s v '%a %b %d %H:%M:%S %Y' "$1" 2>/dev/null || return 1; REPLY=$v }
+# pid_pstart PID -> REPLY = the process's start in EPOCH seconds; 1 when it is not
+# running or its start cannot be read. Exact from the sensor's pidinfo (proc_pidinfo);
+# else ps's lstart read back in the zone it was printed in (UTC for both, so no local
+# zone or DST hour is involved). A NUMBER means the same to every reader: the lstart
+# TEXT that guardian.lock/started holds is local time, so a reader in another time zone
+# called a live governor "a reused pid" and every admission failed closed (review
+# 2026-10-08 round 2, FO-4 regression). guardian.lock/pstart carries this value.
+pid_pstart() {
+  local out kv
+  REPLY=""
+  is_pid "$1" || return 1
+  if [[ -n ${SENSOR_BIN:-} ]]; then
+    out=$("$SENSOR_BIN" pidinfo "$1" 2>/dev/null)
+    if [[ $out == *identity=alive* ]]; then
+      for kv in ${=out}; do [[ $kv == pstart=<-> ]] && { REPLY=${kv#pstart=}; break; }; done
+      is_uint "$REPLY" && (( REPLY > 0 )) && return 0
+      REPLY=""
+    fi
+    [[ $out == *identity=dead* ]] && return 1
+  fi
+  out=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)
+  out=${(j: :)${=out}}
+  [[ -n $out ]] || return 1
+  local TZ=UTC
+  parse_lstart "$out" && is_uint "$REPLY" && (( REPLY > 0 ))
+}
 # PI_COMM is the DECODED process name. pidinfo prints comm= percent-encoded (env_word:
 # a space is %20, an empty name is `none`) and also prints protected=0|1 from SCHEMA §5's
 # list. Review 2026-10-08 ACT-1: the governor matched `Claude Helper*` against the
 # encoded `Claude%20Helper`, so with the sensor installed every Claude helper could be
 # signalled. Now the name is decoded before matching AND protected=1 is honoured
-# (PI_PROT): either one protects.
+# (PI_PROT): either one protects. pidinfo is asked WITH this domain (--state-dir), so its
+# protected=1 also covers the guardian.lock holder, the governor's ancestors and the
+# sensor.lock holder (SCHEMA §5) -- not only the names. A sensor too old for --state-dir
+# answers with a usage error and the ps path below takes over.
 proc_info() { # proc_info PID -> PI_ALIVE PI_PPID PI_PSTART PI_UID PI_COMM PI_PROT; 0 when alive
   local pid=$1 out kv c
   local -a w
   PI_ALIVE=0; PI_PPID=""; PI_PSTART=""; PI_UID=""; PI_COMM=""; PI_PROT=0
   is_pid "$pid" || return 1
   if [[ -n $SENSOR_BIN ]]; then
-    out=$("$SENSOR_BIN" pidinfo "$pid" 2>/dev/null)
+    out=$("$SENSOR_BIN" pidinfo --state-dir "$STATE_DIR" "$pid" 2>/dev/null)
     if [[ $out == *identity=alive* ]]; then
       for kv in ${=out}; do
         case $kv in
@@ -907,17 +1024,33 @@ reap_one() { # reap_one FILE PID WHY
 # tick): no fork. An envelope newer than the snapshot is DEFERRED to the next one
 # -- acting on an older snapshot could delete a brand-new envelope that merely
 # reused the file name. Without a sensor: one proc_info per envelope, cached.
+#
+# The envelope's OWN pid is checked to be canonical BEFORE any sensor verdict is taken
+# (SCHEMA §5; review 2026-10-08 ACT-3): a sensor that read `pid=0123` as 123 published
+# "ok" for 123, and a pid-keyed lookup handed that verdict to the padded envelope. The
+# verdict is then taken for THIS FILE (sensor.env job<j>_file) and only when the sensor
+# read the same pid from it: two envelopes can name one pid (a reused pid's stale file
+# beside the live job's), and a verdict keyed by pid alone either reaped the live job's
+# envelope or kept the stale one. A sensor that publishes no job<j>_file (older) is
+# looked up by pid, as before.
 envelope_identity() {
-  local f=$1 pid=$2 key c
+  local f=$1 pid=$2 key c v
   local -a w
   ID_VERDICT=unverifiable; ID_WHY=""
+  if ! is_pid "$pid"; then ID_VERDICT=invalid; ID_WHY="not a canonical pid"; return 0; fi
   if (( SENSOR_FRESH )); then
-    if (( ${+SJOB_ID[$pid]} )) && (( ENV_MTIME < SNAP_TS )); then
+    ID_VERDICT=deferred
+    (( ENV_MTIME < SNAP_TS )) || return 0
+    if (( SJOB_HAS_FILE )); then
+      v=${SJOB_FID[${f:t}]:-}
+      [[ $v == "$pid "* ]] || return 0          # not in the snapshot, or it named another pid then
+      ID_VERDICT=${v#* }; ID_WHY="sensor verdict"
+    elif (( ${+SJOB_ID[$pid]} )); then
       ID_VERDICT=${SJOB_ID[$pid]}; ID_WHY="sensor verdict"
-      [[ $ID_VERDICT == (ok|dead|mismatch|unverifiable) ]] || ID_VERDICT=unverifiable
     else
-      ID_VERDICT=deferred
+      return 0
     fi
+    [[ $ID_VERDICT == (ok|dead|mismatch|unverifiable) ]] || ID_VERDICT=unverifiable
     return 0
   fi
   key="$ENV_MTIME:$pid"
@@ -932,17 +1065,86 @@ envelope_identity() {
   return 0
 }
 
+# reap_batch -- the reaper ABOVE the registry limit (uses the caller's `envs`, the
+# over-limit listing sorted by name). THE BUG THIS CLOSES (review 2026-10-08 round 2,
+# verify 4c): with the walk skipped entirely above 1024 envelopes, 1100 envelopes of DEAD
+# pids (crashed jobs, a runaway harness) stayed for ever -- jobs_st stayed unavailable and
+# every `admit` exited 75 until a human deleted them, where c249d838 (which walked
+# everything) had reaped them in one poll. Now each over-limit poll reads at most
+# ENV_LIMIT envelopes -- no more work than a full legal registry -- starting where the
+# previous batch stopped (REAP_CURSOR, wrapping round, so live envelopes that sort first
+# cannot hide dead ones behind them for ever), and acts only on the verdicts that need no
+# identity check: unreadable, no canonical pid (after the same 10 s grace), pid not
+# running. A running pid's envelope is kept and never signalled from here: nothing is
+# counted and no identity verdict is computed or trusted while the registry is
+# unavailable. Once the count is back within the limit the normal walk resumes and
+# jobs_st returns to ok on its own.
+reap_batch() {
+  local f pid now=$EPOCHSECONDS
+  local -i n=${#envs} i k reaped=0 seen=0
+  local -A hst
+  (( REAP_CURSOR >= 0 && REAP_CURSOR < n )) || REAP_CURSOR=0
+  for (( i = 0; i < ENV_LIMIT && i < n; i++ )); do
+    k=$(( (REAP_CURSOR + i) % n + 1 ))
+    f=${envs[k]}
+    (( ++seen ))
+    if ! read_envelope "$f"; then
+      if zstat -L -H hst -- "$f" 2>/dev/null && (( (hst[mode] & 8#170000) == 8#100000 )); then
+        reap_one "$f" "" "unreadable"; (( ++reaped ))
+      fi
+      continue
+    fi
+    pid=${EV[pid]:-}
+    if ! is_pid "$pid" || (( pid <= 1 )); then
+      if (( now - ENV_MTIME > 10 )); then reap_one "$f" "$pid" "no valid pid"; (( ++reaped )); fi
+      continue
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then reap_one "$f" "$pid" "dead"; (( ++reaped )); fi
+  done
+  # the next batch starts right after this one (the files reaped here no longer hold an index)
+  if (( n - reaped > 0 )); then REAP_CURSOR=$(( (REAP_CURSOR + seen - reaped) % (n - reaped) ))
+  else REAP_CURSOR=0; fi
+  (( reaped )) && log "registry over the limit: reaped $reaped of the $seen envelopes read this poll ($n present, limit $ENV_LIMIT)"
+  return 0
+}
+
 # The reaper, and the ONE pass that counts the registry. registered_jobs, gpu_jobs
 # and the envelope reservations are all taken here, after reaping, so two fields
 # describing one set are always computed on the same side of the thing that
 # changes it (v1 once published registered_jobs=1 beside gpu_jobs=0 for one set).
+#
+# REGISTRY LIMITS (SCHEMA §6; review 2026-10-08 R4, governor half): at most 1024
+# envelopes. Above that -- or when the sensor's snapshot says it could not read the
+# registry completely -- the registry is UNAVAILABLE: JOBS_ST=unavailable is published
+# (state.json jobs_st and reservations.status, like the sensor's), registered_jobs /
+# gpu_jobs / reserved_gb are -1 and overcommit null, never a silently shorter count.
+# Over the limit the registry is NOT walked: a hostile 100k-file jobs/ used to be read
+# envelope by envelope on every poll. It is still REAPED, in a bounded batch (reap_batch).
 reap_dead_jobs() {
-  local f pid now=$EPOCHSECONDS hb ss age
+  local f pid now=$EPOCHSECONDS hb ss age was=$JOBS_ST
+  local -a envs
   local -A seen hst
   O_JOBS=0; GPU_JOBS=0; ENV_RESERVED_MILLI=0; ENV_JOBS_OK=0
   # `(N.)`: regular files only. A FIFO, directory or symlink named *.job is never opened
   # (it could block, or point anywhere) and never deleted (SCHEMA §6 registry limits).
-  for f in "$JOBS_DIR"/*.job(N.); do
+  envs=("$JOBS_DIR"/*.job(N.))
+  JOBS_ST=ok; JOBS_WHY=""
+  if (( ${#envs} > ENV_LIMIT )); then
+    JOBS_ST=unavailable; JOBS_WHY="${#envs} envelopes, more than $ENV_LIMIT"
+  elif (( SENSOR_FRESH )) && [[ $SJOBS_ST != ok ]]; then
+    JOBS_ST=unavailable; JOBS_WHY="the sensor could not read the registry completely"
+  fi
+  if [[ $JOBS_ST != "$was" ]]; then
+    if [[ $JOBS_ST == ok ]]; then log "registry readable again (jobs_st ok)"
+    else log "REGISTRY UNAVAILABLE (jobs_st unavailable): $JOBS_WHY -- registered_jobs and reservations published as -1"; fi
+  fi
+  if (( ${#envs} > ENV_LIMIT )); then
+    reap_batch
+    O_JOBS=-1; GPU_JOBS=-1; ENV_RESERVED_MILLI=0; ENV_JOBS_OK=0
+    return 0
+  fi
+  REAP_CURSOR=0
+  for f in $envs; do
     if ! read_envelope "$f"; then
       # gone, replaced by a non-regular file since the glob, or cannot be opened
       zstat -L -H hst -- "$f" 2>/dev/null && (( (hst[mode] & 8#170000) == 8#100000 )) \
@@ -996,6 +1198,8 @@ reap_dead_jobs() {
   # forget cache entries for envelopes that are gone
   for f in ${(k)IDCACHE}; do (( ${+seen[$f]} )) || unset "IDCACHE[$f]"; done
   for f in ${(k)UNVERIFIABLE_NOTED}; do (( ${+seen[$f]} )) || unset "UNVERIFIABLE_NOTED[$f]"; done
+  # an unreadable registry has no count: -1, never the part that happened to be read
+  if [[ $JOBS_ST != ok ]]; then O_JOBS=-1; GPU_JOBS=-1; ENV_RESERVED_MILLI=0; ENV_JOBS_OK=0; fi
   return 0
 }
 
@@ -1178,14 +1382,20 @@ map_sensor() {
   else
     RES_FROM=envelopes; RES_RESERVED_OK=1; RES_BUDGET_OK=1
   fi
-  SJOB_ID=(); SJOB_HB=(); RES_JOBS=0
+  SJOB_ID=(); SJOB_HB=(); SJOB_FID=(); SJOB_HAS_FILE=0; RES_JOBS=0
   n=${SV[jobs_n]:-0}; is_uint "$n" && (( n <= 4096 )) || n=0
   for (( j = 0; j < n; j++ )); do
     pid=${SV[job${j}_pid]:-}; is_pid "$pid" || continue
-    SJOB_ID[$pid]=${SV[job${j}_identity]:-unverifiable}
+    v=${SV[job${j}_identity]:-unverifiable}
+    SJOB_ID[$pid]=$v
     SJOB_HB[$pid]=${SV[job${j}_hb_age_s]:--1}
-    [[ ${SJOB_ID[$pid]} == ok ]] && (( RES_JOBS++ ))
+    t=${SV[job${j}_file]:-}
+    if [[ -n $t && $t != none ]]; then pct_decode "$t"; SJOB_FID[$REPLY]="$pid $v"; SJOB_HAS_FILE=1; fi
+    [[ $v == ok ]] && (( RES_JOBS++ ))
   done
+  # The registry as the SENSOR read it (SCHEMA §6): unavailable above 1024 envelopes or
+  # when an envelope cannot be read. A sensor that publishes no jobs_st said nothing.
+  SJOBS_ST=ok; [[ ${SV[jobs_st]:-ok} == ok ]] || SJOBS_ST=unavailable
   SNAP_TS=${SV[ts_s]}
 }
 
@@ -1245,16 +1455,27 @@ sample_fallback() {
     PREV_PO=""; PREV_PO_T=""
   fi
   # disk: every policy volume; ok only when every one of them is (SCHEMA §3.1)
+  # A df line is "Filesystem 1G-blocks Used Avail Capacity [iused ifree %iused] Mounted
+  # on". The mount point is EVERYTHING after the last NN% column and may contain spaces;
+  # Avail is the column just before the first NN%. Review 2026-10-08 R11 (round 2): the
+  # mount was taken as the last WORD, so '<dir>/my disk' was published as 'disk' and two
+  # volumes whose mounts shared a last word were collapsed into one -- a 0 GiB volume
+  # beside a 99 GiB one went unmeasured and its RED was missed.
   VOL_MOUNT=(); VOL_AVAIL=(); VOL_ST=(); O_DISK=999; O_ST_DISK=ok
+  local -i pc; local av
   for v in $DISK_VOLUMES; do
     out=$(df -g "$v" 2>/dev/null); lines=(${(f)out})
-    w=(${=lines[-1]:-})
-    if (( ${#lines} >= 2 && ${#w} >= 4 )) && is_uint "$w[4]"; then
-      m=$w[-1]
+    line=${lines[-1]:-}; w=(${=line}); m=""; av=""
+    if (( ${#lines} >= 2 )); then
+      for (( pc = 1; pc <= ${#w}; pc++ )); do [[ $w[pc] == <->% ]] && break; done
+      (( pc > 1 && pc < ${#w} )) && av=$w[pc-1]
+      [[ $line == *[0-9]%[[:space:]]##[^[:space:]]* ]] && m=${line##*[0-9]%[[:space:]]##}
+    fi
+    if [[ -n $m ]] && is_uint "$av"; then
       (( ${+seenm[$m]} )) && continue
       seenm[$m]=1
-      VOL_MOUNT+=("$m"); VOL_AVAIL+=($w[4]); VOL_ST+=(ok)
-      (( w[4] < O_DISK )) && O_DISK=$w[4]
+      VOL_MOUNT+=("$m"); VOL_AVAIL+=($av); VOL_ST+=(ok)
+      (( av < O_DISK )) && O_DISK=$av
     else
       VOL_MOUNT+=("$v"); VOL_AVAIL+=(-1); VOL_ST+=(unavailable); O_ST_DISK=unavailable
     fi
@@ -1291,7 +1512,7 @@ observe() {
     EV_SOURCE=sensor; SENSOR_LAST_FRESH=$now
     map_sensor
   else
-    EV_SOURCE=fallback; SJOB_ID=(); SJOB_HB=()
+    EV_SOURCE=fallback; SJOB_ID=(); SJOB_HB=(); SJOB_FID=(); SJOB_HAS_FILE=0; SJOBS_ST=ok
     sample_fallback
   fi
 }
@@ -1595,44 +1816,76 @@ rotate_logs() {
   return 0
 }
 dir_bytes() { local f t=0; local -A st; for f in "$1"/**/*(ND.); do zstat -H st -- "$f" 2>/dev/null && (( t += st[size] )); done; REPLY=$t }
-# Every 10 min: hold log/, history.jsonl*, events.jsonl*, events/ and incidents/
-# under logs_cap_mib -- oldest ROTATED files first, then oldest incident dirs --
-# and drop incident dirs older than logs_retention_days. Live files are never
-# deleted, and nothing outside those names is ever touched.
+# Every 10 min: hold log/, history.jsonl*, events.jsonl*, events/, incidents/,
+# reservations.history.jsonl* and crashes/ under logs_cap_mib -- oldest ROTATED files
+# first, then oldest incident dirs -- and drop incident dirs older than
+# logs_retention_days. Live files are never deleted, and nothing outside those names is
+# ever touched. The release ledgers (review 2026-10-08 R13, governor half) are COUNTED:
+# `release` rotates reservations.history.jsonl and each crashes/<sig>.jsonl at 1 MiB and
+# prunes crash ledgers past retention, but they were outside the cap's sum, so the
+# evidence on disk could exceed logs.cap_mib unseen. A rotated reservations history is
+# prunable like any rotated log; crash ledgers (and their .1) are never pruned here:
+# they are the crash-loop evidence that admit's quarantine counts (release bounds them).
+#
+# THE FLOOR (review 2026-10-08 round 2, verify R13 regression): what this function never
+# deletes -- live files, crash ledgers, events/ -- can by itself exceed the cap (enough
+# crashing signatures within the retention window). No amount of pruning reaches the cap
+# then, and pruning "while over the cap" deleted EVERY prunable item, the newest incident
+# and history.jsonl.1 included: the freshest evidence was destroyed for nothing (c249d838,
+# which did not count the ledgers, kept them). So when the floor alone is over the cap,
+# the newest incident directory and every generation-1 rotated file (<name>.1) are KEPT;
+# everything older is still pruned, which bounds what remains to the floor plus one
+# incident (<= logs.incident_max_kib) plus one rotation of each log. When the cap is
+# reachable, pruning is exactly as before (oldest rotated, then oldest incidents).
 housekeeping() {
-  local cap=$(( POL[logs_cap_mib] * 1048576 )) total=0 f n d base
+  local cap=$(( POL[logs_cap_mib] * 1048576 )) total=0 prunable=0 floor f n d base newest="" kept_txt=""
+  local -i keep=0
   local -a files rotated incs
   local -A st
-  files=("$STATE_DIR"/log/**/*(ND.) "$STATE_DIR"/history.jsonl*(N.) "$STATE_DIR"/events.jsonl*(N.) "$STATE_DIR"/events/**/*(ND.) "$STATE_DIR"/incidents/**/*(ND.))
+  files=("$STATE_DIR"/log/**/*(ND.) "$STATE_DIR"/history.jsonl*(N.) "$STATE_DIR"/events.jsonl*(N.) "$STATE_DIR"/events/**/*(ND.) "$STATE_DIR"/incidents/**/*(ND.)
+         "$STATE_DIR"/reservations.history.jsonl*(N.) "$STATE_DIR"/crashes/**/*(ND.))
   for f in $files; do zstat -H st -- "$f" 2>/dev/null && (( total += st[size] )); done
   for d in "$STATE_DIR"/incidents/*(N/m+$POL[logs_retention_days]); do
     dir_bytes "$d"; zf_rm -rf -- "$d" 2>/dev/null && { (( total -= REPLY )); log "housekeeping: removed incident ${d:t} (older than $POL[logs_retention_days] days)"; }
   done
   # rotated generations beyond policy, then the oldest rotated files while over cap
-  rotated=("$STATE_DIR"/log/*.<->(N.Om) "$STATE_DIR"/history.jsonl.<->(N.Om) "$STATE_DIR"/events.jsonl.<->(N.Om))
+  rotated=("$STATE_DIR"/log/*.<->(N.Om) "$STATE_DIR"/history.jsonl.<->(N.Om) "$STATE_DIR"/events.jsonl.<->(N.Om)
+           "$STATE_DIR"/reservations.history.jsonl.<->(N.Om))
+  incs=("$STATE_DIR"/incidents/*(N/Om))
+  if (( total > cap )); then
+    for f in $rotated; do zstat -H st -- "$f" 2>/dev/null && (( prunable += st[size] )); done
+    for d in $incs; do dir_bytes "$d"; (( prunable += REPLY )); done
+    floor=$(( total - prunable ))
+    if (( floor > cap )); then
+      keep=1; kept_txt=", crash ledgers, the newest incident and the .1 generations"; (( ${#incs} )) && newest=${incs[-1]}
+      (( HK_FLOOR_LOGGED )) || log "housekeeping: live files and crash ledgers alone are $(( floor / 1048576 )) MiB > cap ${POL[logs_cap_mib]} MiB: no pruning reaches the cap, so the newest incident${newest:+ (${newest:t})} and the .1 generations are kept"
+      HK_FLOOR_LOGGED=1
+    fi
+  fi
+  (( keep )) || HK_FLOOR_LOGGED=0
   for f in $rotated; do
     n=${f##*.}
-    if (( n > POL[logs_generations] || total > cap )); then
+    if (( n > POL[logs_generations] || (total > cap && !(keep && n == 1)) )); then
       zstat -H st -- "$f" 2>/dev/null || continue
       zf_rm -f -- "$f" 2>/dev/null && { (( total -= st[size] )); log "housekeeping: removed rotated ${f:t} (${st[size]} bytes)"; }
     fi
   done
   if (( total > cap )); then
-    incs=("$STATE_DIR"/incidents/*(N/Om))
     for d in $incs; do
       (( total > cap )) || break
+      [[ $d == "$newest" ]] && continue
       dir_bytes "$d"; zf_rm -rf -- "$d" 2>/dev/null && { (( total -= REPLY )); log "housekeeping: removed incident ${d:t} to stay under ${POL[logs_cap_mib]} MiB"; }
     done
   fi
   if (( total > cap )); then
-    (( HK_OVER_LOGGED )) || log "housekeeping: evidence still $(( total / 1048576 )) MiB > cap ${POL[logs_cap_mib]} MiB after pruning everything prunable (live files are kept)"
+    (( HK_OVER_LOGGED )) || log "housekeeping: evidence still $(( total / 1048576 )) MiB > cap ${POL[logs_cap_mib]} MiB after pruning everything prunable (live files${kept_txt} are kept)"
     HK_OVER_LOGGED=1
   else
     HK_OVER_LOGGED=0
   fi
   HK_TOTAL=$total
 }
-HK_OVER_LOGGED=0; HK_TOTAL=0
+HK_OVER_LOGGED=0; HK_FLOOR_LOGGED=0; HK_TOTAL=0
 
 # ---- notifications -------------------------------------------------------------
 # Kinds: red, unknown, quarantine, incident -- each rate-limited by policy across
@@ -1801,23 +2054,41 @@ trap 'release_lock; exit 143' TERM
 trap 'release_lock; exit 130' INT
 
 # 1. the lock
-# `started` is ps's lstart text in the C locale ("Thu Oct  8 19:39:53 2026"): lstart is
-# locale-dependent ("Do.  8 Okt. ..."), and forge-gate / forge-nproc / ctl compare it
-# against their own `ps` to prove the lock holder is THIS governor, not a reused pid.
+# guardian.lock/ holds three files, written in this order:
+#   pid      this process's pid
+#   pstart   its start in EPOCH seconds (pid_pstart: proc_pidinfo via the sensor, else
+#            ps read back in UTC). THE identity every reader compares, as a number,
+#            +-1 s: forge-gate, forge-nproc, forge-guardian-ctl, `sensor admit` and this
+#            acquisition. It means the same in every time zone and locale (review
+#            2026-10-08 round 2, FO-4 regression: the text below made `TZ=UTC admit`
+#            refuse a live governor, and so did a system time-zone change).
+#   started  ps's lstart text in the C locale ("Thu Oct  8 19:39:53 2026") -- LEGACY:
+#            local time, so it matches only a reader in the writer's zone. Kept for v1
+#            readers and published as guardian_started; a lock WITHOUT pstart (the v1
+#            governor's) is still verified by this text, so admission keeps working
+#            across an install.
 for _try in 1 2; do
   if mkdir "$LOCK_D" 2>/dev/null; then
     print -r -- $$ > "$LOCK_D/pid"
+    pid_pstart $$ && print -r -- $REPLY > "$LOCK_D/pstart"
     LC_ALL=C ps -p $$ -o lstart= 2>/dev/null > "$LOCK_D/started"
     LOCK_HELD=1; break
   fi
-  holder=$(cat "$LOCK_D/pid" 2>/dev/null || true)
+  holder=$(cat "$LOCK_D/pid" 2>/dev/null || true); holder=${holder//[[:space:]]/}
   # A pid alone cannot identify a process: pids are reused. If the recorded start
   # time no longer matches, this lock names a DIFFERENT process that merely
   # inherited the number, and treating it as a live peer would refuse for ever.
-  held_start=$(cat "$LOCK_D/started" 2>/dev/null || true)
-  now_start=$(LC_ALL=C ps -p "${holder:-0}" -o lstart= 2>/dev/null || true)
-  if [[ -n "$held_start" && "$held_start" != "$now_start" ]]; then
-    rm -rf "$LOCK_D" 2>/dev/null; continue          # pid reused -> stale
+  held_ps=$(cat "$LOCK_D/pstart" 2>/dev/null || true); held_ps=${held_ps//[[:space:]]/}
+  if is_uint "$held_ps" && (( ${#held_ps} <= 12 && held_ps > 0 )); then
+    if ! pid_pstart "$holder" || (( REPLY - held_ps > 1 || held_ps - REPLY > 1 )); then
+      rm -rf "$LOCK_D" 2>/dev/null; continue        # gone, or pid reused -> stale
+    fi
+  else
+    held_start=$(cat "$LOCK_D/started" 2>/dev/null || true)
+    now_start=$(LC_ALL=C ps -p "${holder:-0}" -o lstart= 2>/dev/null || true)
+    if [[ -n "$held_start" && "$held_start" != "$now_start" ]]; then
+      rm -rf "$LOCK_D" 2>/dev/null; continue        # pid reused -> stale
+    fi
   fi
   if is_live_guardian "${holder:-}"; then refuse_duplicate "pid $holder"; fi
   # Not a live guardian: stale lock (crash, reboot, PID reuse). Reclaim it.
@@ -1842,6 +2113,9 @@ trap 'WOKE=1' USR2
 export LC_ALL=C
 if (( LOCK_HELD )); then GUARD_LSTART=$(<"$LOCK_D/started"); else GUARD_LSTART=$(ps -p $$ -o lstart= 2>/dev/null); fi
 GUARD_LSTART=${(j: :)${=GUARD_LSTART}}
+_ps=""; (( LOCK_HELD )) && [[ -r $LOCK_D/pstart ]] && _ps=$(<"$LOCK_D/pstart"); _ps=${_ps//[[:space:]]/}
+if is_uint "$_ps" && (( _ps > 0 )); then GUARD_PSTART=$_ps; elif pid_pstart $$; then GUARD_PSTART=$REPLY; fi
+unset _ps
 DAEMON_UP=1               # from here on, ANY exit publishes UNKNOWN (release_lock)
 # Own stdout/stderr (SCHEMA §2: log/guardian.out, rotated). Done only now, so a
 # refusal above still reaches whoever started us.

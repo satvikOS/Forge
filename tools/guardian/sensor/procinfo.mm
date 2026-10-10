@@ -119,9 +119,12 @@ bool protected_name(const std::string& comm) {
   return starts_with(c, "Claude Helper");
 }
 
-// ps(1) prints lstart with strftime("%c"), in the locale of whoever ran it: under
-// launchd the plist sets LC_ALL=C; a governor started by hand inherits the user's.
-// Whitespace runs are collapsed (ps pads the field).
+// LEGACY lock only (no guardian.lock/pstart: the v1 governor's). ps(1) prints lstart with
+// strftime("%c") in the locale AND TIME ZONE of whoever ran it, so this text matches only a
+// caller that formats in the writer's zone: under launchd the plist sets LC_ALL=C; a
+// governor started by hand inherits the user's. Whitespace runs are collapsed (ps pads the
+// field). A v2 lock carries pstart (epoch seconds), compared as a number -- see
+// governor_check.
 static std::string collapse_ws(std::string_view s) {
   std::string o;
   bool sp = false;
@@ -158,6 +161,15 @@ static int lock_holder_pid(const std::string& D) {
   return canonical_pid(trim(t), p) ? p : -1;
 }
 
+// The holder's identity. guardian.lock/pstart (v2 governors) is the holder's process start
+// in EPOCH seconds and is compared with proc_pidinfo's pbi_start_tvsec (±1 s): a number,
+// so it means the same in every caller's time zone and locale. THE BUG THIS CLOSES (review
+// 2026-10-08 round 2, FO-4 regression): the lock's `started` TEXT was compared against the
+// pid's start formatted in the CALLER's zone, so `TZ=UTC admit` -- or any admission after
+// a system time-zone change -- was refused (75) by a perfectly live governor. A lock
+// without pstart is a legacy (v1) lock and keeps the text comparison, so admission keeps
+// working across an install. A pstart that is present but not an epoch is refused: it is
+// never a reason to fall back to the weaker text check.
 std::string governor_check(const std::string& D, int* pid_out) {
   if (pid_out) *pid_out = -1;
   std::string t;
@@ -165,14 +177,31 @@ std::string governor_check(const std::string& D, int* pid_out) {
   if (e) return "no guardian.lock/pid (" + std::string(strerror(e)) + ")";
   int pid;
   if (!canonical_pid(trim(t), pid)) return "guardian.lock/pid is not a pid ('" + one_line(trim(t), 40) + "')";
-  std::string started;
-  e = read_file(D + "/guardian.lock/started", started, 256, false);
-  if (e) return "no guardian.lock/started (" + std::string(strerror(e)) + ")";
+  std::string pst, started;
+  int64_t pstart = -1;
+  e = read_file(D + "/guardian.lock/pstart", pst, 64, false);
+  if (e == 0) {
+    std::string w = trim(pst);
+    bool digits = !w.empty() && w.size() <= 12 && w.find_first_not_of("0123456789") == std::string::npos;
+    if (!digits || !parse_i64(w, pstart) || pstart <= 0)
+      return "guardian.lock/pstart is not an epoch ('" + one_line(w, 40) + "')";
+  } else if (e != ENOENT) {
+    return "cannot read guardian.lock/pstart (" + std::string(strerror(e)) + ")";
+  } else {
+    e = read_file(D + "/guardian.lock/started", started, 256, false);
+    if (e) return "no guardian.lock/started (" + std::string(strerror(e)) + ")";
+  }
   ProcInfo pi = proc_info(pid);
   if (!pi.alive) return "guardian.lock names pid " + std::to_string(pid) + ", which is not running";
-  if (!lstart_matches(pi.start_s, started))
+  if (pstart > 0) {
+    if (pi.start_s <= 0) return "cannot read the start time of pid " + std::to_string(pid);
+    if (std::llabs(pi.start_s - pstart) > 1)
+      return "pid " + std::to_string(pid) + " started at epoch " + std::to_string(pi.start_s) + ", not " +
+             std::to_string(pstart) + " (guardian.lock/pstart): the pid was reused";
+  } else if (!lstart_matches(pi.start_s, started)) {
     return "pid " + std::to_string(pid) + " did not start at '" + collapse_ws(started) +
            "' (guardian.lock/started): the pid was reused";
+  }
   std::vector<std::string> av;
   if (!proc_argv(pid, av) || av.empty()) return "cannot read the argv of pid " + std::to_string(pid);
   const std::string& last = av.back();
@@ -405,12 +434,22 @@ Registry read_registry(const std::string& state_dir, const std::string& cur_boot
     // never dropped. The governor used to DELETE it, live job and all.
     j.oversize = fsize > (off_t)kMaxEnvelopeBytes || (text.size() >= kMaxEnvelopeBytes && (off_t)text.size() > fsize);
     parse_kv(text, j.kv);
-    int64_t pid = kv_i64(j.kv, "pid", -1);
-    if (pid <= 0) {
-      int64_t stem;
-      if (parse_i64(n.substr(0, n.size() - 4), stem)) pid = stem;
+    // SCHEMA §5: a pid is canonical decimal. `pid=0123` used to be read as 123 and could be
+    // published with identity ok -- a verdict the governor then trusted for whatever
+    // envelope names 123 (review 2026-10-08 ACT-3, round 2). A non-canonical value is an
+    // invalid envelope: no pid (identity dead, never counted, reaped by the governor). The
+    // file stem stands in only when the key is ABSENT (a legacy writer fills the file
+    // after creating it), and it must be canonical too.
+    int cpid = -1;
+    {
+      auto pit = j.kv.find("pid");
+      if (pit != j.kv.end()) {
+        if (!canonical_pid(pit->second, cpid)) cpid = -1;
+      } else if (!canonical_pid(n.substr(0, n.size() - 4), cpid)) {
+        cpid = -1;
+      }
     }
-    j.pid = (pid > 0 && pid < INT32_MAX) ? (int)pid : -1;
+    j.pid = cpid;
     j.name = kv_str(j.kv, "name");
     j.cmd = kv_str(j.kv, "cmd");
     j.owner = kv_str(j.kv, "owner");

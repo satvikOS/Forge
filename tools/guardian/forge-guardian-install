@@ -2,7 +2,7 @@
 # ============================================================================
 # forge-guardian-install — install, upgrade, roll back or remove the Forge Guardian.
 #
-#   forge-guardian-install install|upgrade [--from DIR] [--no-service] [--run-tests]
+#   forge-guardian-install install|upgrade [--from DIR] [--no-service] [--run-tests] [--dry-run]
 #   forge-guardian-install rollback [--no-service]
 #   forge-guardian-install uninstall [--purge] [--no-service]
 #   forge-guardian-install status
@@ -77,7 +77,7 @@ warn() { print -u2 -r -- "forge-guardian-install: WARNING: $*"; }
 die()  { local c=$1; shift; print -u2 -r -- "forge-guardian-install: $*"; exit $c; }
 
 usage() {
-  print -r -- "usage: forge-guardian-install install|upgrade [--from DIR] [--no-service] [--run-tests]"
+  print -r -- "usage: forge-guardian-install install|upgrade [--from DIR] [--no-service] [--run-tests] [--dry-run]"
   print -r -- "       forge-guardian-install rollback [--no-service]"
   print -r -- "       forge-guardian-install uninstall [--purge] [--no-service]"
   print -r -- "       forge-guardian-install status"
@@ -269,16 +269,47 @@ verify_evidence() {
 # closed and the new governor's upgrade-window guard (fresh `state` = "already
 # governed") does not refuse to start. Never while a live governor holds the lock: its
 # publication is the truth, not ours.
-lock_holder_alive() {   # a live governor holds $FH/guardian.lock (pid canonical, start time, argv)
-  local p s now a
-  [[ -f $FH/guardian.lock/pid && -f $FH/guardian.lock/started ]] || return 1
+#
+# Process start as EPOCH seconds: ps prints lstart in UTC here and it is parsed back in
+# UTC (C locale), so neither the caller's time zone nor a DST fold enters. Comparing the
+# lstart TEXT is what made a caller in another TZ call a live governor "reused" (review
+# 2026-10-08 FO-4, round 2); guardian.lock/pstart (epoch, written by the v2 governor) is
+# compared this way, ±1 s -- as the sensor, forge-gate, forge-nproc and ctl do.
+proc_pstart() {   # proc_pstart <pid> -> REPLY = start epoch second; 1 if not running
+  local s; REPLY=""
+  s=$(TZ=UTC ps -p $1 -o lstart= 2>/dev/null); s=${(j: :)${=s}}
+  [[ -n $s ]] || return 1
+  local TZ=UTC v=""
+  strftime -r -s v '%a %b %d %H:%M:%S %Y' "$s" 2>/dev/null
+  REPLY=$v
+  [[ $REPLY == <-> ]]
+}
+same_start() {    # same_start <pid> <epoch>: the pid's process started in that second (±1)
+  [[ $2 == <-> ]] && proc_pstart $1 && (( REPLY - $2 <= 1 && $2 - REPLY <= 1 ))
+}
+proc_args() { local a; a=$(ps -ww -p $1 -o args= 2>/dev/null); print -r -- ${a%%[[:space:]]##}; }
+lock_holder() {   # prints the pid of a LIVE governor holding $FH/guardian.lock (canonical pid, start, argv)
+  local p s now ps_
+  [[ -f $FH/guardian.lock/pid ]] || return 1
   p=$(<"$FH/guardian.lock/pid"); p=${p//[[:space:]]/}
-  s=$(<"$FH/guardian.lock/started"); s=${(j: :)${=s}}
-  [[ $p == [1-9][0-9](#c0,4) && -n $s ]] && kill -0 $p 2>/dev/null || return 1
-  now=$(ps -p $p -o lstart= 2>/dev/null); now=${(j: :)${=now}}
-  [[ $now == "$s" ]] || { now=$(LC_ALL=C ps -p $p -o lstart= 2>/dev/null); [[ ${(j: :)${=now}} == "$s" ]]; } || return 1
-  a=$(ps -ww -p $p -o args= 2>/dev/null); a=${a%%[[:space:]]##}
-  [[ $a == (*/|)forge-guardian ]]
+  [[ $p == [1-9][0-9](#c0,4) ]] && kill -0 $p 2>/dev/null || return 1
+  [[ $(proc_args $p) == (*/|)forge-guardian ]] || return 1
+  # A pstart that is present is the identity: an unreadable or non-epoch one proves
+  # nothing and is never a reason to fall back to the weaker text (the sensor's
+  # governor_check rule). Only a lock WITHOUT pstart -- a v1 governor's -- uses `started`.
+  if [[ -e $FH/guardian.lock/pstart || -L $FH/guardian.lock/pstart ]]; then
+    [[ -f $FH/guardian.lock/pstart && ! -L $FH/guardian.lock/pstart ]] || return 1
+    ps_=$(<"$FH/guardian.lock/pstart"); ps_=${ps_//[[:space:]]/}
+    [[ $ps_ == [1-9][0-9](#c0,11) ]] || return 1
+    same_start $p $ps_ || return 1                     # TZ-safe: epoch seconds
+  else                                                  # an older lock: lstart text only
+    [[ -f $FH/guardian.lock/started ]] || return 1
+    s=$(<"$FH/guardian.lock/started"); s=${(j: :)${=s}}
+    [[ -n $s ]] || return 1
+    now=$(ps -p $p -o lstart= 2>/dev/null); now=${(j: :)${=now}}
+    [[ $now == "$s" ]] || return 1
+  fi
+  print -r -- $p
 }
 law7_dir_ok() {
   # A fake home (a test) that did not name its own Law-7 directory must never write
@@ -292,9 +323,16 @@ pub_atomic() {   # pub_atomic <path> <content>: SCHEMA §2 <name>.tmp.<pid> + re
   local tmp="$1.tmp.$$"
   print -r -- "$2" >| "$tmp" 2>/dev/null && /bin/mv -f "$tmp" "$1" || { /bin/rm -f "$tmp"; return 1; }
 }
-publish_unknown() {   # publish_unknown <reason>
+publish_unknown() {   # publish_unknown <reason> [<frozen pid> fresh]
+  # With a frozen pid: that SIGSTOPped old governor may still hold the lock -- it can
+  # no longer publish, and is about to be killed -- and `state` is left FRESH (not
+  # back-dated) so that a launchd KeepAlive respawn of it in the next milliseconds
+  # finds the domain governed and refuses (exit 3) before it installs its GREEN trap.
+  local holder
   [[ -d $FH && ! -L $FH ]] || return 0
-  if lock_holder_alive; then warn "a governor still holds $FH/guardian.lock; its publication is left alone"; return 0; fi
+  if holder=$(lock_holder) && [[ $holder != ${2:-none} ]]; then
+    warn "a governor (pid $holder) still holds $FH/guardian.lock; its publication is left alone"; return 0
+  fi
   local now=$EPOCHSECONDS iso r f line k v pid gpu jobs=0 gjobs=0 halt=false ram ncpu nperf fd
   iso=$(TZ=UTC strftime '%Y-%m-%dT%H:%M:%SZ' $now)
   r=$(json_str "$1")
@@ -365,8 +403,12 @@ publish_unknown() {   # publish_unknown <reason>
   \"evidence_complete\": false
 }" || warn "could not publish UNKNOWN into $AH_DIR/status.json"
   fi
-  pub_atomic "$FH/state" "UNKNOWN" && /usr/bin/touch -t 197001020000 "$FH/state" 2>/dev/null \
-    || warn "could not publish UNKNOWN into $FH/state"
+  if [[ ${3:-} == fresh ]]; then
+    pub_atomic "$FH/state" "UNKNOWN" || warn "could not publish UNKNOWN into $FH/state"
+  else
+    pub_atomic "$FH/state" "UNKNOWN" && /usr/bin/touch -t 197001020000 "$FH/state" 2>/dev/null \
+      || warn "could not publish UNKNOWN into $FH/state"
+  fi
   return 0
 }
 
@@ -376,6 +418,125 @@ bootout_service() {
   for i in {1..40}; do lc_print >/dev/null || return 0; sleep 0.5; done
   warn "$LABEL still listed by launchd 20s after bootout"
   return 1
+}
+
+# NO STOP-TIME GREEN AT ALL (review 2026-10-08 INS-3, round 2). Publishing UNKNOWN after
+# the bootout left a window: bootout TERMs the old governor, a v1 governor's TERM trap
+# publishes GREEN "guardian stopped" (heavy_jobs_ok=true, fresh epoch) into state.json
+# and the Law-7 status.json, and that GREEN stood for 0.07-0.38 s (measured) until the
+# installer's UNKNOWN replaced it. A trap cannot run on SIGKILL. So a governor that is
+# not POSITIVELY known to publish UNKNOWN when stopped (its script carries the v2 stop
+# publication `publish "UNKNOWN" "guardian stopped`) is stopped like this:
+#   1. its identity is proven: launchd's pid for this label, argv = the plist's program,
+#      start second recorded BEFORE any file was switched (capture_service);
+#   2. SIGSTOP (cannot be caught), then the identity is checked AGAIN -- a stopped
+#      process keeps its pid, so what is killed below is exactly what was verified (a
+#      mismatch is SIGCONTed and left to an ordinary bootout);
+#   3. its whole process tree is frozen too, level by level (freeze_tree): a child it
+#      forked -- a `mv` of a publication, a background publisher -- must not land a
+#      GREEN after step 4, nor go on publishing once its parent is dead;
+#   4. UNKNOWN is published into state.json, status.json and a FRESH `state` -- the
+#      tree is frozen, so nothing of it can overwrite this; a KeepAlive respawn in the
+#      next milliseconds sees a governed domain and refuses before installing its
+#      GREEN trap;
+#   5. SIGKILL to the frozen tree, then bootout, then publish_unknown again (back-dating
+#      `state`). From step 2 on, no process of the old governor runs another instruction.
+# A v2 governor is stopped by bootout as before: its TERM trap publishes UNKNOWN,
+# releases its lock, records an orderly stop and stops its sensor.
+CAP_PID=""; CAP_PSTART=""; CAP_ARGS=""; CAP_KIND=""; SWITCHED=0
+svc_pid() {   # the pid launchd reports for this label, when running
+  local out st p
+  out=$(lc_print) || return 1
+  st=$(print -r -- "$out" | sed -n 's/^	state = //p' | head -1)
+  p=$(print -r -- "$out" | sed -n 's/^	pid = \([0-9][0-9]*\)$/\1/p' | head -1)
+  [[ $st == running && $p == [1-9][0-9](#c0,4) ]] && print -r -- $p
+}
+gov_kind() {   # gov_kind <governor script>: v2 (publishes UNKNOWN when stopped) | legacy
+  [[ -f $1 && -r $1 ]] && grep -qF 'publish "UNKNOWN" "guardian stopped' "$1" 2>/dev/null && print v2 || print legacy
+}
+capture_service() {   # record the running service's identity and stop behaviour -- BEFORE any switch
+  local p a prog
+  CAP_PID=""; CAP_PSTART=""; CAP_ARGS=""; CAP_KIND=""
+  p=$(svc_pid) || return 0
+  a=$(proc_args $p)
+  prog=$($PLUTIL -extract ProgramArguments.1 raw -o - "$PLIST" 2>/dev/null)
+  [[ -n $prog && ( $a == "/bin/zsh $prog" || $a == "$prog" ) ]] || prog=${a#/bin/zsh }
+  [[ ${prog:t} == forge-guardian ]] || return 0          # not a governor: no identity to prove
+  proc_pstart $p || return 0
+  CAP_PID=$p; CAP_PSTART=$REPLY; CAP_ARGS=$a; CAP_KIND=$(gov_kind "${prog:A}")
+}
+proc_gone() { [[ $(ps -p $1 -o stat= 2>/dev/null) == (|Z*) ]]; }
+proc_frozen() { [[ $(ps -p $1 -o stat= 2>/dev/null) == (|T*|Z*) ]]; }   # stopped, a zombie, or gone
+# freeze_tree <root>: <root> is already SIGSTOPped and verified. Its descendants are
+# stopped level by level, each level only once every process of the level above has
+# reached the stopped state: a stopped process can neither fork nor reap, so every pid
+# listed under it stays that same process (alive or a zombie) until it is killed --
+# signalling them is identity-safe without a start-time check. A process stopped while
+# inside rename(2) completes it first (stop takes effect on the way out of the kernel),
+# so once the tree is stopped every publication it began has landed. Sets FROZEN
+# (root first); returns 1 if some process did not reach the stopped state within ~2 s
+# (e.g. blocked in uninterruptible I/O) -- reported, never ignored.
+FROZEN=()
+freeze_tree() {
+  local -a level next; local q i tbl ok=0 depth
+  FROZEN=($1); level=($1)
+  for depth in {1..32}; do
+    for i in {1..200}; do
+      ok=1; for q in $level; do proc_frozen $q || { ok=0; break; }; done
+      (( ok )) && break
+      sleep 0.01
+    done
+    (( ok )) || { warn "pid $q of the old governor's tree did not stop within 2s"; return 1; }
+    tbl=$(ps -ax -o pid=,ppid= 2>/dev/null)
+    next=()
+    for q in $level; do next+=(${(f)"$(print -r -- "$tbl" | awk -v p=$q '$2 == p { print $1 }')"}); done
+    next=(${next:#$$})
+    (( ${#next} )) || return 0
+    kill -STOP $next 2>/dev/null
+    FROZEN+=($next); level=($next)
+  done
+  warn "the old governor's process tree is deeper than 32 levels"; return 1
+}
+quiesce_legacy() {   # quiesce_legacy <pid> <pstart> <args> <reason>: steps 2-5 up to the bootout
+  local p=$1 i
+  kill -STOP $p 2>/dev/null || return 1
+  # An interruption (^C, TERM, HUP) between the SIGSTOP and the SIGKILL must not leave the
+  # machine with a frozen old governor and no new one: resume the frozen tree, say so, and
+  # stop -- the install did not happen and the old service runs on as before.
+  FROZEN=($p)
+  trap 'kill -CONT $FROZEN 2>/dev/null; warn "interrupted while the old governor (pid $p) was frozen: resumed it and its tree; nothing was installed"; exit 130' INT TERM HUP
+  if [[ $(proc_args $p) != "$3" ]] || ! same_start $p $2; then
+    kill -CONT $p 2>/dev/null
+    trap - INT TERM HUP
+    warn "pid $p is no longer the governor that was verified; left to launchd's bootout"
+    return 1
+  fi
+  freeze_tree $p || warn "publishing UNKNOWN anyway; a process of the old tree may still be running"
+  publish_unknown "$4" $p fresh
+  kill -KILL $FROZEN 2>/dev/null
+  trap - INT TERM HUP
+  for i in {1..300}; do proc_gone $p && break; sleep 0.01; done
+  say "stopped the old governor (pid $p) with SIGKILL after publishing UNKNOWN: its TERM trap would have published GREEN 'guardian stopped'$( (( ${#FROZEN} > 1 )) && print " (its tree, $(( ${#FROZEN} - 1 )) more process(es), was frozen and killed with it)")"
+  return 0
+}
+stop_service() {   # stop_service <UNKNOWN reason>: stop the service, never leaving a stop-time GREEN
+  local p a kind="" pst="" rc
+  if p=$(svc_pid); then
+    a=$(proc_args $p)
+    if [[ -n $CAP_PID && $p == $CAP_PID && $a == "$CAP_ARGS" ]] && same_start $p $CAP_PSTART; then
+      kind=$CAP_KIND; pst=$CAP_PSTART
+    elif [[ ${a##*/} == forge-guardian ]] && proc_pstart $p; then
+      pst=$REPLY
+      # Not the process captured before the switch (launchd restarted it meanwhile):
+      # its script can no longer be read as it was, so it is treated as legacy -- a
+      # SIGKILL leaves no GREEN, a TERM to an old governor might.
+      if (( SWITCHED )); then kind=legacy; else kind=$(gov_kind "${${a#/bin/zsh }:A}"); fi
+    fi
+    [[ $kind == legacy ]] && quiesce_legacy $p $pst "$a" "$1"
+  fi
+  bootout_service; rc=$?
+  publish_unknown "$1"
+  return $rc
 }
 # bootstrap + verify. Returns 0 with VERIFIED_PID set, or 1 with VERIFY_WHY.
 start_service() {
@@ -388,7 +549,11 @@ start_service() {
     /bin/rm -f "$APP/.bootstrap.err.$$"; return 1
   fi
   /bin/rm -f "$APP/.bootstrap.err.$$"
-  verify_service "$prog" $t0 $pre
+  verify_service "$prog" $t0 $pre || return 1
+  # The service now running is the one a later stop_service (a rollback) must stop.
+  CAP_PID=$VERIFIED_PID; CAP_ARGS=$(proc_args $VERIFIED_PID); CAP_KIND=$(gov_kind "${prog:A}")
+  proc_pstart $VERIFIED_PID && CAP_PSTART=$REPLY || CAP_PID=""
+  return 0
 }
 
 # ---- transaction: snapshot of everything a switch changes ------------------------
@@ -402,6 +567,7 @@ TX_FH_MODE=""; TX_HAD_POLICY=1; POLICY_INSTALLED_SHA=""
 tx_begin() {
   local t f
   TX="$APP/tx.$$"; /bin/rm -rf "$TX"; mkdir -p "$TX" || die 70 "cannot create $TX"
+  (( NO_SERVICE )) || capture_service       # what runs NOW, read before any file is switched
   TX_CUR=$(link_target "$APP/current"); TX_PREV=$(link_target "$APP/previous")
   TX_FH_MODE=""; [[ -d $FH && ! -L $FH ]] && TX_FH_MODE=$(stat -f %Lp "$FH" 2>/dev/null)
   TX_HAD_POLICY=0; [[ -e $FH/policy.json || -L $FH/policy.json ]] && TX_HAD_POLICY=1
@@ -447,8 +613,7 @@ fail_and_rollback() {
   print -u2 -r -- "forge-guardian-install: rolling back to the state before this run"
   tx_restore_files
   if (( ! NO_SERVICE )); then
-    bootout_service
-    publish_unknown "guardian rollback in progress"
+    stop_service "guardian rollback in progress"
     if (( TX_HAD_PLIST )); then
       if start_service; then
         print -u2 -r -- "forge-guardian-install: rolled back; the previous service is running and verified (pid $VERIFIED_PID)"
@@ -678,15 +843,302 @@ preflight() {
   [[ -d $H ]] || die 1 "preflight: home $H does not exist"
 }
 
+# ---- reservation preflight: REPORT ONLY ----------------------------------------------
+# v2 admission holds every LIVE envelope's reservation, max(declared peak_gb, measured),
+# against the heavy budget RAM - memory.os_reserve_gb (SCHEMA §9.1). A live envelope
+# whose declaration ALONE exceeds that budget closes heavy admission for as long as it
+# is registered -- measured on this workstation: the archie-sidecar's v1 envelope
+# declares 31 GiB against a 36 - 6 = 30 GiB budget. That is the engine working as
+# specified, but an install must not leave the operator to discover it as "denied".
+# So install (after staging, before the cutover), install --dry-run and status say so,
+# with the consequence. Nothing here writes, re-registers or signals anything. The
+# envelopes are read as the engine reads them (pf_envelope and below: oversize ones
+# counted, strtod for peak_gb, the registry limits); install_gate 0c compares the two.
+#
+# The budget must be the ENGINE's: `admit` evaluates $FH/policy.json at every call, and a
+# file with ANY key outside SCHEMA §6's bounds is rejected whole (the built-in defaults
+# apply). So the preflight asks a sensor -- $PF_SENSOR: the staged one in install (the
+# sensor that admits after this run), else FORGE_GUARDIAN_SENSOR_PREBUILT (dry run), else
+# the installed one -- `policy --state-dir $FH --env`, which IS that evaluation
+# (read-only). Only when no sensor answers (a dry run from sources before the first v2
+# install, a legacy current, a stand-in) is the one key reconstructed here, with the
+# engine's bound 2 .. RAM-2 GiB. It was RAM/2 here while the engine accepted RAM-2, and a
+# rejected value's note was overwritten: a false all-clear (review 2026-10-09, round 2).
+PF_SENSOR=""
+pf_sensor_default() {   # the installed release's sensor, when it is one
+  local s="$APP/current/bin/forge-guardian-sensor"
+  [[ -f $s && -x $s ]] && PF_SENSOR=$s
+  return 0
+}
+os_num() {   # os_num <text>: REPLY = a plain decimal (plutil prints 33.500000), or 1
+  REPLY=$1
+  [[ $REPLY == <->(|.<->) ]] && (( ${#REPLY} <= 16 )) || return 1
+  [[ $REPLY == *.* ]] && { REPLY=${REPLY%%0##}; REPLY=${REPLY%.}; }
+  return 0
+}
+os_reserve_gb() {   # os_reserve_gb <RAM bytes> -> REPLY (GiB), RES_SRC
+  local ramb=$1 v="" src="" out why line rc def ty pj="$FH/policy.json" cur
+  local -F hi
+  hi=$(( ramb / 1073741824.0 - 2 ))
+  RES_SRC=""
+  if [[ -n $PF_SENSOR && -f $PF_SENSOR && -x $PF_SENSOR ]]; then
+    out=$("$PF_SENSOR" policy --state-dir "$FH" --env 2>/dev/null); rc=$?
+    if (( rc == 0 || rc == 1 )); then
+      for line in ${(f)out}; do
+        case $line in
+          memory_os_reserve_gb=*) v=${line#*=} ;;
+          policy_source=*)        src=${line#*=} ;;
+        esac
+      done
+      if os_num "$v"; then
+        v=$REPLY
+        if (( rc == 1 )); then
+          why=$("$PF_SENSOR" policy --state-dir "$FH" --env 2>&1 >/dev/null)
+          why=${${${why#*rejected, using defaults: }#$pj: }//$pj/policy.json}
+          RES_SRC="the built-in default: the sensor rejects $pj whole (${${why//$'\n'/ }[1,160]})"
+        elif [[ $src != /* ]]; then     # "builtin": no policy.json to evaluate
+          RES_SRC="the built-in default: there is no $pj"
+        else
+          RES_SRC="$pj, as the sensor evaluates it"
+        fi
+        REPLY=$v; return 0
+      fi
+    fi
+    v=""
+  fi
+  # No sensor answered: reconstruct the one key as load_policy does (exists -> regular
+  # file -> JSON -> a NUMBER in 2 .. RAM-2), else the default.
+  if [[ -e $pj || -L $pj ]]; then
+    if [[ ! -f $pj ]]; then
+      RES_SRC="the built-in default: $pj is not a regular file, so the sensor rejects it"
+    elif ! cur=$($PLUTIL -extract memory.os_reserve_gb raw -o - "$pj" 2>/dev/null); then
+      RES_SRC="the built-in default: $pj sets no memory.os_reserve_gb (or is not valid JSON)"
+    elif ty=$($PLUTIL -type memory.os_reserve_gb "$pj" 2>/dev/null) && [[ $ty != (integer|float) ]] || ! os_num "$cur"; then
+      RES_SRC="the built-in default: $pj sets memory.os_reserve_gb to a non-number (${ty:-?} '${cur[1,24]}'), so the sensor rejects that file whole"
+    elif (( REPLY >= 2 && REPLY <= hi )); then
+      RES_SRC="$pj (memory.os_reserve_gb only: no sensor answered, so the rest of the file is not validated here)"
+      return 0
+    else
+      RES_SRC="the built-in default: $pj sets memory.os_reserve_gb=$REPLY, outside 2..$(printf '%.1f' $hi) (RAM-2), so the sensor rejects that file whole"
+    fi
+  else
+    RES_SRC="the built-in default: there is no $pj"
+  fi
+  # The sensor's built-in defaults ARE policy.default.json (sensor_gate proves it).
+  for def in "${FROM:+$FROM/policy.default.json}" "$APP/current/share/policy.default.json"; do
+    [[ -n $def && -f $def ]] || continue
+    os_num "$($PLUTIL -extract memory.os_reserve_gb raw -o - "$def" 2>/dev/null)" && { v=$REPLY; break; }
+  done
+  [[ -n $v ]] && (( ${#v} <= 8 )) || v=6
+  REPLY=$v
+}
+# The registry as the ENGINE reads it -- sensor/procinfo.mm read_registry, SCHEMA §5/§6 --
+# rule for rule, so the report says what admission will do. (Review 2026-10-09, round 2:
+# this walk skipped envelopes over 64 KiB, which the engine COUNTS -- unverifiable, its
+# declared reservation held while the pid lives -- a false all-clear; and it read peak_gb
+# as `<->(|.<->)` where the engine uses strtod, so '31.0000000000000', '3.1e1', ' 31' and
+# '31.' were called unreadable (exit 75) while the engine reserves 31 GiB, and a fitting
+# '2.0e1' raised a false alarm.) Read-only: nothing here writes or signals anything.
+PF_WS=$' \t\r\n'            # util.mm trim()
+typeset -gA PF_KV
+pf_envelope() {   # pf_envelope <file> <lstat size> -> PF_KV, PF_OVER; 1 = skip it, 2 = unreadable (PF_ERR)
+  # read_file(path, 64 KiB, no follow): O_NONBLOCK|O_NOFOLLOW, a regular file, at most
+  # min(64 KiB, size + 1) bytes. Larger than 64 KiB: its first 64 KiB, and "oversize".
+  local f=$1 size=$2 fd buf="" chunk line k n=0
+  local -i want
+  local -A fs
+  PF_KV=(); PF_OVER=0; PF_ERR=""
+  if ! sysopen -r -o nonblock,nofollow -u fd "$f" 2>/dev/null; then
+    # Released since the walk (ENOENT) or replaced by a symlink or a non-regular file
+    # (ELOOP, EINVAL): the engine skips it. Any other error (EACCES, EIO) makes the
+    # engine's whole registry unreadable.
+    [[ -f $f && ! -L $f ]] || return 1
+    PF_ERR="cannot read envelope $f"
+    return 2
+  fi
+  if ! zstat -H fs -f $fd 2>/dev/null || (( (fs[mode] & 0xF000) != 0x8000 )); then exec {fd}<&-; return 1; fi
+  want=$(( fs[size] + 1 )); (( want > 65536 )) && want=65536
+  while (( ${#buf} < want )); do                       # LC_ALL=C: ${#buf} counts bytes
+    sysread -s $(( want - ${#buf} )) -i $fd chunk || break
+    buf+=$chunk
+  done
+  exec {fd}<&-
+  (( size > 65536 || ( ${#buf} >= 65536 && ${#buf} > fs[size] ) )) && PF_OVER=1
+  # parse_kv: '\n'-separated lines cut at 4096 bytes, one trailing CR dropped, a key of
+  # [A-Za-z0-9_]{1,64} before the FIRST '=', the FIRST occurrence wins -- keys after
+  # `cmd` included.
+  for line in "${(@f)buf}"; do
+    line=${line[1,4096]}; line=${line%$'\r'}
+    [[ $line == (#b)([A-Za-z0-9_](#c1,64))=(*) ]] || continue
+    k=$match[1]
+    [[ $k == (pid|name|peak_gb|pstart|started|boot) ]] && (( ! ${+PF_KV[$k]} )) || continue
+    PF_KV[$k]=$match[2]
+    (( ++n == 6 )) && break
+  done
+  return 0
+}
+pf_i64() {   # pf_i64 <text>: parse_i64 (trim, 1..20 bytes, strtoll base 10, whole, in range) -> REPLY = [-]digits
+  local t=${${1##[$PF_WS]##}%%[$PF_WS]##} s d
+  (( ${#t} >= 1 && ${#t} <= 20 )) || return 1
+  t=${t##[$' \t\n\v\f\r']##}                           # strtoll skips isspace itself
+  [[ $t == (#b)([+-]|)([0-9]##) ]] || return 1
+  s=${match[1]#+}; d=${match[2]##0##}; d=${d:-0}
+  (( ${#d} < 19 )) || [[ ${#d} == 19 && ( $d < 9223372036854775808 || ( $s == - && $d == 9223372036854775808 ) ) ]] || return 1
+  REPLY=$s$d
+}
+pf_dbl() {   # pf_dbl <text>: parse_dbl (trim, 1..64 bytes, strtod whole, no ERANGE, finite) -> REPLY (%.17g), PF_TXT (trimmed)
+  local t=${${1##[$PF_WS]##}%%[$PF_WS]##} o
+  PF_TXT=$t
+  (( ${#t} >= 1 && ${#t} <= 64 )) || return 1
+  # printf(1) IS strtod (+ an ERANGE and a whole-string check), except that it reads a
+  # leading quote as a character constant, which strtod does not convert.
+  [[ $t == [\'\"]* ]] && return 1
+  o=$(/usr/bin/printf '%.17g' "$t" 2>/dev/null) || return 1
+  [[ $o == (|-)[0-9]##(|.[0-9]##)(|e[-+][0-9]##) ]] || return 1    # inf, nan: not finite
+  REPLY=$o
+}
+pf_proc() {   # pf_proc <pid>: running and not a zombie (proc_info: a zombie is dead) -> PF_START (epoch, -1 unknown)
+  local o v; local -a w
+  PF_START=-1
+  o=$(TZ=UTC ps -o stat= -o lstart= -p $1 2>/dev/null); w=(${=o})   # ps sees another uid's process too, as proc_info does
+  (( ${#w} )) && [[ $w[1] != Z* ]] || return 1
+  local TZ=UTC
+  strftime -r -s v '%a %b %d %H:%M:%S %Y' "${(j: :)w[2,-1]}" 2>/dev/null && [[ $v == <-> ]] && PF_START=$v
+  return 0
+}
+reservation_preflight() {
+  local ramb res f jd="$FH/jobs" regerr="" pidv idn ido name pk val boot="" n=0 over=0 bad=0
+  local -F sum=0 budget
+  local -A st
+  local -a ents envs msgs
+  ramb=$(sysctl -n hw.memsize 2>/dev/null)
+  [[ $ramb == <-> ]] || { say "preflight: reservations not checked (hw.memsize unreadable)"; return 0; }
+  os_reserve_gb $ramb; res=$REPLY
+  budget=$(( ramb / 1073741824.0 - res ))
+  say "preflight: heavy admission budget = RAM $(printf '%.1f' $(( ramb / 1073741824.0 ))) GiB - os_reserve $res GiB = $(printf '%.1f' $budget) GiB (os_reserve from $RES_SRC)"
+  (( ${+builtins[sysopen]} && ${+builtins[sysread]} )) || { say "preflight: envelopes not checked (zsh/system unavailable: no non-blocking read)"; return 0; }
+  # SCHEMA §6 registry limits: a registry that cannot be read completely is an error for
+  # the engine (every admission exits 75), never a shorter registry. No jobs/ is empty.
+  if [[ -e $jd ]]; then
+    if [[ ! -d $jd ]]; then regerr="$jd is not a directory"
+    elif [[ ! -r $jd ]]; then regerr="cannot read $jd"
+    else
+      ents=("$jd"/*(DN)); envs=("$jd"/*.job(N.))      # envelopes: REGULAR *.job, no dot name (lstat)
+      if (( ${#ents} > 4096 )); then regerr="$jd has more than 4096 entries"
+      elif (( ${#envs} > 1024 )); then regerr="$jd holds ${#envs} envelopes, more than 1024"; fi
+    fi
+  fi
+  [[ -n $regerr ]] && envs=()
+  for f in $envs; do
+    zstat -L -H st -- "$f" 2>/dev/null || continue     # released since the walk
+    pf_envelope "$f" $st[size]
+    case $? in 1) continue ;; 2) regerr=$PF_ERR; break ;; esac
+    # Identity (§5), in the engine's order: canonical pid (the file stem only while the
+    # pid key is ABSENT); running and not a zombie; boot; pstart ±1, else started + 5,
+    # else unverifiable. Larger than 64 KiB: unverifiable whatever its keys. LIVE = ok or
+    # unverifiable; both hold their reservation (FO-5).
+    pidv=${PF_KV[pid]-${${f:t}%.job}}
+    [[ $pidv == [1-9][0-9](#c0,4) ]] || continue     # invalid: dead, never counted
+    pf_proc $pidv || continue                          # dead
+    idn=""
+    if [[ -n ${PF_KV[boot]:-} ]]; then
+      [[ -n $boot ]] || boot=$(sysctl -n kern.bootsessionuuid 2>/dev/null)
+      [[ -n $boot && $PF_KV[boot] != $boot ]] && idn=mismatch
+    fi
+    if [[ -n $idn ]]; then :
+    elif (( ${+PF_KV[pstart]} )) && pf_i64 "$PF_KV[pstart]"; then
+      if (( PF_START < 0 )); then idn=unverifiable
+      elif [[ $REPLY == -* ]] || (( ${#REPLY} > 12 )); then idn=mismatch
+      elif (( PF_START - REPLY <= 1 && REPLY - PF_START <= 1 )); then idn=ok
+      else idn=mismatch; fi
+    elif (( ${+PF_KV[started]} )) && pf_i64 "$PF_KV[started]"; then
+      if (( PF_START < 0 )); then idn=unverifiable
+      elif [[ $REPLY == -* ]]; then idn=mismatch      # a process younger than started + 5 <= 5
+      elif (( ${#REPLY} > 15 || PF_START <= REPLY + 5 )); then idn=ok
+      else idn=mismatch; fi
+    else idn=unverifiable; fi
+    (( PF_OVER )) && idn=unverifiable
+    [[ $idn == mismatch ]] && continue
+    ido=$idn; (( PF_OVER )) && ido+=", larger than 64 KiB"
+    (( n++ ))
+    name=${(V)${${PF_KV[name]:-?}[1,64]}}
+    if ! (( ${+PF_KV[peak_gb]} )); then
+      (( bad++ ))
+      msgs+=("UNREADABLE RESERVATION: jobs/${(V)f:t} '$name' (pid $pidv, identity $ido) declares no peak_gb: every admission is undecidable (exit 75) while it is registered.")
+      continue
+    fi
+    if ! pf_dbl "$PF_KV[peak_gb]" || (( REPLY < 0 )); then
+      (( bad++ ))
+      msgs+=("UNREADABLE RESERVATION: jobs/${(V)f:t} '$name' (pid $pidv, identity $ido) declares peak_gb='${(V)${PF_KV[peak_gb][1,32]}}': every admission is undecidable (exit 75) while it is registered.")
+      continue
+    fi
+    val=$REPLY; pk=${(V)PF_TXT}
+    [[ $PF_TXT == [0-9]##(|.[0-9]##) ]] || pk+=" (= $val GiB)"
+    (( sum += val ))
+    if (( val > budget )); then
+      (( over++ ))
+      msgs+=("RESERVATION EXCEEDS THE HEAVY BUDGET: jobs/${(V)f:t} '$name' (pid $pidv, live, identity $ido) declares peak_gb=$pk > $(printf '%.1f' $budget) GiB: heavy admission will be denied while it is registered.")
+    fi
+  done
+  if [[ -n $regerr ]]; then
+    print -r -- "forge-guardian-install: preflight: UNREADABLE REGISTRY: ${(V)regerr}: every admission is undecidable (exit 75) until it is fixed (report only: nothing was changed)."
+    return 0
+  fi
+  for f in $msgs; do print -r -- "forge-guardian-install: preflight: $f"; done
+  if (( over )); then
+    print -r -- "forge-guardian-install: preflight:   every job declaring more than memory.light_job_gb fails the budget test while it holds that reservation. Report only: nothing was changed or signalled. To reopen heavy admission, re-register it with a declaration that fits (<= $(printf '%.1f' $budget) GiB) or stop it."
+  elif (( sum > budget )); then
+    print -r -- "forge-guardian-install: preflight: the live envelopes together declare $(printf '%.1f' $sum) GiB > $(printf '%.1f' $budget) GiB: heavy admission will be denied while they are registered (report only)."
+  elif (( ! bad )); then
+    say "preflight: $n live envelope(s), $(printf '%.1f' $sum) GiB declared: within the heavy budget"
+  fi
+  return 0
+}
+
 # ---- install / upgrade ---------------------------------------------------------------
+cmd_install_dry_run() {   # read-only: what install would do, and the reservation preflight
+  local cur prev t f p a prog kind
+  local -a legacy
+  say "dry run: nothing is written, built, started or signalled"
+  say "dry run: source $FROM; home $H"
+  cur=$(release_of current) || cur=""; prev=$(release_of previous) || prev=""
+  say "dry run: current release: ${cur:-none}; previous: ${prev:-none}"
+  for t in $ALL_TOOLS; do f="$FH/bin/$t"; [[ -f $f && ! -L $f ]] && legacy+=($t); done
+  (( ${#legacy} )) && say "dry run: hand-copied tools in $FH/bin would be snapshotted as the rollback target: ${(j: :)${(o)legacy}}"
+  say "dry run: plist $PLIST: $([[ -f $PLIST ]] && print 'present; replaced by a generated one if it differs' || print 'absent; would be generated')"
+  if (( NO_SERVICE )); then say "dry run: service not touched (--no-service)"
+  elif p=$(svc_pid); then
+    capture_service
+    if [[ $CAP_PID == $p && $CAP_KIND == legacy ]]; then
+      say "dry run: the running governor (pid $p, $CAP_ARGS) is not known to publish UNKNOWN when stopped (v1's TERM trap publishes GREEN): it would be SIGSTOPped, re-verified, its process tree frozen, UNKNOWN published, then the tree SIGKILLed before the bootout"
+    elif [[ $CAP_PID == $p ]]; then
+      say "dry run: the running governor (pid $p) publishes UNKNOWN when stopped: launchctl bootout"
+    else
+      say "dry run: launchd runs pid $p for $LABEL, which is not a forge-guardian: launchctl bootout"
+    fi
+  else
+    say "dry run: no service running for $LABEL"
+  fi
+  # The sensor that would admit: the prebuilt one this install would stage, else the
+  # installed one (a dry run builds nothing, so from sources the key is reconstructed).
+  if [[ -n ${FORGE_GUARDIAN_SENSOR_PREBUILT:-} ]]; then PF_SENSOR=$FORGE_GUARDIAN_SENSOR_PREBUILT; else pf_sensor_default; fi
+  reservation_preflight
+  say "dry run: preflight passed; 'install' would build, stage, validate and switch"
+}
+
 cmd_install() {
   FROM=${FROM:-${SELF:h}}; FROM=${FROM:A}
   preflight
   (( NO_SERVICE )) || guard_service
+  if (( DRY_RUN )); then cmd_install_dry_run; return 0; fi
   take_lock
   SOURCE_COMMIT=$(source_commit_of)
   stage_release
   validate_staging || die 1 "validation of the staged release failed; nothing was changed"
+  # Report only, BEFORE the cutover, judged by the STAGED sensor: the one that admits
+  # once this install is done.
+  PF_SENSOR="$STG/bin/forge-guardian-sensor"
+  reservation_preflight
   if (( RUN_TESTS )); then
     run_staged_tests || die 1 "--run-tests: a gate failed against the staged release; nothing was changed"
   fi
@@ -739,6 +1191,7 @@ cmd_install() {
   if [[ -n $TX_CUR && ${TX_CUR:t} != $V ]]; then prev_new="releases/${TX_CUR:t}"
   elif [[ -z $TX_CUR && -n $LEG ]]; then prev_new="releases/${LEG:t}"
   fi
+  SWITCHED=1
   swap_link "$APP/current" "releases/$V" || fail_and_rollback "cannot switch $APP/current"
   [[ -n $prev_new ]] && { swap_link "$APP/previous" "$prev_new" || fail_and_rollback "cannot switch $APP/previous"; }
   ensure_links || fail_and_rollback "could not create the tool links in $FH/bin"
@@ -760,10 +1213,9 @@ cmd_install() {
   if (( NO_SERVICE )); then
     say "service not touched (--no-service)"
   else
-    bootout_service
-    publish_unknown "guardian upgrade in progress"
+    stop_service "guardian upgrade in progress"
     start_service || fail_and_rollback "the new service did not verify within ${VERIFY_S}s: $VERIFY_WHY"
-    say "service verified: $LABEL pid=$VERIFIED_PID runs $APP/current/bin/forge-guardian and is publishing"
+    say "service running: $LABEL pid=$VERIFIED_PID runs $APP/current/bin/forge-guardian and publishes (evidence not yet confirmed)"
     say "waiting up to ${EVIDENCE_S}s for complete evidence and a state other than UNKNOWN"
     verify_evidence; erc=$?
     case $erc in
@@ -793,6 +1245,7 @@ cmd_rollback() {
   [[ -n $prev && -d $APP/releases/$prev ]] || die 1 "nothing to roll back to (no $APP/previous)"
   [[ -n $cur ]] || die 1 "no current release"
   tx_begin
+  SWITCHED=1
   swap_link "$APP/current" "releases/$prev" || fail_and_rollback "cannot switch current"
   swap_link "$APP/previous" "releases/$cur" || fail_and_rollback "cannot switch previous"
   ensure_links || fail_and_rollback "could not create the tool links"
@@ -804,8 +1257,7 @@ cmd_rollback() {
   fi
   /bin/rm -f "$newplist"
   if (( ! NO_SERVICE )); then
-    bootout_service
-    publish_unknown "guardian rollback in progress"
+    stop_service "guardian rollback in progress"
     start_service || fail_and_rollback "the rolled-back service did not verify: $VERIFY_WHY"
     say "service verified: pid=$VERIFIED_PID"
   fi
@@ -823,8 +1275,7 @@ cmd_uninstall() {
   take_lock
   local t f n=0
   if (( ! NO_SERVICE )); then
-    bootout_service && say "service stopped ($LABEL booted out)"
-    publish_unknown "guardian uninstalled: this domain is not governed"
+    stop_service "guardian uninstalled: this domain is not governed" && say "service stopped ($LABEL booted out)"
   fi
   if [[ -f $PLIST ]]; then /bin/rm -f "$PLIST" && say "removed $PLIST"; fi
   for t in $LOCAL_TOOLS; do
@@ -860,23 +1311,27 @@ cmd_status() {
   print -r -- "releases: ${(j: :)${(@)${(@f)$(print -l "$APP"/releases/*(N/:t))}}}"
   print -r -- "plist:    $([[ -f $PLIST ]] && print $PLIST || print none)"
   print -r -- "installed: $([[ -r $FH/guardian.installed.json ]] && jx_installed version || print none)"
+  pf_sensor_default            # the installed sensor judges the budget it enforces
+  reservation_preflight
 }
 
 # ---- main -------------------------------------------------------------------------
 SUB=${1:-}
 (( $# )) && shift
-NO_SERVICE=0; RUN_TESTS=0; PURGE=0; FROM=""
+NO_SERVICE=0; RUN_TESTS=0; PURGE=0; DRY_RUN=0; FROM=""
 while (( $# )); do
   case $1 in
     --from)       (( $# >= 2 )) || die 2 "--from needs a directory"; FROM=$2; shift 2 ;;
     --no-service) NO_SERVICE=1; shift ;;
     --run-tests)  RUN_TESTS=1; shift ;;
+    --dry-run)    DRY_RUN=1; shift ;;
     --purge)      PURGE=1; shift ;;
     -h|--help)    usage; exit 0 ;;
     *)            usage >&2; die 2 "unknown argument '$1'" ;;
   esac
 done
 [[ -z $FROM || -d $FROM ]] || die 2 "--from $FROM is not a directory"
+(( DRY_RUN )) && [[ $SUB != (install|upgrade) ]] && die 2 "--dry-run is for install|upgrade"
 trap 'cleanup_staging; /bin/rm -f "$APP/plist.$$.xml" "$APP/plist.$$.xml.json" 2>/dev/null' EXIT
 case $SUB in
   install|upgrade) cmd_install ;;

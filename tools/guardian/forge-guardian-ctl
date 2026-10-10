@@ -48,7 +48,6 @@ TOOLS=(forge-guardian forge-gate forge-job forge-nproc forge-guardian-ctl forge-
 # through a non-blocking open, so even a file swapped for a FIFO between the test
 # and the open reads as empty instead of blocking.
 mtime_of() { local -a m; zstat -A m +mtime -- "$1" 2>/dev/null && print -r -- $m[1]; }
-size_of()  { local -a s; zstat -A s +size  -- "$1" 2>/dev/null && print -r -- $s[1] || print 0; }
 mode_of()  { local -a s; zstat -A s -o +mode -- "$1" 2>/dev/null && print -r -- ${s[1]: -3}; }
 open_ro() {   # open_ro <file> -> FD_RO: a non-blocking read fd on a regular file, or 1
   FD_RO=""
@@ -87,7 +86,17 @@ load_kv() {   # load_kv <file> <assoc-name>
 # process the user owns (review 2026-10-08 ACT-2). Nothing here signals anything else.
 canon_pid() { [[ $1 == [1-9][0-9](#c0,4) ]]; }
 norm_ws()   { REPLY=${(j: :)${=1}}; }
-gib() { [[ $1 == (-|)<->(|.<->) ]] && (( $1 >= 0 )) && printf '%.1f' $(( $1 / 1073741824.0 )) || print -r -- "?"; }
+# Figures carry the C decimal point whatever the caller's locale (review 2026-10-08 round 2,
+# verify-install-r2): printf %f follows LC_NUMERIC, so under de_DE every figure read '0,6 GiB'
+# -- a second spelling of the same number for anyone parsing status or reservations. The
+# function-local LC_ALL=C outranks LC_ALL, LC_NUMERIC and LANG alike and is undone on return;
+# commands run elsewhere keep the caller's locale (is_governor's v1 text path compares ps
+# lstart in the caller's locale first).
+dec1() { local LC_ALL=C; printf -v REPLY '%.1f' "$1"; }    # dec1 <number> -> REPLY "x.y"
+gib() {
+  if [[ $1 == (-|)<->(|.<->) ]] && (( $1 >= 0 )); then dec1 $(( $1 / 1073741824.0 )); print -r -- $REPLY
+  else print -r -- "?"; fi
+}
 iso() { [[ $1 == <-> ]] && strftime '%Y-%m-%d %H:%M:%S' $1 || print -r -- "?"; }
 
 # ---- domain and launchd -----------------------------------------------------------
@@ -129,48 +138,90 @@ launchd_loaded() { supervised && $LAUNCHCTL print "$TARGET/$LABEL" >/dev/null 2>
 # `/bin/sleep` died; 2^32+P TERMed P through zsh's 32-bit truncation). A process is
 # the governor only when ALL hold: the pid is canonical, it is alive, its start time
 # equals the one recorded when it started, and its argv ends in forge-guardian.
-# `ps -o lstart=` is compared in this locale and in C (the governor records it in
-# whatever locale it was started with; launchd's plist says LC_ALL=C).
-is_governor() {   # is_governor <pid> <recorded lstart>
-  local p=$1 rec now a
+# The start is compared as EPOCH seconds (+-1 s) whenever an epoch was recorded
+# (guardian.lock/pstart, written by every v2 governor): ps prints lstart in UTC and it is
+# read back in UTC, so this caller's time zone and locale never enter. THE BUG THIS
+# CLOSES (review 2026-10-08 round 2, FO-4 regression): the recorded lstart TEXT is local
+# time, so a `status`/`stop` from another time zone -- or after a system time-zone
+# change -- called the live governor "not a governor". Without an epoch (a v1 lock, an
+# old pid file) the text is compared in this locale and in C, as before.
+proc_epoch() {   # proc_epoch <pid> -> REPLY = its start, epoch seconds; 1 when unknown
+  local s
+  REPLY=""
+  s=$(TZ=UTC LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null); norm_ws "$s"; s=$REPLY
+  REPLY=""
+  [[ -n $s ]] || return 1
+  local TZ=UTC LC_ALL=C v=""
+  strftime -r -s v '%a %b %d %H:%M:%S %Y' "$s" 2>/dev/null || return 1
+  REPLY=$v
+  [[ $REPLY == <-> ]]
+}
+is_governor() {   # is_governor <pid> <recorded lstart> [<recorded pstart epoch>]
+  local p=$1 rec now a ps_=${3:-}
   canon_pid "$p" || return 1
-  norm_ws "$2"; rec=$REPLY
-  [[ -n $rec ]] || return 1
   kill -0 "$p" 2>/dev/null || return 1
-  now=$(ps -p "$p" -o lstart= 2>/dev/null); norm_ws "$now"
-  if [[ $REPLY != "$rec" ]]; then
-    now=$(LC_ALL=C ps -p "$p" -o lstart= 2>/dev/null); norm_ws "$now"
-    [[ $REPLY == "$rec" ]] || return 1
+  if [[ -n $ps_ ]]; then
+    [[ $ps_ == [1-9][0-9](#c0,11) ]] || return 1          # recorded but not an epoch: refuse
+    proc_epoch "$p" && (( REPLY - ps_ <= 1 && ps_ - REPLY <= 1 )) || return 1
+  else
+    norm_ws "$2"; rec=$REPLY
+    [[ -n $rec ]] || return 1
+    now=$(ps -p "$p" -o lstart= 2>/dev/null); norm_ws "$now"
+    if [[ $REPLY != "$rec" ]]; then
+      now=$(LC_ALL=C ps -p "$p" -o lstart= 2>/dev/null); norm_ws "$now"
+      [[ $REPLY == "$rec" ]] || return 1
+    fi
   fi
   a=$(ps -ww -p "$p" -o args= 2>/dev/null); a=${a%%[[:space:]]##}
   [[ $a == (*/|)forge-guardian ]]
 }
-# The governor's own single-instance lock: domain-scoped by its path (pid + started).
+# The governor's own single-instance lock: domain-scoped by its path (pid, pstart, started).
+LK_PID=""; LK_START=""; LK_PSTART=""
+# No file of the lock is read through a symlink (SCHEMA §2.1, the rule forge-gate,
+# forge-nproc and the sensor apply): open_ro's `-f` follows one, so a pstart symlinked to
+# any epoch file verified whatever it pointed at, and a DANGLING pstart symlink failed
+# `-e` and was taken for "no pstart" -- the weaker v1 text path (review 2026-10-08 round
+# 2, verify). A pstart that is present in any form but not a plain regular file is
+# `invalid`: it identifies nobody, and the text is never consulted instead.
+lock_read() {
+  local L=$STATE_DIR/guardian.lock
+  LK_PID=""; LK_START=""; LK_PSTART=""
+  [[ -d $L && ! -L $L && ! -L $L/pid ]] || return 1
+  slurp "$L/pid" || return 1; LK_PID=${REPLY//[[:space:]]/}
+  if [[ -e $L/pstart || -L $L/pstart ]]; then
+    [[ -f $L/pstart && ! -L $L/pstart ]] && slurp "$L/pstart" && LK_PSTART=${REPLY//[[:space:]]/}
+    [[ -n $LK_PSTART ]] || LK_PSTART=invalid                 # present but symlinked/unreadable/empty: never the text
+  fi
+  [[ -L $L/started ]] || { slurp "$L/started" && LK_START=$REPLY; }
+  return 0
+}
 lock_pid() {
-  local p s
-  slurp "$STATE_DIR/guardian.lock/pid" || return 0; p=${REPLY//[[:space:]]/}
-  slurp "$STATE_DIR/guardian.lock/started" || return 0; s=$REPLY
-  is_governor "$p" "$s" && print -r -- $p
+  lock_read || return 0
+  is_governor "$LK_PID" "$LK_START" "$LK_PSTART" && print -r -- $LK_PID
   return 0
 }
 # guardian.pid is written by an UNSUPERVISED `start`: "<pid><TAB><lstart>". The same
 # verification as the lock; a bare pid (the old format) cannot be verified, so it is
-# stale by definition.
-PF_PID=""; PF_START=""
+# stale by definition. Its lstart text is local time too, so when the pid file names the
+# guardian.lock holder, the lock's epoch (pstart) is what is compared; a third TAB field,
+# if a writer ever adds one, is read as an epoch as well.
+PF_PID=""; PF_START=""; PF_PSTART=""
 pidfile_read() {
-  PF_PID=""; PF_START=""
+  local -a f
+  PF_PID=""; PF_START=""; PF_PSTART=""
   slurp "$PIDF" || return 1
   local line=${REPLY%%$'\n'*}
-  PF_PID=${line%%$'\t'*}
-  [[ $line == *$'\t'* ]] && PF_START=${line#*$'\t'}
+  f=("${(@ps:\t:)line}")
+  PF_PID=${f[1]:-}; PF_START=${f[2]:-}; PF_PSTART=${f[3]:-}
+  if [[ -z $PF_PSTART ]] && lock_read && [[ -n $LK_PSTART && $LK_PID == "$PF_PID" ]]; then PF_PSTART=$LK_PSTART; fi
   return 0
 }
-pidfile_pid() { pidfile_read || return 0; is_governor "$PF_PID" "$PF_START" && print -r -- $PF_PID; return 0; }
+pidfile_pid() { pidfile_read || return 0; is_governor "$PF_PID" "$PF_START" "$PF_PSTART" && print -r -- $PF_PID; return 0; }
 # start/stop/restart only (status is read-only): a pid file that does not name a
 # verified governor is never signalled; it is removed so it cannot mislead later.
 pidfile_check() {
   pidfile_read || return 0
-  if is_governor "$PF_PID" "$PF_START"; then print -r -- $PF_PID; return 0; fi
+  if is_governor "$PF_PID" "$PF_START" "$PF_PSTART"; then print -r -- $PF_PID; return 0; fi
   local shown=${PF_PID[1,24]}; (( ${#PF_PID} > 24 )) && shown+="..."
   print -u2 -r -- "forge-guardian-ctl: $PIDF names pid '$shown'$([[ -z $PF_START ]] && print -r -- ' (no start time recorded)'): not a governor; not signalling. Removed the stale pid file."
   rm -f "$PIDF"
@@ -199,14 +250,15 @@ await_publishing() {   # await_publishing <seconds>  -> prints the pid
 
 # ---- status -----------------------------------------------------------------------
 local_identity() {   # SCHEMA §5 order, for envelopes the sensor has not reported on
-  local pid=$1 boot=$2 pstart=$3 started=$4 ls ep
+  local pid=$1 boot=$2 pstart=$3 started=$4 ep
   canon_pid "$pid" || { print invalid; return; }
   kill -0 $pid 2>/dev/null || { print dead; return; }
   if [[ -n $boot ]]; then
     [[ $boot == "$(sysctl -n kern.bootsessionuuid 2>/dev/null)" ]] || { print mismatch; return; }
   fi
-  ls=$(LC_ALL=C ps -o lstart= -p $pid 2>/dev/null); ls=${(j: :)${=ls}}
-  strftime -r -s ep '%a %b %d %H:%M:%S %Y' "$ls" 2>/dev/null || ep=""
+  # epoch via UTC text read back in UTC and the C locale: a de_DE caller used to parse
+  # the C-locale "Thu Oct" with its own %a %b and call every envelope unverifiable
+  proc_epoch $pid && ep=$REPLY || ep=""
   if [[ -n $pstart ]]; then
     [[ -n $ep ]] || { print unverifiable; return; }
     (( ep - pstart <= 1 && pstart - ep <= 1 )) && print ok || print mismatch; return
@@ -348,12 +400,18 @@ cmd_status() {
   fi
 
   # -- log + evidence volume against the cap
+  # The SAME set the governor's housekeeping holds under logs.cap_mib (SCHEMA §2, forge-guardian
+  # housekeeping): dot-files included (incidents/.ratelimit), and the release ledgers
+  # reservations.history.jsonl* and crashes/** (review 2026-10-08 R13). This line summed less,
+  # so 'X MiB of the cap' read low exactly when crash ledgers piled up.
   typeset -A P; load_kv "$STATE_DIR/policy.env" P
-  local -i bytes=0; local -a fl
-  fl=("$STATE_DIR"/log/**/*(N.) "$STATE_DIR"/history.jsonl*(N.) "$STATE_DIR"/events.jsonl*(N.) "$STATE_DIR"/events/**/*(N.) "$STATE_DIR"/incidents/**/*(N.))
-  for f in $fl; do (( bytes += $(size_of $f) )); done
+  local -i bytes=0; local -a fl; local -A zs
+  fl=("$STATE_DIR"/log/**/*(ND.) "$STATE_DIR"/history.jsonl*(N.) "$STATE_DIR"/events.jsonl*(N.) "$STATE_DIR"/events/**/*(ND.) "$STATE_DIR"/incidents/**/*(ND.)
+      "$STATE_DIR"/reservations.history.jsonl*(N.) "$STATE_DIR"/crashes/**/*(ND.))
+  for f in $fl; do zstat -H zs -- "$f" 2>/dev/null && (( bytes += zs[size] )); done
   local cap=${P[logs_cap_mib]:-64}
-  printf '  logs+evidence: %.1f MiB of %s MiB cap (%d files)\n' $(( bytes / 1048576.0 )) "$cap" ${#fl}
+  dec1 $(( bytes / 1048576.0 ))
+  printf '  logs+evidence: %s MiB of %s MiB cap (%d files)\n' "$REPLY" "$cap" ${#fl}
   print -r -- "  disk hardware: $(jx $sj disk_hardware || print 'not reported')"
   return 0
 }

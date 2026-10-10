@@ -236,8 +236,22 @@ pol "poll_s=4000"; ck "R2: poll_s=4000 (sensor run refuses > 3600) -> default 5"
 pol "logs_generations=1000000000"; ck "R3: logs_generations=1e9 (wedged rotation at 100% CPU) -> default 3" 3 "$POL[logs_generations]"
 pol "sensor_stale_polls=1000000000"; ck "FO-3: sensor_stale_polls=1e9 -> default 3" 3 "$STALE_POLLS"
 pol "memory_os_reserve_gb=1"; ck "memory.os_reserve_gb 1 < 2 -> default" 6 "$POL[memory_os_reserve_gb]"
-pol "memory_os_reserve_gb=$(( RAM_GB / 2 + 1 ))"; ck "memory.os_reserve_gb above RAM/2 -> default" 6 "$POL[memory_os_reserve_gb]"
+pol "memory_os_reserve_gb=$(( RAM_GB - 1 ))"; ck "memory.os_reserve_gb above RAM-2 -> default" 6 "$POL[memory_os_reserve_gb]"
+pol "memory_os_reserve_gb=$(( RAM_GB - 2 ))"; ck "memory.os_reserve_gb = RAM-2 (the maximum) accepted" $(( RAM_GB - 2 )) "$POL[memory_os_reserve_gb]"
 pol "memory_os_reserve_gb=2.5"; ck "memory.os_reserve_gb 2.5 accepted" 2.5 "$POL[memory_os_reserve_gb]"
+# An 8 GiB Mac (RAM_BYTES is the library-mode hook): the SHIPPED default 6 is RAM-2 and
+# must be accepted. The old 2..RAM/2 bound (4) refused it, so the installed policy.json
+# lost the key at every start, with a policy_error (review 2026-10-08 round 2).
+_ram=$RAM_BYTES; RAM_BYTES=$(( 8 * 1073741824 ))
+pol "memory_os_reserve_gb=6"; ck "8 GiB Mac: memory.os_reserve_gb 6 (the shipped default, = RAM-2) accepted, no policy_error" "6|" "$POL[memory_os_reserve_gb]|$POLICY_ERRORS"
+pol "memory_os_reserve_gb=6.5"; ck "8 GiB Mac: memory.os_reserve_gb 6.5 (> RAM-2) -> default + policy_error" "6|1" "$POL[memory_os_reserve_gb]|$([[ $POLICY_ERRORS == *memory_os_reserve_gb=6.5* ]] && print 1)"
+# Past the third decimal AT the bound (verify, round 2): to_milli truncated 6.0005 to 6.000,
+# so the governor accepted what the sensor (a double compare) refuses whole.
+bad_=()
+for v_ in 6.0005 6.0009 6.00000001; do pol "memory_os_reserve_gb=$v_"; [[ $POLICY_ERRORS == *memory_os_reserve_gb=$v_* ]] || bad_+=("$v_ accepted"); done
+for v_ in 6.000 6.0000 5.9999; do pol "memory_os_reserve_gb=$v_"; [[ $POL[memory_os_reserve_gb] == $v_ && -z $POLICY_ERRORS ]] || bad_+=("$v_ refused:$POLICY_ERRORS"); done
+ck "8 GiB Mac: 6.0005, 6.0009, 6.00000001 (> RAM-2 past the third decimal) refused; 6.000, 6.0000, 5.9999 accepted" "" "${bad_[*]}"
+RAM_BYTES=$_ram; unset _ram
 pol "memory_instant_margin_gb=16.5"; ck "memory.instant_margin_gb 16.5 > 16 -> default" 2 "$POL[memory_instant_margin_gb]"
 pol "memory_light_job_gb=2.1"; ck "memory.light_job_gb 2.1 > 2 -> default" 0.5 "$POL[memory_light_job_gb]"
 print "  -- required_signals: drawn from the five, containing the core four (FO-3) --"
@@ -342,6 +356,152 @@ ok=[l for l in L if l.strip().startswith("{") and "probe_after" in l]
 try: print(1 if ok and json.loads(ok[-1])["kind"]=="probe_after" else 0)
 except Exception: print(0)' "$EVF")"
 rm -f "$EVF"
+print -rn -- '{"ts": 1791506480.' > "$EVF"                  # a fragment, no failure of OURS on record
+APPEND_TORN=(); event probe_after2 '"n": 3'
+ck "a file ending in ANOTHER writer's fragment: our record still starts on a new line (last-byte check)" '{"ts": 1791506480.|probe_after2' \
+   "$(sed -n 1p "$EVF")|$(tail -1 "$EVF" | plutil -extract kind raw -o - - 2>/dev/null)"
+rm -f "$EVF"
+event e1 '"n": 1'; event e2 '"n": 2'
+ck "ordinary appends: one whole line each, nothing in between" "2|e1 e2" "$(wc -l < "$EVF" | tr -d ' ')|$(for k in $(cut -d'"' -f6 "$EVF"); do print -n "$k "; done | sed 's/ $//')"
+rm -f "$EVF"
+ck "append_undo exists (a short write is taken back, not left as a fragment)" 1 $(( ${+functions[append_undo]} ))
+
+print "== 17. the sensor's identity verdict is taken per ENVELOPE FILE, and only for a canonical pid (ACT-3) =="
+J=$FORGE_HEALTH_DIR/jobs; mkdir -p "$J"
+sleep 120 & VPID=$!
+sleep 0.2
+envf() { print -r -- "pid=$2"$'\n'"name=${1:r}"$'\n'"priority=5"$'\n'"can_restart=0"$'\n'"peak_gb=1"$'\n'"gpu=0"$'\n'"started=1"$'\n'"cmd=x" > "$J/$1"; touch -t 202001010000 "$J/$1" }
+envf live.job $VPID; envf stale.job $VPID; envf pad.job 0$VPID
+base_sv; SV[jobs_n]=3
+SV[job0_pid]=$VPID; SV[job0_identity]=ok;       SV[job0_file]=live.job
+SV[job1_pid]=$VPID; SV[job1_identity]=mismatch; SV[job1_file]=stale.job
+SV[job2_pid]=$VPID; SV[job2_identity]=ok;       SV[job2_file]=pad.job       # a sensor that read pid=0N as N
+map_sensor; SENSOR_FRESH=1; SNAP_TS=$(( EPOCHSECONDS + 5 ))
+reap_dead_jobs
+ck "two envelopes naming one live pid: the live job's (sensor: ok) is KEPT, the stale one (sensor: mismatch) is reaped" "1 0" \
+   "$([[ -e $J/live.job ]] && print -n 1 || print -n 0) $([[ -e $J/stale.job ]] && print 1 || print 0)"
+ck "a padded pid (pid=0N) is never given the sensor's verdict for N: reaped as invalid" 0 "$([[ -e $J/pad.job ]] && print 1 || print 0)"
+EV=(pid 0$VPID); ENV_MTIME=1; envelope_identity "$J/pad.job" 0$VPID
+ck "envelope_identity checks the pid is canonical BEFORE any sensor verdict" invalid "$ID_VERDICT"
+kill $VPID 2>/dev/null; zmodload -F zsh/files b:zf_rm; zf_rm -f -- "$J"/*.job(N)
+SENSOR_FRESH=0; SV=(); SJOB_ID=(); SJOB_HAS_FILE=0; SJOBS_ST=ok; (( ${+SJOB_FID} )) && SJOB_FID=()
+
+print "== 18. registry limits (SCHEMA §6): above 1024 envelopes the registry is UNAVAILABLE, never shorter (R4) =="
+for (( i = 1; i <= 1025; i++ )); do print -r -- "pid=x" > "$J/$i.job"; done
+SENSOR_FRESH=0; reap_dead_jobs
+ck "1025 envelopes: jobs_st unavailable, registered_jobs -1, none counted (fresh pid-less ones keep their 10 s grace)" "unavailable -1 1025" "${JOBS_ST:-unset} $O_JOBS ${#${(@f)$(print -l $J/*.job(N))}}"
+EV_SOURCE=fallback; RES_FROM=envelopes; pub_values
+ck "  ...reserved_gb -1, overcommit unknown, reservations.jobs -1" "-1 -1 -1" "$P_RES_GB $P_OVERCOMMIT $P_RES_JOBS"
+EVIDENCE_COMPLETE=1; MISSING=(); publish GREEN probe 8 >/dev/null 2>&1
+ck "  ...state.json publishes jobs_st and reservations.status unavailable" "unavailable|unavailable|-1" \
+   "$(plutil -extract jobs_st raw -o - "$FORGE_HEALTH_DIR/state.json" 2>/dev/null)|$(plutil -extract reservations.status raw -o - "$FORGE_HEALTH_DIR/state.json" 2>/dev/null)|$(plutil -extract observables.registered_jobs raw -o - "$FORGE_HEALTH_DIR/state.json" 2>/dev/null)"
+zf_rm -f -- "$J"/<1-1025>.job(N)
+for (( i = 1; i <= 1024; i++ )); do print -r -- "pid=x" > "$J/$i.job"; done
+reap_dead_jobs
+ck "A/B: 1024 envelopes (the limit) -> jobs_st ok, all counted" "ok 1024" "${JOBS_ST:-unset} $O_JOBS"
+zf_rm -f -- "$J"/*.job(N)
+# Above the limit the registry must still HEAL (review 2026-10-08 round 2, verify 4c): the
+# round-2 reaper walked nothing over 1024, so 1100 envelopes of dead pids stayed for ever
+# and every admit exited 75 until a human deleted them. Dead and pid-less envelopes are
+# reaped in bounded batches (at most 1024 read per poll) while jobs_st stays unavailable;
+# a running pid's envelope is kept.
+nl=$'\n'
+sleep 0 & DEADP=$!; wait $DEADP 2>/dev/null
+while kill -0 $DEADP 2>/dev/null; do sleep 0 & DEADP=$!; wait $DEADP 2>/dev/null; done   # a pid nobody runs now
+sleep 120 & LIVEP=$!
+sleep 0.2
+REAP_EV0=$(grep -c '"kind": "reap"' "$FORGE_HEALTH_DIR/events.jsonl" 2>/dev/null)
+for (( i = 1; i <= 1100; i++ )); do print -r -- "pid=$DEADP${nl}name=crashed${nl}started=1${nl}cmd=x" > "$J/d$(( 10000 + i )).job"; done
+print -r -- "pid=$LIVEP${nl}name=live-job${nl}priority=5${nl}peak_gb=1${nl}started=$EPOCHSECONDS${nl}cmd=x" > "$J/a-live.job"
+SENSOR_FRESH=0; JOBS_ST=ok; reap_dead_jobs
+left=(${J}/*.job(N))
+ck "1101 envelopes (1100 of a dead pid): poll 1 publishes unavailable, -1, and REAPS a bounded batch of the dead (1023 = 1024 read - the live one)" \
+   "unavailable -1 78" "${JOBS_ST:-unset} $O_JOBS ${#left}"
+ck "  ...the running job's envelope is kept (never judged or signalled over the limit)" 1 "$([[ -e $J/a-live.job ]] && print 1 || print 0)"
+ck "  ...and the batch is logged" 1 "$(grep -c 'registry over the limit: reaped 1023 of the 1024 envelopes read' "$LOG" 2>/dev/null)"
+RA0=$(grep -c 'registry readable again (jobs_st ok)' "$LOG" 2>/dev/null)
+reap_dead_jobs
+left=(${J}/*.job(N))
+ck "  ...poll 2: back within the limit -> normal walk: the rest reaped, jobs_st ok, the live job counted" "ok 1 1" "${JOBS_ST:-unset} $O_JOBS ${#left}"
+ck "  ...every dead envelope produced a reap event (1100)" 1100 "$(( $(grep -c '"kind": "reap"' "$FORGE_HEALTH_DIR/events.jsonl" 2>/dev/null) - REAP_EV0 ))"
+ck "  ...and 'registry readable again' is logged" 1 "$(( $(grep -c 'registry readable again (jobs_st ok)' "$LOG" 2>/dev/null) - RA0 ))"
+zf_rm -f -- "$J"/*.job(N)
+# The batch resumes where the last one stopped: 1024 live envelopes that sort FIRST must not
+# hide the dead ones behind them for ever (a fixed "first 1024 by name" window would).
+for (( i = 1; i <= 1024; i++ )); do print -r -- "pid=$LIVEP${nl}name=live${nl}started=$EPOCHSECONDS${nl}cmd=x" > "$J/a$(( 10000 + i )).job"; done
+for (( i = 1; i <= 10; i++ )); do print -r -- "pid=$DEADP${nl}name=crashed${nl}cmd=x" > "$J/z$(( 100 + i )).job"; done
+JOBS_ST=ok; reap_dead_jobs
+left=(${J}/*.job(N))
+ck "1024 live envelopes sorting first + 10 dead: poll 1 reads the 1024 live ones, reaps nothing" "unavailable 1034" "${JOBS_ST:-unset} ${#left}"
+reap_dead_jobs
+left=(${J}/z*.job(N)); left2=(${J}/a*.job(N))
+ck "  ...poll 2 starts where poll 1 stopped: the 10 dead ones are reaped, all 1024 live kept" "0 1024" "${#left} ${#left2}"
+kill $LIVEP 2>/dev/null; wait $LIVEP 2>/dev/null
+zf_rm -f -- "$J"/*.job(N); JOBS_ST=ok; REAP_CURSOR=0
+base_sv; SV[jobs_st]=unavailable; SV[jobs_n]=0; SV[reserved_b]=-1; map_sensor; SENSOR_FRESH=1; SNAP_TS=$(( EPOCHSECONDS + 5 ))
+reap_dead_jobs; pub_values
+ck "the sensor's snapshot says jobs_st=unavailable -> the governor publishes it unavailable too" "unavailable -1" "${JOBS_ST:-unset} $P_RES_GB"
+SENSOR_FRESH=0; SV=(); SJOBS_ST=ok; reap_dead_jobs
+ck "  ...and ok again once the registry reads" ok "${JOBS_ST:-unset}"
+
+print "== 19. housekeeping counts the release ledgers in logs.cap_mib (R13) =="
+HD=$FORGE_HEALTH_DIR; mkdir -p "$HD/crashes" "$HD/log"
+dd if=/dev/zero of="$HD/reservations.history.jsonl" bs=1048576 count=3 2>/dev/null
+dd if=/dev/zero of="$HD/reservations.history.jsonl.1" bs=1048576 count=3 2>/dev/null
+dd if=/dev/zero of="$HD/crashes/abcd.jsonl" bs=1048576 count=3 2>/dev/null
+dd if=/dev/zero of="$HD/crashes/abcd.jsonl.1" bs=1048576 count=1 2>/dev/null
+touch -t 202001010000 "$HD/reservations.history.jsonl.1"
+POL[logs_cap_mib]=8; HK_OVER_LOGGED=0
+housekeeping
+ck "10 MiB of ledgers against an 8 MiB cap: the rotated reservations history is pruned, the live one and every crash ledger kept" "0 1 1 1" \
+   "$([[ -e $HD/reservations.history.jsonl.1 ]] && print -n 1 || print -n 0) $([[ -e $HD/reservations.history.jsonl ]] && print -n 1 || print -n 0) $([[ -e $HD/crashes/abcd.jsonl ]] && print -n 1 || print -n 0) $([[ -e $HD/crashes/abcd.jsonl.1 ]] && print 1 || print 0)"
+ck "  ...and the ledgers are in the total (3 + 3 + 1 MiB remain counted)" 1 "$(( HK_TOTAL >= 7 * 1048576 ? 1 : 0 ))"
+zf_rm -rf -- "$HD/crashes" "$HD"/reservations.history.jsonl*(N)
+# The unprunable FLOOR alone over the cap (review 2026-10-08 round 2, verify R13
+# regression): 10 MiB of crash ledgers against an 8 MiB cap. Round 2 then pruned EVERY
+# prunable item -- the newest incident and history.jsonl.1 too -- without getting under the
+# cap. The freshest evidence (the newest incident, every .1) must be kept; older
+# generations and older incidents are still pruned.
+mkdir -p "$HD/crashes" "$HD/incidents/20261001T000000Z-old" "$HD/incidents/20261009T000000Z-fresh"
+for s_ in a b c; do dd if=/dev/zero of="$HD/crashes/$s_.jsonl" bs=1048576 count=3 2>/dev/null; done
+dd if=/dev/zero of="$HD/crashes/a.jsonl.1" bs=1048576 count=1 2>/dev/null
+print -r -- '{"old":1}' > "$HD/incidents/20261001T000000Z-old/summary.json"
+print -r -- '{"fresh":1}' > "$HD/incidents/20261009T000000Z-fresh/summary.json"
+print -r -- '{"t":1}' > "$HD/history.jsonl.1"; print -r -- '{"t":0}' > "$HD/history.jsonl.2"
+touch -t $(date -v-2d +%Y%m%d%H%M.%S) "$HD/incidents/20261001T000000Z-old" "$HD/history.jsonl.2"
+touch -t $(date -v-1d +%Y%m%d%H%M.%S) "$HD/history.jsonl.1"
+POL[logs_cap_mib]=8; HK_OVER_LOGGED=0; HK_FLOOR_LOGGED=0
+FL0=$(grep -c 'crash ledgers alone are' "$LOG" 2>/dev/null)
+housekeeping
+ck "10 MiB of crash ledgers (the floor) over an 8 MiB cap: the NEWEST incident and history.jsonl.1 are kept" "1 1" \
+   "$([[ -d $HD/incidents/20261009T000000Z-fresh ]] && print -n 1 || print -n 0) $([[ -e $HD/history.jsonl.1 ]] && print 1 || print 0)"
+ck "  ...older evidence is still pruned (the older incident, history.jsonl.2)" "0 0" \
+   "$([[ -d $HD/incidents/20261001T000000Z-old ]] && print -n 1 || print -n 0) $([[ -e $HD/history.jsonl.2 ]] && print 1 || print 0)"
+ck "  ...every crash ledger is kept" 4 "${#${(@f)$(print -l $HD/crashes/*(N.))}}"
+ck "  ...and the floor is logged once, naming what was kept" 1 "$(( $(grep -c 'crash ledgers alone are 10 MiB > cap 8 MiB: no pruning reaches the cap, so the newest incident (20261009T000000Z-fresh) and the .1 generations are kept' "$LOG" 2>/dev/null) - FL0 ))"
+housekeeping
+ck "  ...a second pass keeps them too, and does not log the floor again" "1 1 1" \
+   "$([[ -d $HD/incidents/20261009T000000Z-fresh ]] && print -n 1 || print -n 0) $([[ -e $HD/history.jsonl.1 ]] && print -n 1 || print -n 0) $(( $(grep -c 'crash ledgers alone are' "$LOG" 2>/dev/null) - FL0 ))"
+POL[logs_cap_mib]=$POL_DEF[logs_cap_mib]
+zf_rm -rf -- "$HD/crashes" "$HD/incidents" "$HD"/history.jsonl.<->(N)
+
+print "== 20. fallback disk sampling: a mount point with a space is the WHOLE mount, never its last word (R11) =="
+mkdir -p "$ROOT/big disk" "$ROOT/my disk"
+df() { # this Mac's df -g layout, inode columns included; avail 99 and 0 GiB
+  case $2 in
+    *"big disk"*) print "Filesystem 1G-blocks Used Available Capacity iused ifree %iused Mounted on"
+                  print "/dev/disk9s1 100 1 99 2% 10 20 33% $ROOT/big disk" ;;
+    *"my disk"*)  print "Filesystem 1G-blocks Used Available Capacity iused ifree %iused Mounted on"
+                  print "/dev/disk8s1 1 1 0 100% 10 20 33% $ROOT/my disk" ;;
+  esac
+}
+DISK_VOLUMES=("$ROOT/big disk" "$ROOT/my disk")
+sample_fallback
+unfunction df
+ck "two volumes whose mounts share a last word are both measured, by their whole mount" "$ROOT/big disk|$ROOT/my disk|99 0" "${VOL_MOUNT[1]:-}|${VOL_MOUNT[2]:-}|${VOL_AVAIL[*]}"
+ck "  ...and the 0 GiB one is the minimum (its RED is not missed)" "0 ok" "$O_DISK $O_ST_DISK"
+classify; ck "  ...classify: RED on that volume" RED "$CLASS"
+load_policy
 
 print "== 8. library mode in a FRESH shell: REPLY must stay a string =="
 # `strftime -r -s REPLY` creates REPLY as an INTEGER when it does not exist yet; the

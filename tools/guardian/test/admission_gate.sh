@@ -17,6 +17,12 @@
 set -u
 setopt NULL_GLOB 2>/dev/null || true
 zmodload zsh/datetime
+# zf_rm is the BUILTIN rm: no exec, so no ARG_MAX. `rm -f "$D"/jobs/*(N)` over the 6000
+# files of the R4 case exceeded ARG_MAX under a long TMPDIR (~250 characters):
+# "argument list too long: rm", the files stayed, and the next four cases failed as a
+# cascade (review 2026-10-08 round 1 reverify).
+zmodload -F zsh/files b:zf_rm
+rmj() { (( $# )) && zf_rm -rf -- "$@"; return 0 }     # an empty (N) glob is not an error
 
 HERE=${0:A:h}
 GUARD_DIR=${HERE:h}
@@ -83,11 +89,19 @@ alive() { kill -0 "$1" 2>/dev/null }
 # "an ancestor of the governor" (SCHEMA §5) -- exactly what one of the cases asserts.
 mkdir -p "$ROOT/fg"
 print -r -- 'zmodload zsh/zselect; while :; do zselect -t 360000; done' >"$ROOT/fg/forge-guardian"
-fake_gov() { # fake_gov DIR -> FGPID; writes DIR/guardian.lock/{pid,started}
+# utc_pstart PID -> REPLY: the process's start, EPOCH seconds -- this gate's own oracle,
+# independent of the binary under test: ps prints lstart in UTC and it is read back in UTC.
+utc_pstart() { local s; s=$(TZ=UTC LC_ALL=C ps -o lstart= -p $1 2>/dev/null); local TZ=UTC LC_ALL=C v=""
+  strftime -r -s v '%a %b %d %H:%M:%S %Y' "${(j: :)${=s}}" 2>/dev/null; REPLY=$v }
+# fake_gov DIR [legacy] -> FGPID. Writes DIR/guardian.lock the way the v2 governor does --
+# pid, pstart (epoch seconds), started (lstart text) -- or, with `legacy`, the v1 way:
+# pid and started only (review 2026-10-08 round 2, FO-4).
+fake_gov() {
   zsh "$ROOT/fg/forge-guardian" & FGPID=$!; note_pid $FGPID
   mkdir -p "$1/guardian.lock"
   print -r -- $FGPID >"$1/guardian.lock/pid"
-  ps -p $FGPID -o lstart= >"$1/guardian.lock/started"
+  if [[ ${2:-} != legacy ]]; then utc_pstart $FGPID; print -r -- $REPLY >"$1/guardian.lock/pstart"; fi
+  LC_ALL=C ps -p $FGPID -o lstart= >"$1/guardian.lock/started"
 }
 # A process whose p_comm is "Claude Helper" (protected by name, with a space: ACT-1).
 CH_BIN=$ROOT/ch/"Claude Helper"; mkdir -p "$ROOT/ch"
@@ -175,18 +189,54 @@ rc=$(try75); (( rc == 0 )); ck "A/B: the same probe with every condition restore
 # FO-4: a fresh state file is not a live governor. The state stays fresh and GREEN in
 # every case below; only the guardian.lock evidence changes.
 GL=$D/guardian.lock
-cp "$GL/pid" "$ROOT/gl.pid"; cp "$GL/started" "$ROOT/gl.started"
-gl_restore() { mkdir -p "$GL"; cp "$ROOT/gl.pid" "$GL/pid"; cp "$ROOT/gl.started" "$GL/started" }
+cp "$GL/pid" "$ROOT/gl.pid"; cp "$GL/started" "$ROOT/gl.started"; cp "$GL/pstart" "$ROOT/gl.pstart"
+gl_restore() { rm -rf "$GL"; mkdir -p "$GL"; cp "$ROOT/gl.pid" "$GL/pid"; cp "$ROOT/gl.started" "$GL/started"; cp "$ROOT/gl.pstart" "$GL/pstart" }
 fresh_state GREEN; rm -rf "$GL"; rc=$(try75); gl_restore
 (( rc == 75 )) && grep -q 'governor not running' "$ROOT/e3"; ck "[FO-4] fresh GREEN state but no guardian.lock -> 75 'governor not running' (rc=$rc)" $?
 sleep 0 & dg=$!; wait $dg
 fresh_state GREEN; print -r -- $dg >"$GL/pid"; rc=$(try75); gl_restore
 (( rc == 75 )) && grep -q 'not running' "$ROOT/e3"; ck "[FO-4] guardian.lock names a DEAD pid (a SIGKILLed governor) -> 75 (rc=$rc)" $?
 new_sleeper; NG=$NEWPID
-fresh_state GREEN; print -r -- $NG >"$GL/pid"; ps -p $NG -o lstart= >"$GL/started"; rc=$(try75); gl_restore
+fresh_state GREEN; print -r -- $NG >"$GL/pid"; utc_pstart $NG; print -r -- $REPLY >"$GL/pstart"; LC_ALL=C ps -p $NG -o lstart= >"$GL/started"; rc=$(try75); gl_restore
 (( rc == 75 )) && grep -q 'is not forge-guardian' "$ROOT/e3"; ck "[FO-4] guardian.lock names a live pid whose argv is not forge-guardian (start time right) -> 75 (rc=$rc)" $?
-fresh_state GREEN; print -r -- "Mon Jan  1 00:00:00 2001" >"$GL/started"; rc=$(try75); gl_restore
-(( rc == 75 )) && grep -q 'reused' "$ROOT/e3"; ck "[FO-4] the governor's pid but a different start time (pid reused) -> 75 (rc=$rc)" $?
+fresh_state GREEN; print -r -- $(( $(<"$ROOT/gl.pstart") - 100 )) >"$GL/pstart"; rc=$(try75); gl_restore
+(( rc == 75 )) && grep -q 'reused' "$ROOT/e3"; ck "[FO-4] the governor's pid but guardian.lock/pstart 100 s off (pid reused) -> 75 (rc=$rc)" $?
+bad_=()
+for v in "0$(<"$ROOT/gl.pid")" " 0$(<"$ROOT/gl.pid")" "+$(<"$ROOT/gl.pid")" "$(( $(<"$ROOT/gl.pid") + 4294967296 ))"; do
+  fresh_state GREEN; print -r -- "$v" >"$GL/pid"; rc=$(try75); gl_restore
+  (( rc == 75 )) || bad_+=("'$v'->$rc")
+done
+(( ${#bad_} == 0 )); ck "[FO-4] a non-canonical guardian.lock/pid (0N, ' 0N', +N, 2^32+N) -> 75 (${bad_[*]:-all 75})" $?
+fresh_state GREEN; print -r -- "Thu Oct  8 20:46:57 2026 1791" >"$GL/pstart"; rc=$(try75); gl_restore
+(( rc == 75 )) && grep -q 'not an epoch' "$ROOT/e3"; ck "[FO-4] a guardian.lock/pstart that is not an epoch -> 75, never a fall-back to the text (rc=$rc)" $?
+# SCHEMA §2.1: a symlinked pstart identifies nobody -- a DANGLING one is never "no pstart"
+# (the v1 text path, which the writer-zone `started` would pass), and one pointing at the
+# right epoch is still refused (forge-gate, forge-nproc and ctl apply the same rule).
+fresh_state GREEN; rm -f "$GL/pstart"; ln -s "$ROOT/no-such-pstart" "$GL/pstart"; rc=$(try75); gl_restore
+(( rc == 75 )) && grep -q 'pstart' "$ROOT/e3"; ck "[FO-4] a DANGLING guardian.lock/pstart symlink -> 75, never the v1 text path (rc=$rc)" $?
+fresh_state GREEN; rm -f "$GL/pstart"; ln -s "$ROOT/gl.pstart" "$GL/pstart"; rc=$(try75); gl_restore
+(( rc == 75 )) && grep -q 'pstart' "$ROOT/e3"; ck "[FO-4] a guardian.lock/pstart SYMLINKED to the right epoch -> 75 (rc=$rc)" $?
+# THE ROUND-2 REGRESSION: the lock's start was compared as LOCAL-TIME TEXT, so a caller in
+# another time zone (TZ=UTC set by a tool or CI, or a system time-zone change while the
+# governor runs) was refused by a perfectly live governor. pstart is an epoch: every
+# caller agrees. The ancestor check (pidinfo --state-dir) depends on the same verdict.
+bad_=()
+for e in TZ=UTC TZ=America/Los_Angeles TZ=Asia/Kolkata LC_ALL=de_DE.UTF-8 "LC_ALL=de_DE.UTF-8 TZ=Pacific/Auckland"; do
+  fresh_state GREEN
+  rc=$(env ${=e} "$B" admit --state-dir "$D" --pid $A3 --name probe --peak-gb 1 --dry-run 2>"$ROOT/e3"; print $?)
+  (( rc == 0 )) || bad_+=("$e->$rc:$(head -c 120 "$ROOT/e3")")
+  pi=$(env ${=e} "$B" pidinfo --state-dir "$D" $$ 2>/dev/null)
+  [[ $pi == *' protected=1 '* ]] || bad_+=("$e:pidinfo-ancestor:${pi[1,80]}")
+done
+(( ${#bad_} == 0 )); ck "[FO-4] a live governor's lock (pid+pstart) is recognised under TZ=UTC, America/Los_Angeles, Asia/Kolkata, de_DE, de_DE+Auckland: admit 0 and its ancestor protected (${bad_[*]:-all})" $?
+# v1 compatibility: a lock with NO pstart (the live v1 governor's) is still verified by its
+# lstart text, so admission keeps working across the install.
+V1H=$ROOT/v1h; rm -rf "$V1H"; mkdir -p "$V1H"; fake_gov "$V1H" legacy; V1G=$FGPID
+fresh_state GREEN "$V1H"; "$B" admit --state-dir "$V1H" --pid $A3 --name probe --peak-gb 1 --dry-run 2>"$ROOT/e3"; rc=$?
+(( rc == 0 )) && [[ ! -e $V1H/guardian.lock/pstart ]]; r_=$?; ck "[FO-4] v1 lock (pid + started, no pstart) in the writer's zone -> 0 (rc=$rc $(head -c 80 "$ROOT/e3"))" $r_
+fresh_state GREEN "$V1H"; print -r -- "Mon Jan  1 00:00:00 2001" >"$V1H/guardian.lock/started"; "$B" admit --state-dir "$V1H" --pid $A3 --name probe --peak-gb 1 --dry-run 2>"$ROOT/e3"; rc=$?
+(( rc == 75 )) && grep -q 'reused' "$ROOT/e3"; ck "[FO-4] v1 lock whose started text names another start (pid reused) -> 75 (rc=$rc)" $?
+kill -9 $V1G 2>/dev/null; rm -rf "$V1H"
 fresh_state GREEN; rm -rf "$GL"
 adm --pid $A3 --name probe-real --peak-gb 1 2>"$ROOT/e3"; rc=$?; gl_restore
 (( rc == 75 )) && [[ ! -e $D/jobs/$A3.job ]]; ck "[FO-4] a REAL (not --dry-run) admit with no live governor -> 75, no envelope (rc=$rc)" $?
@@ -232,7 +282,7 @@ DR=$ROOT/race; fresh_state GREEN "$DR"; fake_gov "$DR"
 dist=(); wall=()
 for round in {1..5}; do
   fresh_state GREEN "$DR"
-  rm -f "$DR"/jobs/*.job(N) "$ROOT"/race.rc.*(N)
+  rmj "$DR"/jobs/*.job(N) "$ROOT"/race.rc.*(N)
   sl=()
   for i in {1..8}; do new_sleeper; sl+=($NEWPID); done
   t0=$EPOCHREALTIME
@@ -253,7 +303,7 @@ note "admitted/envelopes per round: ${dist[*]}  (wall per round: ${wall[*]} ms)"
 [[ ${dist[*]} == "4/4 4/4 4/4 4/4 4/4" ]]; ck "exactly 4 admitted and 4 envelopes in each of 5 rounds" $?
 print -r -- "  -- red-on-old: the 834c7269 forge-gate under the same race"
 if git -C "$GUARD_DIR" show 834c7269:tools/guardian/forge-gate >"$ROOT/old-forge-gate" 2>/dev/null; then
-  fresh_state GREEN "$DR"; rm -f "$DR"/jobs/*.job(N) "$ROOT"/old.rc.*(N)
+  fresh_state GREEN "$DR"; rmj "$DR"/jobs/*.job(N) "$ROOT"/old.rc.*(N)
   bg=()
   for i in {1..8}; do ( FORGE_HEALTH_DIR=$DR zsh "$ROOT/old-forge-gate" --need green >/dev/null 2>&1; print $? >"$ROOT/old.rc.$i" ) & bg+=($!); done
   for j in $bg; do wait $j; done
@@ -264,7 +314,7 @@ fi
 
 # ================================================================ 6. identity
 sect "6. identity-verified registry"
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
 fresh_state GREEN
 new_sleeper; M=$NEWPID; new_sleeper; N=$NEWPID
 PSM=$(pstart_of $M)
@@ -278,6 +328,16 @@ envl $M mismatched 20 "started=$EPOCHSECONDS" schema=2 "pstart=$(( PSM - 1000 ))
 adm --pid $N --name newjob --peak-gb 15 --dry-run 2>/dev/null; ck "a live pid with the WRONG pstart is not counted (15 admitted beside a 20)" $?
 envl $M mismatched 20 "started=$EPOCHSECONDS" schema=2 "pstart=$PSM"
 adm --pid $N --name newjob --peak-gb 15 --dry-run 2>"$ROOT/e6"; (( $? == 1 )); ck "A/B: the same envelope with the RIGHT pstart is counted (20 + 15 > 22 -> 1)" $?
+# SCHEMA §5 (review 2026-10-08 ACT-3, round 2): pids are canonical decimal. `pid=0<M>` was
+# read as M and published with identity ok -- a verdict the governor then trusted for
+# whatever envelope named M. A padded pid is an INVALID envelope: never ok, never counted.
+sed -i '' "s/^pid=.*/pid=0$M/" "$D/jobs/$M.job"
+adm --pid $N --name newjob --peak-gb 15 --dry-run 2>/dev/null; rc=$?
+"$B" snapshot --state-dir "$D" >"$ROOT/snap6p.json"
+pj_() { plutil -extract "$1" raw -o - "$ROOT/snap6p.json" 2>/dev/null }
+(( rc == 0 )) && [[ "$(pj_ jobs) $(pj_ jobs.0.pid) $(pj_ jobs.0.identity)" == "1 -1 dead" ]]
+r_=$?; ck "[ACT-3] pid=0$M (padded): not the live pid $M -- identity dead, pid -1, not counted (15 admitted; rc=$rc)" $r_
+rm -f "$D/jobs/$M.job"
 rm -f "$D/jobs/$M.job"
 sleep 0 & dp=$!; wait $dp
 envl $dp deadjob 20 "started=$EPOCHSECONDS"
@@ -308,12 +368,27 @@ rm -f "$D/jobs/$M.job"
 sleep 0 & dp=$!; wait $dp
 envl $dp deadbadpeak 24GiB "started=$EPOCHSECONDS"
 adm --pid $N --name newjob --peak-gb 1 --dry-run 2>/dev/null; ck "[FO-5] A/B: the same bad peak_gb on a DEAD pid's envelope holds nothing -> 0" $?
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
 envl $M noid 26
 "$B" snapshot --state-dir "$D" >"$ROOT/snap6b.json"
 [[ $(pyj "$ROOT/snap6b.json" 'd["reservations"]["reserved_b"] >= 26*2**30') == True ]]
 ck "[FO-5] the published reserved_b counts the live unverifiable job too (publisher == engine)" $?
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
+
+# sensor.env job<j>_file (additive, review 2026-10-08 round 2): WHICH envelope a verdict is
+# about. Two envelopes can name one pid; the governor takes the verdict per FILE.
+DJ=$ROOT/jf; mkdir -p "$DJ/jobs"; fresh_state GREEN "$DJ"
+new_sleeper; JF1=$NEWPID
+{ print "pid=$JF1"; print "name=jf"; print "priority=5"; print "can_restart=0"; print "peak_gb=1"; print "gpu=0"
+  print "started=$EPOCHSECONDS"; print "schema=2"; print "pstart=$(pstart_of $JF1)"; print "cmd=x"; } >"$DJ/jobs/my job.job"
+cp "$DJ/jobs/my job.job" "$DJ/jobs/$JF1.job"; sed -i '' "s/^pstart=.*/pstart=$(( $(pstart_of $JF1) - 500 ))/" "$DJ/jobs/$JF1.job"
+"$B" run --state-dir "$DJ" --poll 1 >/dev/null 2>&1 & RSJ=$!; note_pid $RSJ
+for i in {1..50}; do [[ -s $DJ/sensor.env ]] && break; sleep 0.1; done
+kill -TERM $RSJ 2>/dev/null; wait $RSJ 2>/dev/null
+typeset -A jfv; for i in 0 1; do k_=$(kvv "$DJ/sensor.env" job${i}_file); [[ -n $k_ ]] && jfv[$k_]="$(kvv "$DJ/sensor.env" job${i}_pid) $(kvv "$DJ/sensor.env" job${i}_identity)"; done
+[[ ${jfv[my%20job.job]:-} == "$JF1 ok" && ${jfv[$JF1.job]:-} == "$JF1 mismatch" ]]; r_=$?
+ck "sensor.env names each verdict's envelope: job<j>_file=my%20job.job ($JF1 ok) beside $JF1.job ($JF1 mismatch) [${(kv)jfv}]" $r_
+kill -9 $JF1 2>/dev/null
 
 # ================================================================ 7. instant fit
 sect "7. instant fit: declared-but-not-resident reservations"
@@ -367,7 +442,7 @@ adm --pid $K2 --name dj2 --peak-gb 0.1 --disk-gb $XG --disk-path "$ROOT/out2" --
 FSID=$(pyj "$ROOT/j8b" 'd["fit"]["disk"]["fsid"]')
 H=$(printf '%.3f' $(( (AV - 45) / 2.0 )))
 A0=$(python3 -I -c 'import os,sys; s=os.statvfs(sys.argv[1]); print(int(s.f_bavail*s.f_frsize + float(sys.argv[2])*2**30))' "$ROOT" "$H")
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
 new_sleeper; S1=$NEWPID; new_sleeper; S2=$NEWPID; new_sleeper; S3=$NEWPID
 for sp in $S1 $S2; do
   envl $sp disk-$sp 0.1 schema=2 "pstart=$(pstart_of $sp)" "started=$EPOCHSECONDS" "disk_gb=$H" "disk_path=$ROOT/w$sp" "disk_fsid=$FSID" "disk_avail0_b=$A0"
@@ -380,11 +455,11 @@ rm -f "$D/jobs/$S2.job"
 adm --pid $S3 --name dj3 --peak-gb 0.1 --disk-gb $H --disk-path "$ROOT/out3" --json --dry-run >"$ROOT/j8t" 2>/dev/null; rc=$?
 (( rc == 0 )) && [[ $(pyj "$ROOT/j8t" 'd["fit"]["disk"]["outstanding_gb"] < 1') == True ]]
 ck "[SEM-3] A/B: ONE job on the volume -> the drop is attributable to it (outstanding ~0), admitted (rc=$rc)" $?
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
 
 # ================================================================ 9. release
 sect "9. release"
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
 new_sleeper; R1=$NEWPID; new_sleeper; R2=$NEWPID
 adm --pid $R1 --name rel-a --peak-gb 3 --cmd "a" 2>/dev/null && adm --pid $R2 --name rel-b --peak-gb 2 --cmd "b" 2>/dev/null
 "$B" release --state-dir "$D" --pid $R1 --rc 0; rc=$?
@@ -482,7 +557,7 @@ rm -f "$D/quarantine/0ldquarant00000.json" "$D/crashes/0ldquarant00000.jsonl"
 
 # ================================================================ 11. --wait
 sect "11. --wait retries without holding the lock"
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
 fresh_state YELLOW
 new_sleeper; W=$NEWPID; new_sleeper; V=$NEWPID
 t0=$EPOCHREALTIME
@@ -527,7 +602,7 @@ note "admit under a Python-held lock: $(printf '%.2f' $lw) s; without: $(printf 
 
 # ================================================================ 14. registry limits
 sect "14. registry limits (SCHEMA §6): never a silently shorter registry"
-rm -f "$D"/jobs/*.job(N)
+rmj "$D"/jobs/*.job(N)
 fresh_state GREEN
 new_sleeper; HL=$NEWPID; new_sleeper; PR=$NEWPID
 PSH=$(pstart_of $HL)
@@ -547,13 +622,13 @@ note "$(head -c 160 "$ROOT/e14")"
 (( rc == 75 )) && grep -q 'more than 1024' "$ROOT/e14"; ck "[R4] 1025 envelopes -> 75 (cannot decide), never a registry silently cut to 1024 (rc=$rc)" $?
 "$B" snapshot --state-dir "$D" >"$ROOT/snap14.json"
 [[ $(pyj "$ROOT/snap14.json" 'd["reservations"]["status"]') == unavailable ]]; ck "[R4] ...and the snapshot publishes the registry unavailable (jobs_st)" $?
-rm -f "$D"/jobs/*(N)
+rmj "$D"/jobs/*(N)
 python3 -I -c 'import sys
 for i in range(6000): open("%s/%d.job.tmp.%d"%(sys.argv[1],i,i),"w").close()' "$D/jobs"
 envl $HL x1 20 schema=2 "pstart=$PSH" "started=$EPOCHSECONDS"
 adm --pid $PR --name probe --peak-gb 5 --dry-run 2>"$ROOT/e14"; rc=$?
 (( rc == 75 )) && grep -q 'more than 4096 entries' "$ROOT/e14"; ck "[R4] 6000 tmp files + one 20 GiB envelope -> 75, never 'reserved 0' (rc=$rc)" $?
-rm -f "$D"/jobs/*(N)
+rmj "$D"/jobs/*(N)
 
 # R7: an envelope > 64 KiB is read (capped) and kept as unverifiable: counted, never
 # signalled, never dropped.
@@ -564,7 +639,7 @@ print -r -- "cmd=$(head -c 70000 /dev/zero | tr '\0' a)" >>"$D/jobs/$HL.job"
 ck "[R7] a 70 KB envelope of a live, verifiable job is listed as unverifiable (never signalled), not dropped" $?
 adm --pid $PR --name probe --peak-gb 5 --dry-run 2>"$ROOT/e14"; rc=$?
 (( rc == 1 )) && grep -qF "bigcmd pid $HL holds 20.0" "$ROOT/e14"; ck "[R7] ...and its 20 GiB reservation still counts -> deny (rc=$rc)" $?
-rm -f "$D"/jobs/*(N)
+rmj "$D"/jobs/*(N)
 
 # R1: only REGULAR *.job files are envelopes; nothing else is ever opened.
 envl $HL realjob 20 schema=2 "pstart=$PSH" "started=$EPOCHSECONDS"
@@ -576,7 +651,7 @@ alive $SJ && { kill -9 $SJ 2>/dev/null; print 124 >"$ROOT/snap14c.rc"; }
 r_=$?; ck "[R1] a FIFO, a symlink to /dev/zero and a directory named *.job: never opened, the registry stays readable (snapshot rc $(<"$ROOT/snap14c.rc"))" $r_
 adm --pid $PR --name probe --peak-gb 5 --dry-run 2>"$ROOT/e14"; rc=$?
 (( rc == 1 )) && grep -qF "realjob pid $HL holds 20.0" "$ROOT/e14"; ck "[R1] ...admit decides on the real envelopes (deny, realjob counted), not 75 (rc=$rc)" $?
-rm -rf "$D"/jobs/*(N)
+rmj "$D"/jobs/*(N)
 
 # ================================================================ 13. usage
 sect "13. usage errors -> 2"

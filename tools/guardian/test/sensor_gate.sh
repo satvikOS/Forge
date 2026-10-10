@@ -87,6 +87,18 @@ d=json.load(open(sys.argv[1]))
 print(eval(sys.argv[2]))' "$1" "$2" 2>/dev/null
 }
 json_ok() { python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$1" 2>/dev/null }
+# jsonl_bad FILE -> how many non-empty lines are NOT one whole JSON value (plutil: native)
+jsonl_bad() {
+  local l; integer n=0
+  [[ -r $1 ]] || { print -1; return }
+  while IFS= read -r l || [[ -n $l ]]; do
+    [[ -z $l ]] && continue
+    print -r -- "$l" | plutil -convert json -o /dev/null - >/dev/null 2>&1 || (( n++ ))
+  done <"$1"
+  print $n
+}
+# fill_volume MNT: zeros until the volume refuses every byte (each dd stops at ENOSPC)
+fill_volume() { local bs; for bs in 65536 4096 512 1; do dd if=/dev/zero bs=$bs 2>/dev/null >>"$1/fill"; done; return 0 }
 wait_until() { # wait_until SECONDS 'zsh condition'
   local deadline=$(( EPOCHREALTIME + $1 ))
   while (( EPOCHREALTIME < deadline )); do eval "$2" && return 0; sleep 0.1; done
@@ -176,13 +188,14 @@ ck "a partial policy overlays the defaults" $?
 # SCHEMA §6 bounds: ONE table. For every key: min and max accepted, min-1 and max+1
 # rejected WHOLE (review 2026-10-08 R2: poll_s 4000 accepted here and refused by `run`;
 # R3: logs.generations 1e9 wedged sensor and governor at 100 % CPU).
-RAMH=$(( $(sysctl -n hw.memsize) / 1073741824.0 / 2 ))
-python3 -I - "$B" "$ROOT/bounds" "$RAMH" >"$ROOT/bounds.out" <<'PY'
+# memory.os_reserve_gb is 2 .. RAM-2 GiB (it was RAM/2: review 2026-10-08 round 2).
+RAMX=$(( $(sysctl -n hw.memsize) / 1073741824.0 - 2 ))
+python3 -I - "$B" "$ROOT/bounds" "$RAMX" >"$ROOT/bounds.out" <<'PY'
 import json, os, subprocess, sys
-B, d, ramh = sys.argv[1], sys.argv[2], float(sys.argv[3])
+B, d, ramx = sys.argv[1], sys.argv[2], float(sys.argv[3])
 os.makedirs(d, exist_ok=True)
 T = [("poll_s",1,60),("escalate_polls",1,10),("deescalate_polls",1,60),("sensor_stale_polls",2,12),
-     ("memory.os_reserve_gb",2,ramh),("memory.instant_margin_gb",0,16),("memory.light_job_gb",0,2),
+     ("memory.os_reserve_gb",2,ramx),("memory.instant_margin_gb",0,16),("memory.light_job_gb",0,2),
      ("eviction.settle_s",0,3600),("eviction.term_grace_s",1,600),
      ("crash_loop.max_crashes",1,100),("crash_loop.window_s",60,86400),
      ("guardian_restart_loop.max_starts",2,100),("guardian_restart_loop.window_s",60,86400),
@@ -216,6 +229,20 @@ PY
 brc=$?
 note "$(head -c 600 "$ROOT/bounds.out" | tr '\n' ';')"
 ck "[R2][R3] every SCHEMA §6 bound: min/max accepted, min-1/max+1/1e9 rejected whole" $brc
+# An 8 GiB Mac (FORGE_SENSOR_TEST_MEMSIZE_B stands in for hw.memsize, test mode only):
+# the shipped default os_reserve_gb 6 is RAM-2 exactly and must be ACCEPTED -- under the
+# old 2..RAM/2 bound (4) the installed policy.json, a copy of policy.default.json, was
+# rejected whole at every start (review 2026-10-08 round 2).
+m8() { FORGE_SENSOR_TEST=1 FORGE_SENSOR_TEST_MEMSIZE_B=$(( 8 * 1073741824 )) "$B" policy --env --policy "$1" >"$ROOT/m8.env" 2>"$ROOT/m8.err"; print $? }
+rc=$(m8 "$GUARD_DIR/policy.default.json")
+(( rc == 0 )) && grep -qx 'memory_os_reserve_gb=6' "$ROOT/m8.env" && [[ ! -s $ROOT/m8.err ]]
+r_=$?; ck "[RAM-2] 8 GiB Mac: the shipped policy.default.json (os_reserve_gb 6 = RAM-2) is accepted (rc=$rc; $(head -c 100 "$ROOT/m8.err"))" $r_
+print -r -- '{"memory": {"os_reserve_gb": 6.5}}' >"$ROOT/m8b.json"; rc=$(m8 "$ROOT/m8b.json")
+(( rc == 1 )) && grep -q 'os_reserve_gb' "$ROOT/m8.err"; ck "[RAM-2] 8 GiB Mac: os_reserve_gb 6.5 (> RAM-2) -> rejected (rc=$rc)" $?
+print -r -- '{"memory": {"os_reserve_gb": 2}}' >"$ROOT/m8c.json"; rc=$(m8 "$ROOT/m8c.json")
+(( rc == 0 )); ck "[RAM-2] 8 GiB Mac: os_reserve_gb 2 (the minimum) -> accepted (rc=$rc)" $?
+rc=$(FORGE_SENSOR_TEST_MEMSIZE_B=$(( 8 * 1073741824 )) FORGE_SENSOR_TEST= "$B" policy --env --policy "$ROOT/m8b.json" >/dev/null 2>&1; print $?)
+(( rc == 0 || $(sysctl -n hw.memsize) < 9 * 1073741824 )); ck "[RAM-2] the memsize hook is inert outside test mode (6.5 judged against the real RAM: rc=$rc)" $?
 print -r -- '{"logs": {"generations": 1000000000}}' >"$ROOT/gen.json"
 "$B" policy --env --policy "$ROOT/gen.json" >"$ROOT/gen.env" 2>"$ROOT/gen.err"; rc=$?
 (( rc == 1 )) && grep -qx 'logs_generations=3' "$ROOT/gen.env" && grep -q '1..10' "$ROOT/gen.err"
@@ -851,10 +878,54 @@ assert ls[-1]==b"", "no trailing newline"
 for l in ls[:-1]: json.loads(l)
 assert json.loads(ls[-2])["sig"]=="bbbb"' "$QD/quarantine/cleared.jsonl" 2>/dev/null
   ck "[R6] after a short append on a full disk, every line of the ledger is whole JSON and the next record survives (rc $trc then $arc)" $?
+  # the same full volume through `append --file F --line`, the governor-facing subcommand
+  fill_volume "$MNT"
+  s0=$(stat -f %z "$QD/quarantine/cleared.jsonl")
+  "$B" append --file "$QD/quarantine/cleared.jsonl" --line "{\"sig\": \"big\", \"pad\": \"$(printf 'p%.0s' {1..3000})\"}" 2>"$ROOT/app.err"; prc=$?
+  s1=$(stat -f %z "$QD/quarantine/cleared.jsonl")
+  rm -f "$MNT/fill"
+  (( prc == 1 && s1 == s0 )); r_=$?; ck "[R6] append --line on the full volume -> exit 1 and the file keeps its length ($s0 -> $s1 B, rc $prc: $(head -c 80 "$ROOT/app.err"))" $r_
   hdiutil detach "$MNT" -force >/dev/null 2>&1; MNT=""
 else
   note "hdiutil volume unavailable here: the torn-append arm is skipped"
 fi
+# R6, round 2: events.jsonl has TWO writers. A fragment the other writer could not take
+# back (killed between its short write and its undo, or an older governor) must not
+# swallow the sensor's next record: the sensor's append starts on a new line when the
+# file does not end in one. Round 1's reverify: the governor's `{"ts": 1791506480.` plus
+# the sensor's incident record made one unparseable line.
+DG=$ROOT/dguard; mkdir -p "$DG"
+print -rn -- '{"ts": 1791506480.' >"$DG/events.jsonl"
+"$B" incident --state-dir "$DG" --kind manual --note other-writer-record >/dev/null 2>&1; irc=$?
+lastk=$(tail -1 "$DG/events.jsonl" | plutil -extract kind raw -o - - 2>/dev/null)
+nb=$(jsonl_bad "$DG/events.jsonl")
+(( irc == 0 )) && [[ $lastk == incident ]] && (( nb == 1 ))
+ck "[R6] a torn fragment left by the other writer: the sensor's next events.jsonl record is on its own line and parses (kind=$lastk, invalid lines $nb = the fragment only)" $?
+print -rn -- '{"sig": "frag' >"$DG/two.jsonl"
+"$B" append --file "$DG/two.jsonl" --line '{"sig": "next"}'; arc=$?
+[[ $arc == 0 && $(tail -1 "$DG/two.jsonl") == '{"sig": "next"}' && $(wc -l <"$DG/two.jsonl" | tr -d ' ') == 2 ]]
+ck "[R6] append --line onto a file ending in a fragment: the record gets its own line (rc=$arc)" $?
+# append --truncate-to N --if-size M: the governor's undo of its own torn append. It cuts
+# only while the file is still exactly M bytes: a record another writer appended after
+# the fragment is never cut off with it.
+print -rn -- '{"a": 1}
+{"torn": "xx' >"$DG/undo.jsonl"
+"$B" append --file "$DG/undo.jsonl" --truncate-to 9 --if-size 21; u1=$?
+s1=$(stat -f %z "$DG/undo.jsonl")
+(( u1 == 0 && s1 == 9 )) && [[ $(<"$DG/undo.jsonl") == '{"a": 1}' ]]; ck "[R6] append --truncate-to 9 --if-size 21 on a 21-byte file -> cut to 9 (rc=$u1, size $s1)" $?
+print -rn -- '{"torn": "xx' >>"$DG/undo.jsonl"; print -r -- '{"other": 2}' >>"$DG/undo.jsonl"; s2=$(stat -f %z "$DG/undo.jsonl")
+"$B" append --file "$DG/undo.jsonl" --truncate-to 9 --if-size 21 2>/dev/null; u2=$?
+(( u2 == 1 && $(stat -f %z "$DG/undo.jsonl") == s2 )); ck "[R6] ...a file that grew past the fragment (another writer's record) is NOT cut (rc=$u2)" $?
+"$B" append --file "$DG/undo.jsonl" --truncate-to $s2 --if-size 99999; u3=$?
+(( u3 == 0 )); ck "[R6] ...already at the target length -> 0, nothing to undo" $?
+ubad=()
+"$B" append --file rel.jsonl --line x 2>/dev/null; (( $? == 2 )) || ubad+=(relative)
+"$B" append --file "$DG/u.jsonl" --line $'a\nb' 2>/dev/null; (( $? == 2 )) || ubad+=(newline)
+"$B" append --file "$DG/u.jsonl" --truncate-to 3 2>/dev/null; (( $? == 2 )) || ubad+=(no-if-size)
+"$B" append --file "$DG/u.jsonl" --truncate-to 5 --if-size 3 2>/dev/null; (( $? == 2 )) || ubad+=(grow)
+"$B" append --file "$DG/u.jsonl" --truncate-to 1 --if-size 3 --line x 2>/dev/null; (( $? == 2 )) || ubad+=(both)
+mkfifo "$DG/fifo.jsonl"; "$B" append --file "$DG/fifo.jsonl" --truncate-to 0 --if-size 0 2>/dev/null; (( $? == 1 )) || ubad+=(fifo)
+(( ${#ubad} == 0 )); ck "[R6] append usage: relative path, embedded newline, half an undo, a growing 'undo', undo+line -> 2; a FIFO -> 1 (${ubad[*]:-all refused})" $?
 D6=$ROOT/d6
 pub_fail_arm "unwritable-dir" "$D6" 'chmod 0500 $D6' 'chmod 0700 $D6'
 grep -q '"kind":"publish_error".*"errno":13' "$D6/events.jsonl"; ck "unwritable-dir: publish_error event with errno 13 (EACCES)" $?
