@@ -69,14 +69,12 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
-#include <BRepBndLib.hxx>
-#include "forge/native/brep/NativeAabbBridge.hpp"  // shapeAabb: native analytic AABB, honest OCCT fall-through
+#include "forge/native/brep/NativeAabbBridge.hpp"  // shapeAabb: a native Aabb3 (analytic, or BRepBndLib::Add+Get as before)
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
 #include "forge/OcctPrimBuilder.hpp"  // TKPrim-free box / cylinder / cone / prism builders
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
-#include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -169,11 +167,12 @@ struct Extent {
 // Signed-height window of `s` along `pull`, measured from `o`.
 bool heightWindow(const TopoDS_Shape& s, const gp_Pnt& o, const gp_Dir& pull,
                   double& lo, double& hi, double& diag) {
-    Bnd_Box bb;
-    forge::native::brep::shapeAabb(s, bb);
-    if (bb.IsVoid()) return false;
-    double xa, ya, za, xb, yb, zb;
-    bb.Get(xa, ya, za, xb, yb, zb);
+    // The bridge hands back a native box (T-148): the numbers BRepBndLib::Add + Get
+    // gave here before, or the analytic box under FORGE_NATIVE_AABB.
+    const forge::native::brep::Aabb3 bb = forge::native::brep::shapeAabb(s);
+    if (bb.void_) return false;
+    const double xa = bb.minX, ya = bb.minY, za = bb.minZ;
+    const double xb = bb.maxX, yb = bb.maxY, zb = bb.maxZ;
     diag = gp_Pnt(xa, ya, za).Distance(gp_Pnt(xb, yb, zb));
     lo = std::numeric_limits<double>::max();
     hi = -std::numeric_limits<double>::max();
@@ -601,11 +600,12 @@ TopoDS_Shape draftFaces(const TopoDS_Shape& src,
     if (!heightWindow(src, neutralOrigin, pull, slo, shi, sdiag))
         return defer("source shape has an empty bounding box");
 
-    Bnd_Box bb;
-    forge::native::brep::shapeAabb(src, bb);
-    double xa, ya, za, xb, yb, zb;
-    bb.Get(xa, ya, za, xb, yb, zb);
-    const gp_Pnt centre(0.5 * (xa + xb), 0.5 * (ya + yb), 0.5 * (za + zb));
+    // The same box heightWindow just read, so it is not void here. Before T-148 a void
+    // box would have thrown out of Bnd_Box::Get at this line; the native box cannot
+    // throw, so that unreachable case is now the same named defer as above.
+    const forge::native::brep::Aabb3 sb = forge::native::brep::shapeAabb(src);
+    if (sb.void_) return defer("source shape has an empty bounding box");
+    const gp_Pnt centre(0.5 * (sb.minX + sb.maxX), 0.5 * (sb.minY + sb.maxY), 0.5 * (sb.minZ + sb.maxZ));
     // Reach must swallow the shape from any orientation, plus the wedge itself.
     const double reach = 4.0 * (sdiag + std::fabs(t) * std::max(std::fabs(slo), std::fabs(shi))) + 1.0;
 

@@ -11,14 +11,30 @@
 // to return a silently wrong box. This puts the fall-through in ONE place.
 //
 // ============================ THE HONEST CONTRACT ==========================
-//   shapeAabb(shape, box)  is a DROP-IN for  BRepBndLib::Add(shape, box).
+//   shapeAabb(shape)  is a DROP-IN for the three lines every call site spelled out:
+//       Bnd_Box bb;  BRepBndLib::Add(shape, bb);  if (!bb.IsVoid()) bb.Get(...);
+//   i.e. the box BRepBndLib::Add leaves in a FRESH Bnd_Box, as Get() reads it (the
+//   OCCT gap included), with void_ == true exactly when that Bnd_Box is void.
 //
-//   * gate OFF (the default)            -> calls BRepBndLib::Add. Byte-identical.
-//   * gate ON, importOcctSolid DECLINES -> calls BRepBndLib::Add. Byte-identical.
+//   * gate OFF (the default)            -> BRepBndLib::Add + Get. Byte-identical.
+//   * gate ON, importOcctSolid DECLINES -> BRepBndLib::Add + Get. Byte-identical.
 //   * gate ON, import succeeds          -> the EXACT analytic box.
 //
 // There is no third outcome. A site can only ever get the native box or the box it
 // got before; it can never get a fabricated one.
+//
+// ===================== WHY THE ANSWER IS AN Aabb3, NOT A Bnd_Box (T-148) ===========
+// This seam used to WRITE the caller's Bnd_Box, so its native route had to push the
+// analytic numbers back into OCCT through Bnd_Box::Update -- and MEASURED on b609b41d
+// this file was the ONLY owner of that OCCT symbol in libforge_kernel_core. The
+// native route now hands back the brep::Aabb3 computeAabb already produced and never
+// touches an OCCT type; only the OCCT fall-through still uses Bnd_Box, through
+// Bnd_Box() / BRepBndLib::Add / Bnd_Box::Get, each of which at least sixteen other
+// objects of the library also take (measured after the change).
+// The numbers do not move: Update on a void box stores them with gap 0 and Get
+// returns x - 0.0 == x, so the old route returned exactly the analytic values too
+// (test/native_aabb_bridge_gate.cpp and test/occt_query_tail_gate.cpp [D]).
+// The old signature also UNIONED into a non-void box; no caller ever passed one.
 //
 // ============================ THE DELTA, MEASURED ==========================
 // The native box is NOT bit-identical to BRepBndLib::Add, and pretending otherwise
@@ -55,8 +71,9 @@
 #ifndef FORGE_NATIVE_BREP_NATIVE_AABB_BRIDGE_HPP
 #define FORGE_NATIVE_BREP_NATIVE_AABB_BRIDGE_HPP
 
+#include "forge/native/brep/Aabb.hpp"   // brep::Aabb3, the box this seam hands back
+
 class TopoDS_Shape;
-class Bnd_Box;
 
 namespace forge {
 namespace native {
@@ -71,13 +88,15 @@ bool forgeNativeAabbEnabled();
 // Force the gate for the rest of the process (analytic test / A/B harness only).
 void setForgeNativeAabbEnabled(bool on);
 
-// DROP-IN for BRepBndLib::Add(shape, box). See the contract above.
-void shapeAabb(const TopoDS_Shape& shape, Bnd_Box& box);
+// DROP-IN for  Bnd_Box bb; BRepBndLib::Add(shape, bb); bb.Get(...)  on a FRESH box.
+// See the contract above. A null shape gives a void box.
+Aabb3 shapeAabb(const TopoDS_Shape& shape);
 
 // Same, but reports which route was taken, so a caller (or a test) can PROVE the
-// native path actually fired instead of silently deferring. Returns true iff the
-// native analytic box was used.
-bool shapeAabbNative(const TopoDS_Shape& shape, Bnd_Box& box);
+// native path actually fired instead of silently deferring. Writes the box to `out`
+// (always: void when there is nothing to bound) and returns true iff it is the
+// native analytic box.
+bool shapeAabbNative(const TopoDS_Shape& shape, Aabb3& out);
 
 // Process-wide counters. entered = shapeAabb calls; native = calls that returned
 // the analytic box. entered-native = honest fall-throughs to OCCT. Zero production

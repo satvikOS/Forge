@@ -48,6 +48,8 @@
 #include <Geom_Surface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Circle.hxx>
+#include <Geom_Line.hxx>
+#include <gp_Lin.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_SurfaceOfLinearExtrusion.hxx>
 #include <TopoDS.hxx>
@@ -1942,16 +1944,84 @@ inline double rimRunSection(double R, RimKind kind) {
     return kind == RimKind::Fillet ? (1.0 - kPi / 4.0) * R * R : 0.5 * R * R;
 }
 
+// ── WHAT THE RIM READS FROM A RING EDGE, AND WHY IT IS NOT AN ADAPTOR (T-148) ──
+// The rim asks exactly three things of one edge of the cap's outer ring: is its
+// 3-D curve a LINE, a CIRCLE, or anything else (the rim builds the first two and
+// declines the rest); the edge's own parameter window; and the curve's first
+// derivative at either end, to test G1 junctions and arc convexity. All three
+// are closed forms once the analytic curve is in hand, so they are computed
+// here rather than by BRepAdaptor_Curve. MEASURED on b609b41d: this file was
+// the ONLY owner in libforge_kernel_core of BRepAdaptor_Curve's default
+// constructor, ::Initialize and ::D1 — three OCCT symbols that existed in the
+// link solely to answer these questions.
+//
+// The geometry is read the way OcctImport's importOcctEdgeCurve reads it (see
+// that function for the measurement behind the choice): BRep_Tool::Curve, which
+// returns the edge's 3-D curve ALREADY placed by the edge's TopLoc_Location
+// together with the edge's own range — the same (curve, first, last) triple
+// BRepAdaptor_Curve::Initialize loads — and then the Geom_TrimmedCurve chain is
+// unwrapped, exactly as GeomAdaptor_Curve classifies a trimmed line or circle.
+//
+// ONE DIFFERENCE, stated rather than hidden: an edge that carries NO 3-D curve
+// (only p-curves) has no line/circle answer here, where the adaptor would have
+// classified its curve-on-surface. Such an edge is reported unreadable and the
+// rim declines it with a named reason. The gate (test/occt_query_tail_gate.cpp)
+// asserts the divergence on a constructed fixture so it cannot widen silently.
+struct RingEdgeCurve {
+    enum class Kind { Line, Circle, Other };
+    Kind    kind  = Kind::Other;
+    double  first = 0.0;       // the edge's own parameter window
+    double  last  = 0.0;
+    gp_Dir  dir;               // Line: unit direction (OCCT's line parameter is arc length)
+    gp_Circ circ;              // Circle: frame + radius (parameter is the angle)
+};
+
+// false iff the edge has no 3-D curve to read.
+bool readRingEdgeCurve(const TopoDS_Edge& e, RingEdgeCurve& out) {
+    out = RingEdgeCurve{};
+    Handle(Geom_Curve) gc;
+    double f = 0.0, l = 0.0;
+    try { gc = BRep_Tool::Curve(e, f, l); } catch (...) { return false; }
+    if (gc.IsNull()) return false;
+    while (!gc.IsNull()) {
+        Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(gc);
+        if (tc.IsNull()) break;
+        gc = tc->BasisCurve();
+    }
+    out.first = f;
+    out.last  = l;
+    if (Handle(Geom_Line) ln = Handle(Geom_Line)::DownCast(gc); !ln.IsNull()) {
+        out.kind = RingEdgeCurve::Kind::Line;
+        out.dir  = ln->Lin().Direction();
+    } else if (Handle(Geom_Circle) ci = Handle(Geom_Circle)::DownCast(gc); !ci.IsNull()) {
+        out.kind = RingEdgeCurve::Kind::Circle;
+        out.circ = ci->Circ();
+    }
+    return true;
+}
+
+// C'(t) in closed form. Line: C(t) = O + t*D, so C' = D. Circle (centre O, frame
+// X/Y, radius r, t the angle): C(t) = O + r cos t X + r sin t Y, so
+// C'(t) = -r sin t X + r cos t Y. Only meaningful for Line / Circle.
+gp_Vec ringEdgeD1(const RingEdgeCurve& c, double t) {
+    if (c.kind == RingEdgeCurve::Kind::Line) return gp_Vec(c.dir);
+    const gp_Ax2& ax = c.circ.Position();
+    const double r = c.circ.Radius();
+    const gp_Vec X(ax.XDirection()), Y(ax.YDirection());
+    return X * (-r * std::sin(t)) + Y * (r * std::cos(t));
+}
+
 // Unit tangent of a ring edge at its START / END, in TRAVERSAL direction.
+// false when the edge has no 3-D curve, is neither a line nor a circle (the rim
+// declines those anyway — buildRimContext names which), or is degenerate.
 bool ringTangents(const TopoDS_Edge& e, gp_Vec& tStart, gp_Vec& tEnd) {
-    BRepAdaptor_Curve ac;
-    try { ac.Initialize(e); } catch (...) { return false; }
-    gp_Pnt p; gp_Vec d;
+    RingEdgeCurve c;
+    if (!readRingEdgeCurve(e, c) || c.kind == RingEdgeCurve::Kind::Other) return false;
     const bool rev = (e.Orientation() == TopAbs_REVERSED);
-    ac.D1(rev ? ac.LastParameter() : ac.FirstParameter(), p, d);
+    gp_Vec d = ringEdgeD1(c, rev ? c.last : c.first);
     if (d.Magnitude() <= kTol) return false;
     tStart = rev ? -d : d;
-    ac.D1(rev ? ac.FirstParameter() : ac.LastParameter(), p, d);
+    d = ringEdgeD1(c, rev ? c.first : c.last);
     if (d.Magnitude() <= kTol) return false;
     tEnd = rev ? -d : d;
     tStart.Normalize(); tEnd.Normalize();
@@ -1996,6 +2066,24 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
         for (const TopoDS_Edge& re : ring) if (re.IsSame(edge)) { carries = true; break; }
         if (!carries) continue;
 
+        // A ring edge the rim cannot build — no 3-D curve, or a curve that is
+        // neither a line nor a circle — is named BEFORE the G1 test. Its tangent
+        // is not computed (ringTangents answers lines and circles only), so the
+        // G1 test below could only misreport it as a broken junction. Either way
+        // this cap is declined, exactly as before; only the reason is the true one.
+        {
+            std::string kindWhy;
+            for (const TopoDS_Edge& re : ring) {
+                RingEdgeCurve rc;
+                if (!readRingEdgeCurve(re, rc)) { kindWhy = "rim: a ring edge carries no 3-D curve"; break; }
+                if (rc.kind == RingEdgeCurve::Kind::Other) {
+                    kindWhy = "rim: the cap's outer ring carries a curve that is neither line nor arc";
+                    break;
+                }
+            }
+            if (!kindWhy.empty()) { why = kindWhy; continue; }
+        }
+
         // Every junction must be G1: that, and only that, is what makes OCCT
         // propagate the contour. A polygon rim (a plain box lid) fails here and
         // keeps the per-edge path, which is what already serves it.
@@ -2034,9 +2122,9 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
             if (!ok) break;
             usedWalls.push_back(sg.wall);
 
-            BRepAdaptor_Curve ac;
-            try { ac.Initialize(re); } catch (...) { why = "rim: unreadable ring edge"; ok = false; break; }
-            if (ac.GetType() == GeomAbs_Line) {
+            RingEdgeCurve rc;
+            if (!readRingEdgeCurve(re, rc)) { why = "rim: unreadable ring edge"; ok = false; break; }
+            if (rc.kind == RingEdgeCurve::Kind::Line) {
                 gp_Pln pw; gp_Dir nw;
                 if (!planarFaceNormal(sg.wall, pw, nw))
                 { why = "rim: the wall behind a straight rim segment is not planar"; ok = false; break; }
@@ -2062,13 +2150,13 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
                 // switched, and the cap-area identity downstream is shared verbatim.
                 c.bandArea    += R * sg.len;
                 ++c.nLine;
-            } else if (ac.GetType() == GeomAbs_Circle) {
+            } else if (rc.kind == RingEdgeCurve::Kind::Circle) {
                 gp_Ax1 ax; double rad = 0.0;
                 if (!cylinderFaceAxis(sg.wall, ax, rad))
                 { why = "rim: the wall behind a rim arc is not a cylinder"; ok = false; break; }
                 if (std::fabs(std::fabs(gp_Vec(ax.Direction()).Dot(gp_Vec(nCap))) - 1.0) > 1e-6)
                 { why = "rim: a corner cylinder's axis is not parallel to the cap normal"; ok = false; break; }
-                const gp_Circ ci = ac.Circle();
+                const gp_Circ ci = rc.circ;
                 sg.isArc = true;
                 sg.ctr   = ci.Location();
                 sg.rho   = ci.Radius();
@@ -2076,7 +2164,7 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
                 { why = "rim: rim arc radius differs from its wall cylinder"; ok = false; break; }
                 if (!(sg.rho > R + kTol))
                 { why = "rim: the corner radius is not larger than the blend setback"; ok = false; break; }
-                sg.theta = std::fabs(ac.LastParameter() - ac.FirstParameter());
+                sg.theta = std::fabs(rc.last - rc.first);
                 if (!(sg.theta > kTol) || sg.theta > 2.0 * kPi + kTol)
                 { why = "rim: unreadable arc sweep"; ok = false; break; }
                 // The offset ring is rebuilt through planarFaceFromSegs's MINOR-arc

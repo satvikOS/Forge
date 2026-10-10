@@ -63,12 +63,17 @@ void fail(const std::string& what, const std::string& detail) {
 
 struct Box6 { double v[6]; bool void_ = true; };
 
+// The bridge hands back a native brep::Aabb3 (T-148: it no longer writes a Bnd_Box).
 Box6 viaBridge(const TopoDS_Shape& s, bool* tookNative) {
     Box6 b;
-    Bnd_Box bb;
-    const bool nat = shapeAabbNative(s, bb);
+    forge::native::brep::Aabb3 a;
+    const bool nat = shapeAabbNative(s, a);
     if (tookNative) *tookNative = nat;
-    if (!bb.IsVoid()) { bb.Get(b.v[0], b.v[1], b.v[2], b.v[3], b.v[4], b.v[5]); b.void_ = false; }
+    if (!a.void_) {
+        b.v[0] = a.minX; b.v[1] = a.minY; b.v[2] = a.minZ;
+        b.v[3] = a.maxX; b.v[4] = a.maxY; b.v[5] = a.maxZ;
+        b.void_ = false;
+    }
     return b;
 }
 
@@ -210,7 +215,21 @@ int main() {
         fail("counters", "native count moved with the gate OFF");
     if (shapeAabbCallCount() != callsBeforeA + fx.size())
         fail("counters", "call count did not advance once per shapeAabb call");
-    std::printf("     %zu fixtures checked bit-for-bit\n\n", fx.size());
+    // The value-returning spelling the production caller (NativeDraftAngle) uses.
+    for (const auto& f : fx) {
+        const forge::native::brep::Aabb3 a = shapeAabb(f.shape);
+        Box6 got;
+        if (!a.void_) {
+            got.v[0] = a.minX; got.v[1] = a.minY; got.v[2] = a.minZ;
+            got.v[3] = a.maxX; got.v[4] = a.maxY; got.v[5] = a.maxZ;
+            got.void_ = false;
+        }
+        const Box6 want = viaOcct(f.shape);
+        if (!bitIdentical(got, want))
+            fail(f.name, "shapeAabb (gate OFF) differs from BRepBndLib::Add\n         got  " +
+                          fmt(got) + "\n         want " + fmt(want));
+    }
+    std::printf("     %zu fixtures checked bit-for-bit (shapeAabbNative and shapeAabb)\n\n", fx.size());
 
     // ----------------------------------------------------------------- B/C: gate ON
     std::printf("[B/C] gate ON -> closed form (solid/shell) or honest fall-through (face/wire)\n");
@@ -254,13 +273,15 @@ int main() {
     std::printf("[D] null shape does not crash\n");
     {
         TopoDS_Shape nullShape;
-        Bnd_Box bb;
+        forge::native::brep::Aabb3 bb;
+        bb.void_ = false;   // must be RESET by the call, not merely left alone
         bool crashed = false;
         try { (void)shapeAabbNative(nullShape, bb); }
         catch (...) { crashed = true; }
         if (crashed) fail("null shape", "shapeAabbNative threw");
-        else if (!bb.IsVoid()) fail("null shape", "produced a non-void box");
+        else if (!bb.void_) fail("null shape", "produced a non-void box");
         else std::printf("     void box, no throw\n");
+        if (!shapeAabb(nullShape).void_) fail("null shape", "shapeAabb produced a non-void box");
     }
     std::printf("\n");
 

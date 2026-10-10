@@ -187,8 +187,15 @@ BodyInventory bodyInventory(const TopoDS_Shape& shape, const BodyInventoryOption
         pair.a = static_cast<std::uint32_t>(c.i + 1);
         pair.b = static_cast<std::uint32_t>(c.j + 1);
         try {
+            // The two-shape constructor PERFORMS the computation (its documented
+            // contract: "create tool and computation of the minimum distance").
+            // This call used to be followed by an explicit Perform(), which ran
+            // the identical extrema search a SECOND time on the same operands and
+            // made BRepExtrema_DistShapeShape::Perform an OCCT symbol owned by
+            // this file alone (T-148, measured on b609b41d). The gate
+            // test/occt_query_tail_gate.cpp asserts the gap is bit-identical to
+            // the constructor-plus-Perform answer on every fixture pair.
             BRepExtrema_DistShapeShape distance(solids[c.i], solids[c.j]);
-            distance.Perform();
             // A distance the kernel would not compute is a row that is LEFT OUT,
             // never a zero. A zero here would read as "these parts touch".
             if (!distance.IsDone()) continue;
