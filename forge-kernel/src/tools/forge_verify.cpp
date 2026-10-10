@@ -35,6 +35,40 @@
 // `inputStep` binds INPUT() for edit trees; `outStep` writes the built STEP so a
 // caller can measure the artefact independently.
 //
+// Two OPT-IN fields hand the scorer what it measures (T-234). A row that asks for
+// neither is answered byte-for-byte as before.
+//   "mesh":"<lin>,<ang>" -> "mesh":{"lin","ang","positions":[x,y,z,..],"indices":[..]}
+//       forge::tessellate(handle, lin, ang) -- the SAME call the Node addon's
+//       tessellate() makes for cadscore_harness.mjs. positions are float32 in the
+//       kernel and are printed with 9 significant digits, so each parses back to the
+//       IDENTICAL float32 (num()'s six fixed decimals cannot round-trip a float32
+//       below 16 mm). A malformed spec answers "meshError" and costs only this field.
+//   "validity":"raw" -> "validity":{"isClosed","isManifold","isOriented",
+//       "hasSelfIntersect","badFaces","badEdges"} -- forge::heal::checkValidity's six
+//       flags, not a verdict: the CADGenBench gate the scorer applies is not the
+//       `valid` rule this tool uses (see "validity" below).
+//
+// A third opt-in measures a STEP FILE AS IMPORTED, with no IR at all (T-234):
+//   in : {"id","importStep":"<path>"[,"mesh":"<lin>,<ang>"][,"validity":"raw"]}
+//   out: {"id","ok","error","source":"importStep","faceCount","edgeCount","volume",
+//         "area","com","bbox"[,"validity"][,"mesh"]}
+//   = forge::io::importStep(path) and NOTHING ELSE before it is measured. That is the
+//   handle the JS scorers measured (cadscore_harness checkValid, inv_of_step.mjs,
+//   edit_score.mjs, cadgen_proxy_aligned_score.mjs, geom_score_aligned.mjs all call
+//   forge.io.importStep and measure the result). `%1 = INPUT()` is NOT that handle:
+//   INPUT() runs unifyFaces and, when the import is unoriented, harmonizeNormals, so it
+//   REPAIRS exactly what a validity gate exists to see (MEASURED: CADGenBench edit
+//   outputs 225, 240 and 243 import unoriented with 1, 3 and 1 bad faces; through
+//   INPUT() all six flags come back clean). faceCount/edgeCount are
+//   forge::direct::faceCount/edgeCount (the addon's direct.faceCount/edgeCount), volume,
+//   area and com are forge::massProperties (the addon's massProps), and bbox is the
+//   bbox of forge::tessellate(h, 0.3, 0.6), the same rule an `ir` row's bbox follows.
+//   There is no `valid`: a verdict needs a rule, and the caller that wants one asks for
+//   the flags. A measurement that throws costs its own field ("volumeError",
+//   "bboxError"; a count that cannot be taken is -1, as for an `ir` row), never the
+//   row. `importStep` is exclusive: a row that also carries ir, inputStep, outStep,
+//   refStep or census is refused, because which of the two it meant is not knowable.
+//
 // The JSON reader here is deliberately minimal and self-contained: this tool must
 // not acquire a third-party dependency to do the one job the kernel exists for.
 
@@ -59,6 +93,8 @@
 #include <vector>
 
 #include "forge/DirectEdit.hpp"
+#include "forge/DirectModeling.hpp"   // direct::faceCount / edgeCount (importStep rows)
+#include "forge/Healing.hpp"
 #include "forge/MassProps.hpp"
 #include "forge/Tessellate.hpp"
 #include "forge/Topology.hpp"
@@ -198,6 +234,184 @@ std::string num(double v) {
     std::size_t last = s.find_last_not_of('0');
     if (last != std::string::npos && s[last] == '.') --last;
     return s.substr(0, last + 1);
+}
+
+// ------------------------------------------------------------------ mesh (T-234)
+// A float32 printed so that it parses back to the SAME float32: 9 significant
+// digits always round-trip a binary32. num() cannot be used here -- six fixed
+// decimals is coarser than the float32 spacing for every |x| < 16, so the scorer
+// would be measuring a different mesh from the one the kernel made.
+inline void appendF32(std::string& out, float v) {
+    if (!std::isfinite(v)) { out += "null"; return; }
+    char buf[32];
+    const int n = std::snprintf(buf, sizeof buf, "%.9g", static_cast<double>(v));
+    if (n > 0) out.append(buf, static_cast<std::size_t>(n));
+}
+
+// "<lin>,<ang>": two finite, strictly positive numbers and nothing else. Anything
+// looser would tessellate at a tolerance the caller did not ask for.
+bool parseMeshSpec(const std::string& s, double& lin, double& ang) {
+    const char* p = s.c_str();
+    char* end = nullptr;
+    lin = std::strtod(p, &end);
+    if (end == p || *end != ',') return false;
+    const char* q = end + 1;
+    ang = std::strtod(q, &end);
+    if (end == q || *end != '\0') return false;
+    return std::isfinite(lin) && std::isfinite(ang) && lin > 0.0 && ang > 0.0;
+}
+
+// The tessellation as one JSON object, or a reason it cannot be handed out. A mesh
+// whose indices leave the vertex array, or whose coordinates are not finite, is
+// REFUSED rather than emitted: a scorer fed it would ray-cast garbage and report a
+// number, which is worse than reporting nothing.
+bool meshJson(const forge::Mesh& m, double lin, double ang, std::string& out,
+              std::string& why) {
+    if (m.positions.size() % 3 != 0) { why = "positions not a multiple of 3"; return false; }
+    if (m.indices.empty() || m.indices.size() % 3 != 0) {
+        why = m.indices.empty() ? "empty tessellation" : "indices not a multiple of 3";
+        return false;
+    }
+    const std::size_t nv = m.positions.size() / 3;
+    for (std::uint32_t i : m.indices)
+        if (i >= nv) { why = "index " + std::to_string(i) + " >= vertex count " + std::to_string(nv); return false; }
+    for (float v : m.positions)
+        if (!std::isfinite(v)) { why = "non-finite coordinate"; return false; }
+    out.clear();
+    out.reserve(64 + m.positions.size() * 12 + m.indices.size() * 7);
+    out += "{\"lin\":";
+    out += num(lin);
+    out += ",\"ang\":";
+    out += num(ang);
+    out += ",\"positions\":[";
+    for (std::size_t i = 0; i < m.positions.size(); ++i) {
+        if (i) out.push_back(',');
+        appendF32(out, m.positions[i]);
+    }
+    out += "],\"indices\":[";
+    for (std::size_t i = 0; i < m.indices.size(); ++i) {
+        if (i) out.push_back(',');
+        out += std::to_string(m.indices[i]);
+    }
+    out += "]}";
+    return true;
+}
+
+// The opt-in "validity":"raw" field for handle h. ONE writer for both row kinds, so an
+// `ir` row and an `importStep` row cannot drift apart in what the flags mean.
+void appendRawValidity(std::ostringstream& o, forge::ShapeHandle h) {
+    try {
+        const auto v = forge::heal::checkValidity(h);
+        o << ",\"validity\":{\"isClosed\":" << (v.isClosed ? "true" : "false")
+          << ",\"isManifold\":" << (v.isManifold ? "true" : "false")
+          << ",\"isOriented\":" << (v.isOriented ? "true" : "false")
+          << ",\"hasSelfIntersect\":" << (v.hasSelfIntersect ? "true" : "false")
+          << ",\"badFaces\":" << v.badFaces.size()
+          << ",\"badEdges\":" << v.badEdges.size() << "}";
+    } catch (const std::exception& e) {
+        o << ",\"validityError\":\"" << jsonEscape(e.what()) << "\"";
+    } catch (...) {
+        o << ",\"validityError\":\"checkValidity threw a non-std exception\"";
+    }
+}
+
+// The opt-in "mesh":"<lin>,<ang>" field for handle h. `pre`, when given, is
+// forge::tessellate(h, 0.3, 0.6) already made by the caller; it is reused only for that
+// exact spec (the mesher is stateless, so this saves a call and changes no byte).
+void appendMesh(std::ostringstream& o, forge::ShapeHandle h, const std::string& meshSpec,
+                const forge::Mesh* pre = nullptr) {
+    double lin = 0.0, ang = 0.0;
+    if (!parseMeshSpec(meshSpec, lin, ang)) {
+        o << ",\"meshError\":\"mesh spec '" << jsonEscape(meshSpec)
+          << "' is not '<lin>,<ang>' with both finite and > 0\"";
+        return;
+    }
+    try {
+        forge::Mesh made;
+        const forge::Mesh* m = pre;
+        if (!(pre && lin == 0.3 && ang == 0.6)) {
+            made = forge::tessellate(h, lin, ang);
+            m = &made;
+        }
+        std::string js, why;
+        if (meshJson(*m, lin, ang, js, why))
+            o << ",\"mesh\":" << js;
+        else
+            o << ",\"meshError\":\"" << jsonEscape(why) << "\"";
+    } catch (const std::exception& e) {
+        o << ",\"meshError\":\"" << jsonEscape(e.what()) << "\"";
+    } catch (...) {
+        o << ",\"meshError\":\"tessellate threw a non-std exception\"";
+    }
+}
+
+// Why a call threw, for a field-level error: the std message, else the exception's type
+// (OCCT's Standard_Failure is not a std::exception, and naming it beats "unknown").
+std::string thrownWhy() {
+    try {
+        throw;
+    } catch (const std::exception& e) {
+        return e.what();
+    } catch (...) {
+        char ty[256];
+        return std::string("non-std exception ") + currentExceptionTypeName(ty, sizeof ty);
+    }
+}
+
+// An `importStep` row: the file AS IMPORTED (see the header). Appends everything after
+// "id" except the closing brace.
+void measureImport(std::ostringstream& o, const std::string& path, bool wantMesh,
+                   const std::string& meshSpec, bool wantRawValidity) {
+    forge::ShapeHandle h = 0;
+    try {
+        h = forge::io::importStep(path);
+    } catch (...) {
+        o << ",\"ok\":false,\"error\":\"importStep: " << jsonEscape(thrownWhy()) << "\"";
+        return;
+    }
+    if (h == forge::kInvalidHandle) {
+        o << ",\"ok\":false,\"error\":\"importStep: no handle from " << jsonEscape(path) << "\"";
+        return;
+    }
+    o << ",\"ok\":true,\"error\":\"\",\"source\":\"importStep\"";
+
+    long faces = -1, edges = -1;
+    try { faces = static_cast<long>(forge::direct::faceCount(h)); } catch (...) {}
+    try { edges = static_cast<long>(forge::direct::edgeCount(h)); } catch (...) {}
+    o << ",\"faceCount\":" << faces << ",\"edgeCount\":" << edges;
+
+    try {
+        const forge::MassProperties mp = forge::massProperties(h);
+        o << ",\"volume\":" << num(mp.volume) << ",\"area\":" << num(mp.area)
+          << ",\"com\":[" << num(mp.cx) << "," << num(mp.cy) << "," << num(mp.cz) << "]";
+    } catch (...) {
+        o << ",\"volumeError\":\"" << jsonEscape(thrownWhy()) << "\"";
+    }
+
+    forge::Mesh m03;
+    bool have03 = false;
+    try {
+        m03 = forge::tessellate(h, 0.3, 0.6);
+        have03 = true;
+        if (m03.positions.size() < 3) {
+            o << ",\"bboxError\":\"empty tessellation\"";
+        } else {
+            double mn[3] = {1e300, 1e300, 1e300}, mx[3] = {-1e300, -1e300, -1e300};
+            for (std::size_t i = 0; i + 2 < m03.positions.size(); i += 3)
+                for (int k = 0; k < 3; ++k) {
+                    const double val = m03.positions[i + k];
+                    if (val < mn[k]) mn[k] = val;
+                    if (val > mx[k]) mx[k] = val;
+                }
+            o << ",\"bbox\":{\"min\":[" << num(mn[0]) << "," << num(mn[1]) << "," << num(mn[2])
+              << "],\"max\":[" << num(mx[0]) << "," << num(mx[1]) << "," << num(mx[2]) << "]}";
+        }
+    } catch (...) {
+        o << ",\"bboxError\":\"" << jsonEscape(thrownWhy()) << "\"";
+    }
+
+    if (wantRawValidity) appendRawValidity(o, h);
+    if (wantMesh) appendMesh(o, h, meshSpec, have03 ? &m03 : nullptr);
 }
 
 // --------------------------------------------------------------- topology
@@ -429,9 +643,34 @@ int main(int argc, char** argv) {
         // "census":"full" -> also emit the GROUND-TRUTH face census (see below)
         const bool wantCensus =
             jsonString(line, "census", censusFlag) && censusFlag == "full";
+        // T-234 opt-ins: the scorer's mesh and the raw validity flags (see header)
+        std::string meshSpec, validityFlag;
+        const bool wantMesh = jsonString(line, "mesh", meshSpec);
+        const bool wantRawValidity =
+            jsonString(line, "validity", validityFlag) && validityFlag == "raw";
+
+        std::string importPath;
+        const bool wantImport = jsonString(line, "importStep", importPath);
 
         std::ostringstream o;
         o << "{\"id\":\"" << jsonEscape(id) << "\"";
+
+        // T-234: a STEP file measured AS IMPORTED (see the header). Checked before the
+        // `ir` test, so a row without importStep reaches it exactly as before.
+        if (wantImport) {
+            if (!ir.empty() || !inStep.empty() || !outStep.empty() || !refStep.empty() ||
+                wantCensus) {
+                o << ",\"ok\":false,\"error\":\"importStep measures a STEP file as imported; "
+                     "it takes no ir, inputStep, outStep, refStep or census\"}";
+            } else if (importPath.empty()) {
+                o << ",\"ok\":false,\"error\":\"importStep is empty\"}";
+            } else {
+                measureImport(o, importPath, wantMesh, meshSpec, wantRawValidity);
+                o << "}";
+            }
+            emitRow(o.str());
+            return;
+        }
 
         if (ir.empty()) {
             o << ",\"ok\":false,\"error\":\"no ir\"}";
@@ -770,6 +1009,22 @@ int main(int argc, char** argv) {
                     }
                 } catch (...) { /* additive: a missing reference must not fail a build */ }
             }
+
+            // RAW VALIDITY FLAGS (opt-in, T-234). `valid` above is THIS tool's rule:
+            // all six clean, except that a bare INPUT() is forgiven its orientation.
+            // The CADGenBench gate cadscore_harness.checkValid applied is a DIFFERENT
+            // rule -- closed && manifold && oriented && !selfIntersect && no bad
+            // faces, bad EDGES not consulted -- so a scorer reproducing it needs the
+            // flags, not a verdict computed under someone else's rule.
+            if (wantRawValidity)
+                appendRawValidity(o, static_cast<forge::ShapeHandle>(r.handle));
+
+            // THE MESH (opt-in, T-234) -- the scorer's input. Emitted LAST and from a
+            // separate tessellate() call, so nothing above (genus, bores) can depend
+            // on whether it was asked for. forge::tessellate is stateless (native
+            // display mesher, K5), so the order of the two calls changes nothing.
+            if (wantMesh)
+                appendMesh(o, static_cast<forge::ShapeHandle>(r.handle), meshSpec);
         }
 
         o << "}";
