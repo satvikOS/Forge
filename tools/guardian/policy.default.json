@@ -1,0 +1,53 @@
+{
+  "schema": "forge.guardian.policy/1",
+  "poll_s": 5,
+  "escalate_polls": 2,
+  "deescalate_polls": 6,
+  "sensor_stale_polls": 3,
+  "required_signals": ["vm_pressure", "swap", "pageouts", "disk", "thermal"],
+  "memory": {
+    "os_reserve_gb": 6,
+    "instant_margin_gb": 2,
+    "enforce_instant_fit": true,
+    "light_job_gb": 0.5
+  },
+  "disk": {
+    "floors_gib": { "yellow": 45, "orange": 25, "red": 12 },
+    "volumes": ["~", "/private/tmp"],
+    "admission_floor": "yellow"
+  },
+  "thermal": { "fair": "YELLOW", "serious": "ORANGE", "critical": "RED" },
+  "eviction": { "settle_s": 180, "term_grace_s": 45 },
+  "crash_loop": {
+    "max_crashes": 3,
+    "window_s": 900,
+    "crash_signals": ["SEGV", "BUS", "ILL", "ABRT", "FPE", "TRAP", "SYS", "KILL"]
+  },
+  "guardian_restart_loop": { "max_starts": 5, "window_s": 900, "backoff_s": 300 },
+  "logs": {
+    "cap_mib": 64,
+    "rotate_mib": 4,
+    "generations": 3,
+    "history_mib": 6,
+    "incident_max_kib": 512,
+    "retention_days": 30
+  },
+  "notifications": { "enabled": true, "min_interval_s": 1800 },
+  "reports": { "scan_interval_s": 600 },
+  "smart": { "interval_s": 21600 },
+  "watch_logs": [
+    {
+      "path": "~/Library/Logs/archie-sidecar/sidecar.err.log",
+      "kind": "gpu_error",
+      "patterns": [
+        "Command buffer execution failed",
+        "kIOGPUCommandBufferCallbackError",
+        "MTLCommandBufferError",
+        "GPU Hang",
+        "Insufficient Memory",
+        "VK_ERROR_DEVICE_LOST",
+        "VK_ERROR_OUT_OF_DEVICE_MEMORY"
+      ]
+    }
+  ]
+}

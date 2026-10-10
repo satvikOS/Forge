@@ -949,6 +949,49 @@ jobs:
       # string, with two real builds queued behind them.
       - name: Asking forge-job what it does must not cost fifteen minutes
         run: zsh tools/guardian/test/forge_job_usage_gate.sh
+
+  guardian_v2:
+    name: Forge Guardian v2 (sensor, governor, admission, install; macOS)
+    # T-172..T-176. Every gate below drives REAL code in a private FORGE_HEALTH_DIR
+    # (and a fake home for the installer), never the runner's own state, and each was
+    # shown RED against the behaviour it replaces before it was trusted:
+    #   red_survival   the installed governor died at RED stage 3 (16 crashes measured
+    #                  2026-09-15) and every respawn/stop published GREEN
+    #   governor_*     a missing thermal reading was published as a healthy 100;
+    #                  CRITICAL waited two polls; nothing checked process identity
+    #   sensor         native thermal/pressure/session evidence, torn-write safety
+    #   admission      8 concurrent admits on a 22 GiB budget: the old gate admitted
+    #                  8 of 8, the engine exactly 4
+    #   install        a plist hard-coded to one account; no rollback
+    # Separate from the single-instance job above because together they exceed its
+    # 20-minute limit on a hosted runner.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          # Full history: install_gate.sh runs the hand-copied v1 domain on the governor
+          # of b609b41 (`git show`), whose TERM trap publishes GREEN -- the cutover it
+          # proves the installer closes (INS-3). A shallow clone has no b609b41, and the
+          # gate would fall back to the tree's own governor and skip that proof.
+          fetch-depth: 0
+      - name: The governor survives RED stage 3 and never publishes GREEN without evidence
+        run: zsh tools/guardian/test/guardian_red_survival_gate.sh
+      - name: Governor policy (transitions, hysteresis, evidence, critical bypass)
+        run: zsh tools/guardian/test/governor_policy_gate.sh
+      - name: Native sensor (build, signals with status, session, reports, torn writes)
+        run: zsh tools/guardian/test/sensor_gate.sh
+      - name: Admission engine (serialized reservations, identity, quarantine)
+        run: zsh tools/guardian/test/admission_gate.sh
+      - name: forge-job through the admission engine (and the legacy gate path)
+        run: zsh tools/guardian/test/forge_job_admission_gate.sh
+      - name: Install, upgrade, rollback, uninstall in a fake home
+        run: IG_REQUIRE_V1=1 zsh tools/guardian/test/install_gate.sh
+      - name: Shedding targets only registered, identity-verified, unprotected jobs
+        run: zsh tools/guardian/forge-guardian-actuator-test
+      - name: Governor runtime (real daemon, stub sensor, 16 scenarios)
+        run: zsh tools/guardian/test/governor_runtime_gate.sh
   resilience_family:
     name: RESOURCE_RESILIENCE family benchmark (scored, + 4-defect falsifiability)
     # T-136. The directive (§53) makes benchmark evidence a RELEASE GATE and doc 08's
