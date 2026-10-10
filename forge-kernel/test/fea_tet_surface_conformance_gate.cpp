@@ -56,7 +56,9 @@
 //   static, with regression bounds on its min radius ratio, CG iterations, tip deflection and
 //   peak von Mises (solveCantilever), and fea_boundary_refines_test.mjs's slender box
 //   (0.2 x 0.01 x 0.01 at 0.004). Every mesh of every part is also asserted to hold NO
-//   NUMERICALLY FLAT tet (checkNotFlat: min 6V / Lmax^3 >= kFlatFloor).
+//   NUMERICALLY FLAT tet (checkNotFlat: min 6V / Lmax^3 >= kFlatFloor), and (T-256) to have
+//   INSERTED EVERY POINT the mesher handed its Bowyer-Watson fill (checkAllInserted: no
+//   duplicate, unlocated or cavity-rejected point; Mesh::bwInputPoints/bwInsertedPoints).
 //
 // Usage: fea_tet_surface_conformance_gate [surface|le10|le1|prim|le11|quality|all]   (default all)
 //   FORGE_FEA_GATE_EDGES="0.3,0.2,..." overrides the Part S / LE10 sweep (diagnostics only;
@@ -176,6 +178,10 @@ struct Validity {
     double tetVolume = 0, enclosedVolume = 0;
     double minRadiusRatio = 1;   // element quality, REPORTED (geometric slivers are T-253)
     double minRelVolume = 1;     // min 6|V| / (longest edge)^3: ASSERTED by checkNotFlat
+    // T-256: the mesher's Bowyer-Watson insertion census, copied off the Mesh; ASSERTED by
+    // checkAllInserted.
+    int bwInput = 0, bwInserted = 0, bwDuplicate = 0, bwUnlocated = 0, bwNoCavity = 0;
+    bool bwFailed = false;
     bool ok() const {
         return overShared == 0 && nonManifoldEdges == 0 && inverted == 0 && boundaryFaces > 0 &&
                std::abs(tetVolume - enclosedVolume) <= 1e-9 * std::max(1.0, std::abs(tetVolume));
@@ -183,6 +189,9 @@ struct Validity {
 };
 Validity meshValidity(const tet::Mesh& m) {
     Validity v;
+    v.bwInput = m.bwInputPoints; v.bwInserted = m.bwInsertedPoints;
+    v.bwDuplicate = m.bwSkippedDuplicate; v.bwUnlocated = m.bwSkippedUnlocated; v.bwNoCavity = m.bwSkippedNoCavity;
+    v.bwFailed = m.bwFailed;
     std::map<std::array<int, 3>, int> faceCount;
     for (const auto& t : m.tets) {
         const int n[4] = {t.a, t.b, t.c, t.d};
@@ -260,6 +269,23 @@ void checkNotFlat(const std::string& label, const Validity& v) {
     std::snprintf(b, sizeof b, "%s: no numerically flat tet (min 6V/Lmax^3 %.3g >= %.0e; min radius ratio %.3g, reported)",
                   label.c_str(), v.minRelVolume, kFlatFloor, v.minRadiusRatio);
     check(v.minRelVolume >= kFlatFloor, b);
+}
+
+// Every point the mesher sampled became a vertex of its Delaunay fill (T-256). A skipped point
+// is a hole in the requested sampling — a boundary sample that is not a vertex leaves the
+// surface coarser than asked for exactly there — and until T-256 it was visible only on stderr.
+// MEASURED (T-035 mutation M3, naive orientation / in-sphere predicates for the exact ones):
+// every other assertion of this gate held and the one symptom was "skipped 1 of 3367 points
+// (1 unlocated)" on LE1 at 0.09; this check is what makes that mutant fail. Asserted as an
+// exact census: bwInput > 0, no point skipped for any reason, inserted == input, no throw.
+void checkAllInserted(const std::string& label, const Validity& v) {
+    char b[300];
+    std::snprintf(b, sizeof b, "%s: Bowyer-Watson inserted every point (%d of %d; skipped: %d duplicate, %d unlocated, "
+                               "%d without a star-shaped cavity%s)",
+                  label.c_str(), v.bwInserted, v.bwInput, v.bwDuplicate, v.bwUnlocated, v.bwNoCavity,
+                  v.bwFailed ? "; THREW" : "");
+    check(v.bwInput > 0 && !v.bwFailed && v.bwDuplicate == 0 && v.bwUnlocated == 0 && v.bwNoCavity == 0 &&
+              v.bwInserted == v.bwInput, b);
 }
 
 // Area and UNIT outward normal (flipped away from the apex) — triAreaOutwardNormal.
@@ -913,6 +939,7 @@ int main(int argc, char** argv) {
                 check(s.valid.ok(), "edge " + std::to_string(s.edge).substr(0, 5) +
                                         ": valid tetrahedralization (" + validityText(s.valid) + ")");
                 checkNotFlat("edge " + std::to_string(s.edge).substr(0, 5), s.valid);
+                checkAllInserted("edge " + std::to_string(s.edge).substr(0, 5), s.valid);
                 std::snprintf(b, sizeof b, "edge %.4g: every curved-boundary vertex on its ellipsoid (max |dev| %.3g <= %.0e m)",
                               s.edge, s.vertMax, kOnGeometry);
                 check(s.vertMax <= kOnGeometry, b);
@@ -938,6 +965,7 @@ int main(int argc, char** argv) {
                     check(l.valid.ok(), "LE10 edge " + std::to_string(l.edge).substr(0, 5) +
                                             ": valid tetrahedralization (" + validityText(l.valid) + ")");
                     checkNotFlat("LE10 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
+                    checkAllInserted("LE10 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
                 }
             }
         }
@@ -985,6 +1013,7 @@ int main(int argc, char** argv) {
             check(l.valid.ok(), "LE1 edge " + std::to_string(l.edge).substr(0, 5) +
                                     ": valid tetrahedralization (" + validityText(l.valid) + ")");
             checkNotFlat("LE1 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
+            checkAllInserted("LE1 edge " + std::to_string(l.edge).substr(0, 5), l.valid);
             std::snprintf(b, sizeof b, "LE1 edge %.4g: every curved-boundary vertex on its ellipsoid (max |dev| %.3g <= %.0e m)",
                           l.edge, l.curvedMaxDev, kOnGeometry);
             check(l.curvedMaxDev <= kOnGeometry, b);
@@ -1024,6 +1053,7 @@ int main(int argc, char** argv) {
                 check(bv.ok(), "box edge " + std::to_string(e).substr(0, 5) + ": valid tetrahedralization (" +
                                    validityText(bv) + ")");
                 checkNotFlat("box edge " + std::to_string(e).substr(0, 5), bv);
+                checkAllInserted("box edge " + std::to_string(e).substr(0, 5), bv);
             }
         }
         struct Spec { const char* name; int kind; double R, H; std::vector<double> edges; };
@@ -1055,6 +1085,7 @@ int main(int argc, char** argv) {
                 check(L.valid.ok(), std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5) +
                                         ": valid tetrahedralization (" + validityText(L.valid) + ")");
                 checkNotFlat(std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5), L.valid);
+                checkAllInserted(std::string(sp.name) + " edge " + std::to_string(L.edge).substr(0, 5), L.valid);
             }
         }
     }
@@ -1076,6 +1107,7 @@ int main(int argc, char** argv) {
             check(r.valid.ok(), "LE11 edge " + std::to_string(e).substr(0, 5) + ": valid tetrahedralization (" +
                                     validityText(r.valid) + ")");
             checkNotFlat("LE11 edge " + std::to_string(e).substr(0, 5), r.valid);
+            checkAllInserted("LE11 edge " + std::to_string(e).substr(0, 5), r.valid);
         }
     }
 
@@ -1089,6 +1121,7 @@ int main(int argc, char** argv) {
                     c.cgIters, c.solveMs, c.maxDisp * 1e6, c.maxVM / 1e6);
         check(!c.shell && c.valid.ok(), "cantilever: solid, valid tetrahedralization (" + validityText(c.valid) + ")");
         checkNotFlat("cantilever", c.valid);
+        checkAllInserted("cantilever", c.valid);
         // Regression bounds, from the measured pre-T-035 mesher on this exact mesh request
         // (fb98b794: min radius ratio 0.104, CG 1556 iterations, 184.15 um = -7.9 % and
         // 56.35 MPa = -6.1 % of the Euler-Bernoulli 200 um / 60 MPa) and the flat-tet
@@ -1115,6 +1148,7 @@ int main(int argc, char** argv) {
                         m.nodes.size(), m.tets.size(), v.minRadiusRatio, v.minRelVolume);
             check(!m.shellTetsOnly && v.ok(), "slender box: solid, valid tetrahedralization (" + validityText(v) + ")");
             checkNotFlat("slender box", v);
+            checkAllInserted("slender box", v);
         }
     }
 
