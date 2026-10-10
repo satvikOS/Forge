@@ -14,6 +14,18 @@
 //      complete one is not refused.
 //   D. the arithmetic the panels print — a load's magnitude and direction, a
 //      restraint's held directions, whether a solve settled — is right.
+//
+// And for the two questions added beside the static one (T-340):
+//
+//   E. there are three kinds of study, each named and described in a sentence,
+//      and a definition that does not say which is a static one.
+//   F/G. the modal and thermal refusals refuse, in prose a person may read, and
+//      neither demands what its question does not use (a force for a natural
+//      frequency; a restraint or a force for heat conduction).
+//   H. every material the study can stretch carries a conductivity, in the range
+//      from a polymer to copper, with metals and polymers on the right sides.
+//   I. "the heat balances" is a RELATIVE judgement on the largest heat flow.
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -264,6 +276,202 @@ int main() {
     CHECK_EQ_INT(withCensus.censusFor(StudyFace::MinX)->meshNodes, 25);
     CHECK_EQ_INT(withCensus.censusFor(StudyFace::MaxZ)->meshNodes, 96);
     CHECK(withCensus.censusFor(StudyFace::MinY) == nullptr);
+  }
+
+  // ── E. the three questions ───────────────────────────────────────────────
+  {
+    CHECK_EQ_INT(allStudyKinds().size(), 3);
+    CHECK(allStudyKinds()[0] == StudyKind::Static);
+    // A definition made before kinds existed still asks the static question.
+    StudyDefinition legacy;
+    CHECK(legacy.kind == StudyKind::Static);
+    std::vector<std::string> names;
+    for (StudyKind k : allStudyKinds()) {
+      const std::string name = studyKindName(k);
+      const std::string question = studyKindQuestion(k);
+      CHECK(name.size() >= 8);
+      CHECK(question.size() >= 40);
+      CHECK(scanUserFacingProse(name).empty());
+      CHECK(scanUserFacingProse(question).empty());
+      for (const std::string& seen : names) CHECK(seen != name);
+      names.push_back(name);
+    }
+  }
+
+  // ── F. the modal refusals ────────────────────────────────────────────────
+  {
+    StudyDefinition good = completeStudy();
+    good.kind = StudyKind::Modal;
+    good.loads.clear();  // a natural frequency needs no force
+    CHECK(studyBlocker(good, true).empty());
+
+    std::vector<std::string> refusals;
+    StudyDefinition noMaterial = good;
+    noMaterial.materialId = "unassigned";
+    refusals.push_back(studyBlocker(noMaterial, true));
+    StudyDefinition unknown = good;
+    unknown.materialId = "unobtainium";
+    unknown.materialName = "Unobtainium";
+    refusals.push_back(studyBlocker(unknown, true));
+    StudyDefinition weightless = good;
+    weightless.densityKgPerM3 = 0.0;
+    refusals.push_back(studyBlocker(weightless, true));
+    StudyDefinition free = good;
+    free.restraints.clear();
+    refusals.push_back(studyBlocker(free, true));
+    StudyDefinition holdsNothing = good;
+    holdsNothing.restraints[0].holdX = holdsNothing.restraints[0].holdY =
+        holdsNothing.restraints[0].holdZ = false;
+    refusals.push_back(studyBlocker(holdsNothing, true));
+    StudyDefinition none = good;
+    none.modeCount = kMinStudyModes - 1;
+    refusals.push_back(studyBlocker(none, true));
+    StudyDefinition many = good;
+    many.modeCount = kMaxStudyModes + 1;
+    refusals.push_back(studyBlocker(many, true));
+    StudyDefinition tooFine = good;
+    tooFine.divisions = kMaxStudyDivisions + 1;
+    refusals.push_back(studyBlocker(tooFine, true));
+    for (const std::string& why : refusals) {
+      CHECK(why.size() >= 30);
+      const std::vector<ProseFinding> f = scanUserFacingProse(why);
+      if (!f.empty()) {
+        std::printf("  modal refusal leaks: \"%s\"  %s\n", why.c_str(),
+                    describeProseFindings(f).c_str());
+      }
+      CHECK(f.empty());
+    }
+    CHECK_EQ_INT(refusals.size(), 8);
+    // The no-material sentence names what the material decides for THIS study.
+    CHECK(refusals[0].find("vibrates") != std::string::npos);
+  }
+
+  // ── G. the thermal refusals ──────────────────────────────────────────────
+  {
+    StudyDefinition good;
+    good.kind = StudyKind::Thermal;
+    good.materialId = "copper-c110";
+    good.materialName = "Copper";
+    good.densityKgPerM3 = 8940.0;
+    FixedTemperature hot;
+    hot.face = StudyFace::MinZ;
+    hot.temperatureC = 120.0;
+    good.temperatures.push_back(hot);
+    // No restraint and no force: a conduction study needs neither.
+    CHECK(good.restraints.empty() && good.loads.empty());
+    CHECK(studyBlocker(good, true).empty());
+    StudyDefinition generating = good;
+    generating.heatGeneratedW = 25.0;
+    CHECK(studyBlocker(generating, true).empty());
+
+    std::vector<std::string> refusals;
+    refusals.push_back(studyBlocker(good, false));
+    StudyDefinition noMaterial = good;
+    noMaterial.materialId = "unassigned";
+    refusals.push_back(studyBlocker(noMaterial, true));
+    StudyDefinition unknown = good;
+    unknown.materialId = "unobtainium";
+    unknown.materialName = "Unobtainium";
+    refusals.push_back(studyBlocker(unknown, true));
+    StudyDefinition nothingHeld = good;
+    nothingHeld.temperatures.clear();
+    refusals.push_back(studyBlocker(nothingHeld, true));
+    StudyDefinition belowZero = good;
+    belowZero.temperatures[0].temperatureC = -300.0;
+    refusals.push_back(studyBlocker(belowZero, true));
+    StudyDefinition atZero = good;
+    atZero.temperatures[0].temperatureC = kAbsoluteZeroC;
+    refusals.push_back(studyBlocker(atZero, true));
+    StudyDefinition notANumber = good;
+    notANumber.heatGeneratedW = std::nan("");
+    refusals.push_back(studyBlocker(notANumber, true));
+    StudyDefinition tooFine = good;
+    tooFine.divisions = kMinStudyDivisions - 1;
+    refusals.push_back(studyBlocker(tooFine, true));
+    for (const std::string& why : refusals) {
+      CHECK(why.size() >= 30);
+      const std::vector<ProseFinding> f = scanUserFacingProse(why);
+      if (!f.empty()) {
+        std::printf("  thermal refusal leaks: \"%s\"  %s\n", why.c_str(),
+                    describeProseFindings(f).c_str());
+      }
+      CHECK(f.empty());
+    }
+    CHECK_EQ_INT(refusals.size(), 8);
+    CHECK(refusals[1].find("heat") != std::string::npos);
+
+    FixedTemperature t;
+    t.temperatureC = 100.0;
+    CHECK_EQ_STR(t.describe(), "held at 100.0 C");
+    CHECK(scanUserFacingProse(t.describe()).empty());
+  }
+
+  // ── H. the conductivity table ────────────────────────────────────────────
+  {
+    CHECK(thermalPropertyCount() >= 12);
+    CHECK(thermalPropertiesFor("unassigned") == nullptr);
+    CHECK(thermalPropertiesFor("unobtainium") == nullptr);
+    std::size_t covered = 0;
+    for (const Material& m : materialLibrary()) {
+      const ThermalProperties* k = thermalPropertiesFor(m.id);
+      if (k == nullptr) continue;
+      ++covered;
+      // From a foam-like polymer to pure copper, and nothing outside that.
+      CHECK(k->conductivityWPerMK >= 0.05);
+      CHECK(k->conductivityWPerMK <= 450.0);
+      // A metal (stiffer than 40 GPa) conducts at least ten times better than
+      // any polymer here; a polymer (under 5 GPa) conducts under 1 W/(m K).
+      const ElasticProperties* e = elasticPropertiesFor(m.id);
+      CHECK(e != nullptr);
+      if (e != nullptr && e->youngsModulusPa > 40.0e9) CHECK(k->conductivityWPerMK > 5.0);
+      if (e != nullptr && e->youngsModulusPa < 5.0e9) CHECK(k->conductivityWPerMK < 1.0);
+    }
+    CHECK_EQ_INT(covered, materialLibrary().size() - 1);
+    CHECK_EQ_INT(thermalPropertyCount(), elasticPropertyCount());
+  }
+
+  // ── I. whether a thermal answer balances ─────────────────────────────────
+  {
+    StudyOutcome t;
+    CHECK(!thermalBalanced(t));  // unsolved
+    t.solved = true;
+    CHECK(!thermalBalanced(t));  // not a thermal answer
+    t.kind = StudyKind::Thermal;
+    SideHeatFlow in;
+    in.heatInW = 4.152;
+    SideHeatFlow out;
+    out.heatInW = -4.152;
+    t.heatFlows = {in, out};
+    t.heatImbalanceW = 1.0e-12;
+    t.maxResidualW = 1.0e-13;
+    CHECK(thermalBalanced(t));
+    StudyOutcome leaky = t;
+    leaky.heatImbalanceW = 1.0e-3;  // a thousandth of a watt missing out of four
+    CHECK(!thermalBalanced(leaky));
+    StudyOutcome unsettled = t;
+    unsettled.maxResidualW = 1.0e-2;
+    CHECK(!thermalBalanced(unsettled));
+    StudyOutcome nan = t;
+    nan.heatImbalanceW = std::nan("");
+    CHECK(!thermalBalanced(nan));
+    // Generation alone sets the scale when the held sides carry little.
+    StudyOutcome gen = t;
+    gen.heatFlows.clear();
+    gen.heatGeneratedW = 10.0;
+    gen.heatImbalanceW = 5.0e-6;
+    CHECK(thermalBalanced(gen));
+    gen.heatImbalanceW = 5.0e-4;
+    CHECK(!thermalBalanced(gen));
+    // One temperature everywhere, nothing generated: the reactions are
+    // round-off, and that is balanced -- not "unbalanced because 0 is the scale".
+    StudyOutcome still = t;
+    for (SideHeatFlow& f : still.heatFlows) f.heatInW = 2.6e-16;
+    still.heatImbalanceW = 5.2e-16;
+    still.maxResidualW = 3.0e-16;
+    CHECK(thermalBalanced(still));
+    // ...but a nanowatt unaccounted for in a part conducting nothing is not.
+    still.heatImbalanceW = 1.0e-9;
+    CHECK(!thermalBalanced(still));
   }
 
   return H.finish();
