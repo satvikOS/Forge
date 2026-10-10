@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -349,6 +350,7 @@ struct LocalTet {
 // T-256 — the insertion census of one bowyerWatson() call (see Mesh::bwInputPoints).
 struct BwStats {
     std::size_t input = 0, inserted = 0, duplicates = 0, unlocated = 0, rejected = 0;
+    double snapQ = 0.0;   // the coordinate snap grid (T-253: a moved vertex is snapped to it too)
 };
 
 // Stamp the census on the Mesh the caller returns. `ran` is false when Bowyer-Watson threw.
@@ -424,6 +426,7 @@ bowyerWatson(std::vector<Vec3>& pts, BwStats& stats) {
     int e2 = 0;
     (void)std::frexp(M, &e2);                       // M < 2^e2
     const double q = std::ldexp(1.0, e2 - 50);
+    stats.snapQ = q;
     auto snap = [q](double v) { return std::nearbyint(v / q) * q; };
     for (auto& p : pts) { p.x = snap(p.x); p.y = snap(p.y); p.z = snap(p.z); }
     pts.push_back({snap(cx - s), snap(cy - s), snap(cz - s)});
@@ -1459,6 +1462,472 @@ private:
     std::unordered_map<Key, std::vector<int>, KeyHash> cells_;
 };
 
+// =========================================================================== //
+//  T-253 — sliver removal: flips, interior smoothing, flat boundary caps       //
+// =========================================================================== //
+//
+// MEASURED DEFECT (after T-035): the exact Bowyer-Watson fill is a VALID tetrahedralization
+// but a Delaunay one, and Delaunay keeps SLIVERS — four nearly coplanar, nearly cocircular
+// vertices, a tet with a good circumradius-to-edge ratio and almost no volume. The boundary
+// samples are cospherical by construction (rings of a cylinder; the LE1 slab's top and bottom
+// faces sampled at the same (x, y), so every vertical quad through the thickness is a
+// near-rectangle) and the lattice is cubic, so ties are everywhere. Census of the carved fill
+// (radius ratio 3 r_in / R; tets < 0.02 counted, min in brackets):
+//     LE1 slab  0.17 / 0.12 / 0.09         4 / 4 / 16          (min 1.35e-11 at 0.09)
+//     LE10 slab 0.30 / 0.20 / 0.15 / 0.115 / 0.075   14 / 109 / 210 / 23 / 792
+//     cylinder  0.15 / 0.075               511 / 2473          (min 3.8e-7)
+// and they are what conditioned the solve: LE1 CG 2739 / 6437 / 46381 iterations at
+// 0.17 / 0.12 / 0.09 (25,736 at 0.09 on the pre-T-035 mesh).
+//
+// improveSlivers() post-processes the carved tet set:
+//   * EDGE REMOVAL (n -> 2n - 4; n = 3 is the 3-2 flip) on an INTERIOR edge (a closed ring of
+//     n <= kMaxRing tets): the ring polygon is re-triangulated by the O(n^3) dynamic programme
+//     that maximises the minimum quality of the new tets (Klincsek; Shewchuk 2002, "Two
+//     discrete optimization algorithms for the topological improvement of tetrahedral
+//     meshes"). It does almost all of the work (LE1 at 0.09: 32 removals, nothing else);
+//   * the 2-3 FLIP on an INTERIOR face (rarely the best move: 1 on the LE10 slab at 0.075);
+//   * SMOOTHING of an INTERIOR (lattice) vertex of a tet still bad after the flips: the
+//     neighbour centroid, then a compass search, snapped to bowyerWatson's grid, kept only if
+//     the minimum quality of its star rises. Without it the LE10 slab at 0.075 keeps 6
+//     slivers (min 2.9e-4), interior quads of two symmetry-plane samples and two lattice
+//     points that no flip of a closed ring can reach;
+//   * deleting a FLAT CAP: a tet below 0.02 with exactly two boundary faces whose interior
+//     dihedral at their common edge is >= kCapMinDihedral (the surface is flat across it),
+//     when its opposite edge is not already a boundary edge and no vertex would be orphaned —
+//     the surface edge flip of a cap made of four samples of one smooth face. Removing the
+//     opposite edge instead (which would keep the outer pair) is INVALID for almost all of
+//     them (MEASURED, cylinder at 0.15, all 355 caps removed: for 290 that ring has no valid
+//     re-triangulation — its inner vertices all lie on one side of the cap — and for the other
+//     65 only a worse one), so the cap goes and its inner pair of faces becomes the boundary. The
+//     vertices stay ON the geometry; what changes is which diagonal of a near-planar quad the
+//     surface uses. Cost, MEASURED on the cylinder (0.3 / 0.15 / 0.075): facet sag
+//     6.94e-3 / 1.74e-3 / 4.35e-4 m -> 6.94e-3 / 2.54e-3 / 6.36e-4 m and volume error
+//     -0.83 / -0.15 / -0.030 % -> -0.98 / -0.33 / -0.065 %, both still converging at the same
+//     order; on the LE10 slab the curved facet sag is unchanged at every level.
+// Flips and smoothing never touch a boundary face or vertex. Every operation is applied only
+// if the minimum quality of what it creates EXCEEDS the minimum of what it removes (a cap
+// removal creates nothing): the ascending-sorted quality vector rises lexicographically at
+// every step, so the loop terminates and the global minimum never falls. A new or moved tet
+// must be EXACTLY positively oriented on the snapped coordinates, so the result stays a valid
+// tetrahedralization. FORGE_FEA_TET_IMPROVE=0 switches the whole step off (A/B diagnostics);
+// FORGE_FEA_TET_PROFILE=1 prints what it did.
+
+constexpr double kImproveBelow   = 0.15;   // radius ratio a tet is worked on below
+constexpr double kCapMinDihedral = 150.0;  // deg, interior dihedral of a removable flat cap
+constexpr int    kMaxRing        = 8;      // largest edge ring edge removal handles
+constexpr int    kImprovePasses  = 12;     // flip passes per round
+constexpr int    kImproveRounds  = 4;      // flip passes + one smoothing pass
+
+bool feaTetImproveEnabled() {
+    static const bool on = [] {
+        const char* e = std::getenv("FORGE_FEA_TET_IMPROVE");   // A/B diagnostics only: "0" = off
+        return !(e && *e == '0');
+    }();
+    return on;
+}
+
+// Radius ratio 3 r_in / R (1 for the regular tet, -> 0 for a flat one); 0 if V6 <= 0.
+double radiusRatioOf(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d) {
+    const Vec3 u = b - a, v = c - a, w = d - a;
+    const Vec3 uv = u.cross(v), uw = u.cross(w), vw = v.cross(w), wu = w.cross(u);
+    const double V6 = uv.dot(w);
+    if (!(V6 > 0)) return 0.0;
+    const Vec3 bcd = (c - b).cross(d - b);
+    const double S = 0.5 * (uv.norm() + uw.norm() + vw.norm() + bcd.norm());
+    const double rin = 0.5 * V6 / S;
+    const Vec3 num = vw * u.dot(u) + wu * v.dot(v) + uv * w.dot(w);
+    const double R = num.norm() / (2.0 * V6);
+    return R > 0 ? 3.0 * rin / R : 0.0;
+}
+
+struct ImproveStats {
+    std::size_t edgeRemovals = 0, flips23 = 0, capsRemoved = 0, smoothed = 0, passes = 0;
+    std::size_t badBefore = 0, badAfter = 0;          // radius ratio < 0.02
+    double minBefore = 1.0, minAfter = 1.0;
+};
+
+class TetImprover {
+public:
+    TetImprover(const std::vector<Vec3>& P, const std::vector<LocalTet>& tets, double snapQ)
+        : P_(P), snapQ_(snapQ), inc_(P.size()), onBoundary_(P.size(), 0) {
+        T_.reserve(tets.size() * 2);
+        for (const auto& t : tets) add({t.n[0], t.n[1], t.n[2], t.n[3]});
+        // Boundary vertices never move. (Flips never touch the boundary and a cap removal only
+        // exposes faces whose vertices were boundary vertices already, so this set is fixed.)
+        for (std::size_t i = 0; i < T_.size(); ++i)
+            for (int f = 0; f < 4; ++f) {
+                int o[2];
+                const int a = T_[i][(f + 1) & 3], b = T_[i][(f + 2) & 3], c = T_[i][(f + 3) & 3];
+                if (tetsWithFace(a, b, c, o) == 1) onBoundary_[a] = onBoundary_[b] = onBoundary_[c] = 1;
+            }
+    }
+
+    void run(ImproveStats& st) {
+        census(st.minBefore, st.badBefore);
+        for (int round = 0; round < kImproveRounds; ++round) {
+            flipPasses(st);
+            if (smoothPass(st) == 0) break;
+        }
+        census(st.minAfter, st.badAfter);
+    }
+
+    const std::vector<Vec3>& points() const { return P_; }
+
+    std::vector<LocalTet> result() const {
+        std::vector<LocalTet> out;
+        out.reserve(T_.size());
+        for (std::size_t i = 0; i < T_.size(); ++i)
+            if (alive_[i]) out.push_back({{T_[i][0], T_[i][1], T_[i][2], T_[i][3]}});
+        return out;
+    }
+
+private:
+    using Tet4 = std::array<int, 4>;
+    struct Plan {
+        std::vector<int> kill;
+        std::vector<Tet4> add;
+        std::vector<double> addQ;
+        double oldMin = 0, newMin = -1;
+    };
+
+    std::vector<Vec3> P_;                 // own copy: smoothing moves interior vertices
+    double snapQ_;                        // bowyerWatson's coordinate grid (exact predicates)
+    std::vector<Tet4> T_;
+    std::vector<double> q_;
+    std::vector<char> alive_;
+    std::vector<std::vector<int>> inc_;   // vertex -> ids of the ALIVE tets using it
+    std::vector<char> onBoundary_;
+
+    void flipPasses(ImproveStats& st) {
+        std::vector<int> bad;
+        for (int pass = 0; pass < kImprovePasses; ++pass) {
+            ++st.passes;
+            bad.clear();
+            for (int i = 0; i < static_cast<int>(T_.size()); ++i)
+                if (alive_[i] && q_[i] < kImproveBelow) bad.push_back(i);
+            std::sort(bad.begin(), bad.end(), [&](int x, int y) { return q_[x] < q_[y]; });
+            std::size_t applied = 0;
+            for (int t : bad) {
+                if (!alive_[t]) continue;
+                if (improveTet(t, st)) ++applied;
+            }
+            if (applied == 0) break;
+        }
+    }
+
+    // Min quality of the tets around v with v placed at p (-1 if any is not positively oriented).
+    double starMin(int v, const Vec3& p) {
+        const Vec3 keep = P_[v];
+        P_[v] = p;
+        double m = 2.0;
+        for (int id : inc_[v]) {
+            const auto& t = T_[id];
+            m = std::min(m, quality(t[0], t[1], t[2], t[3]));
+            if (m <= 0) break;
+        }
+        P_[v] = keep;
+        return m;
+    }
+    Vec3 snapped(const Vec3& p) const {
+        auto sn = [this](double x) { return std::nearbyint(x / snapQ_) * snapQ_; };
+        return {sn(p.x), sn(p.y), sn(p.z)};
+    }
+    // Move interior vertex v to raise the minimum quality of its star: the neighbour centroid
+    // (Laplacian) at a few step lengths, then a compass search along the axes with a halving
+    // step. Kept only if the star's minimum strictly rises; every star tet stays EXACTLY
+    // positive (quality() is -1 otherwise), so the mesh stays valid.
+    bool smoothVertex(int v) {
+        if (onBoundary_[v] || inc_[v].empty() || !(snapQ_ > 0)) return false;
+        const double start = starMin(v, P_[v]);
+        double cur = start;
+        Vec3 at = P_[v];
+        Vec3 cen{0, 0, 0};
+        double lsum = 0;
+        int nn = 0;
+        for (int id : inc_[v])
+            for (int w : T_[id])
+                if (w != v) { cen = cen + P_[w]; lsum += (P_[w] - P_[v]).norm(); ++nn; }
+        if (nn == 0) return false;
+        cen = cen * (1.0 / nn);
+        const double lavg = lsum / nn;
+        for (double a : {1.0, 0.5, 0.25, 0.1}) {
+            const Vec3 p = snapped(at + (cen - at) * a);
+            const double m = starMin(v, p);
+            if (m > cur) { cur = m; at = p; break; }
+        }
+        const Vec3 dirs[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        for (double h = 0.1 * lavg; h > 1e-3 * lavg; h *= 0.5) {
+            bool moved = true;
+            for (int it = 0; it < 8 && moved; ++it) {
+                moved = false;
+                for (const Vec3& d : dirs) {
+                    const Vec3 p = snapped(at + d * h);
+                    const double m = starMin(v, p);
+                    if (m > cur) { cur = m; at = p; moved = true; }
+                }
+            }
+        }
+        if (!(cur > start)) return false;
+        P_[v] = at;
+        for (int id : inc_[v]) q_[id] = radiusRatioOf(P_[T_[id][0]], P_[T_[id][1]], P_[T_[id][2]], P_[T_[id][3]]);
+        return true;
+    }
+    std::size_t smoothPass(ImproveStats& st) {
+        std::vector<int> bad;
+        for (int i = 0; i < static_cast<int>(T_.size()); ++i)
+            if (alive_[i] && q_[i] < kImproveBelow) bad.push_back(i);
+        std::sort(bad.begin(), bad.end(), [&](int x, int y) { return q_[x] < q_[y]; });
+        std::size_t moved = 0;
+        for (int t : bad) {
+            if (!alive_[t] || !(q_[t] < kImproveBelow)) continue;
+            const Tet4 A = T_[t];
+            for (int v : A) if (smoothVertex(v)) ++moved;
+        }
+        st.smoothed += moved;
+        return moved;
+    }
+
+    void census(double& mn, std::size_t& bad) const {
+        mn = 1.0; bad = 0;
+        for (std::size_t i = 0; i < T_.size(); ++i) {
+            if (!alive_[i]) continue;
+            mn = std::min(mn, q_[i]);
+            if (q_[i] < 0.02) ++bad;
+        }
+    }
+    // Quality of the tet abcd as oriented: -1 unless EXACTLY positively oriented.
+    double quality(int a, int b, int c, int d) const {
+        if (orientSign(P_[a], P_[b], P_[c], P_[d]) <= 0) return -1.0;
+        return radiusRatioOf(P_[a], P_[b], P_[c], P_[d]);
+    }
+    int add(const Tet4& t, double q = -2.0) {
+        const int id = static_cast<int>(T_.size());
+        T_.push_back(t);
+        q_.push_back(q > -2.0 ? q : radiusRatioOf(P_[t[0]], P_[t[1]], P_[t[2]], P_[t[3]]));
+        alive_.push_back(1);
+        for (int v : t) inc_[v].push_back(id);
+        return id;
+    }
+    void kill(int id) {
+        alive_[id] = 0;
+        for (int v : T_[id]) {
+            auto& l = inc_[v];
+            for (std::size_t k = 0; k < l.size(); ++k)
+                if (l[k] == id) { l[k] = l.back(); l.pop_back(); break; }
+        }
+    }
+    bool has(int id, int v) const { const auto& t = T_[id]; return t[0] == v || t[1] == v || t[2] == v || t[3] == v; }
+    int tetsWithFace(int a, int b, int c, int out[2]) const {
+        int n = 0;
+        for (int id : inc_[a])
+            if (has(id, b) && has(id, c)) { if (n < 2) out[n] = id; ++n; }
+        return n;
+    }
+    bool isBoundaryEdge(int a, int b) const {
+        for (int id : inc_[a]) {
+            if (!has(id, b)) continue;
+            for (int v : T_[id]) {
+                if (v == a || v == b) continue;
+                int o[2];
+                if (tetsWithFace(a, b, v, o) == 1) return true;
+            }
+        }
+        return false;
+    }
+    void apply(const Plan& p) {
+        for (int id : p.kill) kill(id);
+        for (std::size_t i = 0; i < p.add.size(); ++i) add(p.add[i], p.addQ[i]);
+    }
+
+    // Edge removal of (a, b): fills `p` and returns true when (a, b) is interior, its ring has
+    // 3..kMaxRing tets and some re-triangulation is valid; p.newMin is its best minimum.
+    bool planEdgeRemoval(int a, int b, Plan& p) const {
+        std::vector<int> ring;
+        for (int id : inc_[a]) if (has(id, b)) ring.push_back(id);
+        const int n = static_cast<int>(ring.size());
+        if (n < 3 || n > kMaxRing) return false;
+        // ring edges (c, d): the two other vertices of each tet
+        std::vector<std::array<int, 2>> re(n);
+        for (int i = 0; i < n; ++i) {
+            int k = 0;
+            for (int v : T_[ring[i]]) if (v != a && v != b) re[i][k++] = v;
+        }
+        // walk the cycle
+        std::vector<int> r;
+        std::vector<char> used(n, 0);
+        r.push_back(re[0][0]);
+        r.push_back(re[0][1]);
+        used[0] = 1;
+        for (int step = 1; step < n; ++step) {
+            const int last = r.back();
+            int nxt = -1;
+            for (int i = 0; i < n && nxt < 0; ++i) {
+                if (used[i]) continue;
+                if (re[i][0] == last) { nxt = re[i][1]; used[i] = 1; }
+                else if (re[i][1] == last) { nxt = re[i][0]; used[i] = 1; }
+            }
+            if (nxt < 0) return false;            // open ring: a boundary edge
+            r.push_back(nxt);
+        }
+        if (r.back() != r.front()) return false;  // not a single closed cycle
+        r.pop_back();
+        if (static_cast<int>(r.size()) != n) return false;
+        // orientation of the cycle: tetVolume(a, b, r0, r1) sign s
+        const int s = orientSign(P_[a], P_[b], P_[r[0]], P_[r[1]]);
+        if (s == 0) return false;
+        auto triQ = [&](int i, int j, int k, Tet4& up, Tet4& dn) {
+            if (s < 0) { up = {r[i], r[j], r[k], a}; dn = {r[i], r[k], r[j], b}; }
+            else       { up = {r[i], r[k], r[j], a}; dn = {r[i], r[j], r[k], b}; }
+            const double qu = quality(up[0], up[1], up[2], up[3]);
+            if (qu <= 0) return -1.0;
+            const double qd = quality(dn[0], dn[1], dn[2], dn[3]);
+            if (qd <= 0) return -1.0;
+            return std::min(qu, qd);
+        };
+        // DP: best[i][k] = best min quality of a triangulation of polygon r_i..r_k (k - i >= 2)
+        double best[kMaxRing][kMaxRing];
+        int choice[kMaxRing][kMaxRing];
+        for (int i = 0; i < n; ++i)
+            for (int k = 0; k < n; ++k) { best[i][k] = (k == i + 1) ? 2.0 : -1.0; choice[i][k] = -1; }
+        for (int len = 2; len < n; ++len) {
+            for (int i = 0; i + len < n; ++i) {
+                const int k = i + len;
+                for (int j = i + 1; j < k; ++j) {
+                    if (best[i][j] <= 0 || best[j][k] <= 0) continue;
+                    Tet4 up, dn;
+                    const double qt = triQ(i, j, k, up, dn);
+                    if (qt <= 0) continue;
+                    const double m = std::min({best[i][j], best[j][k], qt});
+                    if (m > best[i][k]) { best[i][k] = m; choice[i][k] = j; }
+                }
+            }
+        }
+        if (best[0][n - 1] <= 0) return false;
+        p = Plan{};
+        p.kill = ring;
+        p.oldMin = 2.0;
+        for (int id : ring) p.oldMin = std::min(p.oldMin, q_[id]);
+        p.newMin = best[0][n - 1];
+        // backtrack
+        std::vector<std::array<int, 2>> stack{{0, n - 1}};
+        while (!stack.empty()) {
+            const auto [i, k] = stack.back();
+            stack.pop_back();
+            if (k - i < 2) continue;
+            const int j = choice[i][k];
+            Tet4 up, dn;
+            const double qt = triQ(i, j, k, up, dn);
+            (void)qt;
+            p.add.push_back(up); p.addQ.push_back(quality(up[0], up[1], up[2], up[3]));
+            p.add.push_back(dn); p.addQ.push_back(quality(dn[0], dn[1], dn[2], dn[3]));
+            stack.push_back({i, j});
+            stack.push_back({j, k});
+        }
+        return true;
+    }
+
+    // 2-3 flip across face `f` (the face opposite vertex index f) of tet t.
+    bool planFlip23(int t, int f, Plan& p) const {
+        const Tet4& A = T_[t];
+        const int fa = A[(f + 1) & 3], fb = A[(f + 2) & 3], fc = A[(f + 3) & 3];
+        int o[2];
+        if (tetsWithFace(fa, fb, fc, o) != 2) return false;   // boundary face
+        const int u = o[0] == t ? o[1] : o[0];
+        int e = -1;
+        for (int v : T_[u]) if (v != fa && v != fb && v != fc) e = v;
+        if (e < 0) return false;
+        p = Plan{};
+        p.kill = {t, u};
+        p.oldMin = std::min(q_[t], q_[u]);
+        p.newMin = 2.0;
+        for (int k = 0; k < 4; ++k) {
+            if (k == f) continue;
+            Tet4 nt = A;
+            nt[k] = e;                                          // positive iff e is on a's side
+            const double qq = quality(nt[0], nt[1], nt[2], nt[3]);
+            if (qq <= 0) return false;
+            p.add.push_back(nt);
+            p.addQ.push_back(qq);
+            p.newMin = std::min(p.newMin, qq);
+        }
+        return true;
+    }
+
+    // Interior dihedral angle (deg) of tet t at its edge (a, b).
+    double dihedralAt(int t, int a, int b) const {
+        int c = -1, d = -1;
+        for (int v : T_[t]) if (v != a && v != b) { if (c < 0) c = v; else d = v; }
+        const Vec3 e = P_[b] - P_[a];
+        const Vec3 n1 = e.cross(P_[c] - P_[a]), n2 = e.cross(P_[d] - P_[a]);
+        const double den = n1.norm() * n2.norm();
+        if (!(den > 0)) return 0.0;
+        const double cs = std::max(-1.0, std::min(1.0, n1.dot(n2) / den));
+        return std::acos(cs) * (180.0 / 3.14159265358979323846);
+    }
+
+    bool tryCap(int t, ImproveStats& st) {
+        const Tet4 A = T_[t];
+        int bnd[4], nb = 0;
+        for (int f = 0; f < 4; ++f) {
+            int o[2];
+            if (tetsWithFace(A[(f + 1) & 3], A[(f + 2) & 3], A[(f + 3) & 3], o) == 1) bnd[nb++] = f;
+        }
+        if (nb != 2) return false;
+        // boundary faces are opposite vertices A[bnd[0]], A[bnd[1]]; they share the edge made of
+        // the other two vertices (e1); the edge (A[bnd[0]], A[bnd[1]]) is e2.
+        const int w = A[bnd[0]], x = A[bnd[1]];
+        int u = -1, v = -1;
+        for (int k = 0; k < 4; ++k) if (k != bnd[0] && k != bnd[1]) { if (u < 0) u = A[k]; else v = A[k]; }
+        if (dihedralAt(t, u, v) < kCapMinDihedral) return false;
+        if (isBoundaryEdge(w, x)) return false;                // would become non-manifold
+        for (int k = 0; k < 4; ++k) if (inc_[A[k]].size() < 2) return false;   // never orphan a vertex
+        kill(t);
+        ++st.capsRemoved;
+        return true;
+    }
+
+    bool improveTet(int t, ImproveStats& st) {
+        Plan best, cand;
+        int kind = 0;
+        const Tet4 A = T_[t];
+        for (int i = 0; i < 4; ++i)
+            for (int j = i + 1; j < 4; ++j)
+                if (planEdgeRemoval(A[i], A[j], cand) && cand.newMin > cand.oldMin && cand.newMin > best.newMin) {
+                    best = cand; kind = 1;
+                }
+        for (int f = 0; f < 4; ++f)
+            if (planFlip23(t, f, cand) && cand.newMin > cand.oldMin && cand.newMin > best.newMin) {
+                best = cand; kind = 2;
+            }
+        if (kind != 0) {
+            apply(best);
+            if (kind == 1) ++st.edgeRemovals; else ++st.flips23;
+            return true;
+        }
+        return q_[t] < 0.02 && tryCap(t, st);
+    }
+};
+
+// Run the improver over a carved tet set, in place: `kept` is replaced by the improved tets and
+// the interior vertices it moved are written back into `pts`. Returns the stats.
+ImproveStats improveSlivers(std::vector<Vec3>& pts, std::vector<LocalTet>& kept, double snapQ) {
+    ImproveStats st;
+    if (!feaTetImproveEnabled() || kept.empty()) return st;
+    const auto t0 = std::chrono::steady_clock::now();
+    TetImprover imp(pts, kept, snapQ);
+    imp.run(st);
+    kept = imp.result();
+    pts = imp.points();
+    if (feaTetProfileEnabled()) {
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        std::fprintf(stderr, "[feaTet] sliver removal: %zu passes, %zu edge removals, %zu 2-3 flips, %zu flat caps "
+                             "removed, %zu vertex moves; radius ratio < 0.02: %zu -> %zu, min %.3g -> %.3g (%.0f ms)\n",
+                     st.passes, st.edgeRemovals, st.flips23, st.capsRemoved, st.smoothed, st.badBefore, st.badAfter,
+                     st.minBefore, st.minAfter, ms);
+    }
+    return st;
+}
+
 } // anonymous namespace
 
 // ============================================================= public surface
@@ -1659,6 +2128,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
                                  "%zu with an exposed lattice vertex\n",
                          kept.size(), bw.size(), bFaces, exposed);
         }
+        improveSlivers(ptsCopy, kept, bwStats.snapQ);   // T-253
         if (!kept.empty()) {
             // Build nodes — use the union of points referenced by kept tets.
             std::unordered_map<int, int> remap;
@@ -1937,6 +2407,7 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
                 solid, forge::native::brep::Vec3{c.x, c.y, c.z}, Precision::Confusion());
             if (st == PointClass::Inside) kept.push_back(t);
         }
+        improveSlivers(ptsCopy, kept, bwStats.snapQ);   // T-253
         if (!kept.empty()) {
             std::unordered_map<int, int> remap;
             for (auto& t : kept) {
