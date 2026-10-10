@@ -733,13 +733,27 @@ static void testAnalyticSSI() {
                   "plane∩plane line direction = ±X");
         }
     }
-    // DEFERRED pair honestly reported: cone ∩ sphere.
+    // cone ∩ sphere. A COAXIAL pair (sphere centre on the cone axis) is now an exact
+    // closed form (T-310: two circles at the radius-profile roots — the NAFEMS LE11
+    // taper-on-ball family), asserted ON BOTH surfaces; a NON-coaxial pair is a quartic
+    // space curve and must stay HONESTLY deferred (ok=false), not faked.
     {
         Surface cone; cone.kind = SurfaceKind::Cone; cone.r1 = 2; cone.r2 = 0; cone.param = 4;
         cone.axis = {0,0,1}; cone.refDir = {1,0,0};
         Surface S = sphereSurf({0,0,0}, 3);
         auto res = intersectSurfaces(cone, S);
-        check(!res.ok, "cone∩sphere is HONESTLY deferred (ok=false), not faked");
+        double worst = 0.0;
+        for (const auto& cu : res.curves)
+            for (const Vec3& p : cu.samples) {
+                const double rl = std::fabs(2.0 - 0.5 * p.z);              // cone radius at z
+                worst = std::max({worst, std::fabs(std::hypot(p.x, p.y) - rl),
+                                  std::fabs(std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z) - 3.0)});
+            }
+        check(res.ok && res.allClosedForm && res.curves.size() == 2 && worst < 1e-12,
+              "coaxial cone∩sphere: 2 closed-form circles on BOTH surfaces (<1e-12)");
+        Surface off = sphereSurf({0.5,0,0}, 3);                      // centre OFF the axis
+        check(!intersectSurfaces(cone, off).ok,
+              "NON-coaxial cone∩sphere is HONESTLY deferred (ok=false), not faked");
     }
 }
 

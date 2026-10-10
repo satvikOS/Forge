@@ -234,14 +234,34 @@ static void testMarchedCylSphere() {
 // HONESTY — the pairs still genuinely outside the analytic envelope must remain
 // DEFERRED (ok=false), never faked.
 // ===========================================================================
+// T-310 — COAXIAL cone ∩ sphere: the pair the deferral check above used to pin. Two
+// circles at the roots of (2 - z/2)^2 + z^2 = 9, every sample on BOTH surfaces.
+static void testCoaxialConeSphere() {
+    std::printf("[SSI coaxial] cone ∩ sphere sharing the axis -> exact circles\n");
+    Surface cone = coneSurf({0, 0, 0}, {0, 0, 1}, 2, 0, 4);
+    Surface S = sphSurf({0, 0, 0}, 3);
+    auto r = intersectSurfaces(cone, S);
+    const double mS = maxOver(r.curves, [&](const Vec3& p){ return sphRes(p, {0,0,0}, 3.0); });
+    double mC = 0.0;
+    for (const auto& cu : r.curves)
+        for (const Vec3& p : cu.samples)
+            mC = std::max(mC, std::fabs(std::hypot(p.x, p.y) - std::fabs(2.0 - 0.5 * p.z)));
+    std::printf("      [coaxial cone-sphere] ok=%d curves=%zu maxResCone=%.2e maxResSph=%.2e\n",
+                (int)r.ok, r.curves.size(), mC, mS);
+    check(r.ok && r.allClosedForm && r.curves.size() == 2 && mC < 1e-12 && mS < 1e-12,
+          "coaxial cone∩sphere: 2 closed-form circles, every sample on BOTH surfaces (<1e-12)");
+}
+
 static void testStillDeferred() {
     std::printf("[SSI honesty] genuinely-unsupported pairs remain DEFERRED (ok=false)\n");
-    // cone ∩ sphere — no low-degree closed form, not marched here.
+    // cone ∩ sphere with the centre OFF the cone axis — a quartic space curve with no
+    // low-degree closed form, not marched here. (The COAXIAL pair is closed form since
+    // T-310 and is gated below in testCoaxialConeSphere.)
     {
         Surface cone = coneSurf({0, 0, 0}, {0, 0, 1}, 2, 0, 4);
-        Surface S = sphSurf({0, 0, 0}, 3);
+        Surface S = sphSurf({0.5, 0, 0}, 3);
         auto r = intersectSurfaces(cone, S);
-        check(!r.ok, "cone∩sphere is HONESTLY deferred (ok=false), not faked");
+        check(!r.ok, "NON-coaxial cone∩sphere is HONESTLY deferred (ok=false), not faked");
     }
     // torus ∩ plane — torus pairs are deferred.
     {
@@ -258,6 +278,7 @@ int main() {
     testPlaneCone();
     testMarchedCylCyl();
     testMarchedCylSphere();
+    testCoaxialConeSphere();
     testStillDeferred();
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
