@@ -320,16 +320,98 @@ void SetMaterialEdit::revert(PartDocument& doc) {
   doc.setMaterial(before_);
 }
 
+// ── EditGroup (GoF Composite of ConcreteCommands, T-189) ────────────────────
+EditGroup::EditGroup(std::string label) : label_(std::move(label)) {}
+
+void EditGroup::adopt(std::unique_ptr<UndoableEdit> applied) {
+  if (applied) edits_.push_back(std::move(applied));
+}
+
+bool EditGroup::apply(PartDocument& doc) {
+  // REDO of the whole group. Members re-apply in their original order, so every
+  // AppendFeatureEdit replays its original ir id in the sequence it was made.
+  for (std::size_t i = 0; i < edits_.size(); ++i) {
+    if (edits_[i]->apply(doc)) continue;
+    // A member refused: take back the ones this pass re-applied, newest first,
+    // and refuse as a whole. UndoStack::redo then keeps the group on the redo
+    // branch, so nothing is lost and nothing half-applied is left in the part.
+    for (std::size_t k = i; k-- > 0;) edits_[k]->revert(doc);
+    return false;
+  }
+  return true;
+}
+
+void EditGroup::revert(PartDocument& doc) {
+  for (std::size_t k = edits_.size(); k-- > 0;) edits_[k]->revert(doc);
+}
+
 // ── UndoStack (GoF Caretaker) ───────────────────────────────────────────────
 bool UndoStack::perform(PartDocument& doc, std::unique_ptr<UndoableEdit> edit) {
   if (!edit) return false;
   if (!edit->apply(doc)) return false;  // a refused edit is never pushed
+  if (group_) {
+    // Recorded INTO the open group. The redo branch is NOT abandoned yet: if the
+    // group is rolled back, the history must read exactly as it did before it.
+    group_->adopt(std::move(edit));
+    return true;
+  }
   done_.push_back(std::move(edit));
   undone_.clear();  // linear undo: a new edit abandons the redo branch
   return true;
 }
 
+bool UndoStack::beginGroup(std::string label) {
+  if (group_) return false;  // groups do not nest
+  group_ = std::make_unique<EditGroup>(std::move(label));
+  ++groupSerial_;
+  return true;
+}
+
+bool UndoStack::commitGroup() {
+  if (!group_) return false;
+  std::unique_ptr<EditGroup> group = std::move(group_);
+  if (group->empty()) return false;  // nothing happened, so nothing to undo
+  done_.push_back(std::move(group));
+  undone_.clear();  // the group IS a new edit: it abandons the redo branch now
+  return true;
+}
+
+std::size_t UndoStack::rollbackGroup(PartDocument& doc) {
+  if (!group_) return 0;
+  std::unique_ptr<EditGroup> group = std::move(group_);
+  const std::size_t n = group->size();
+  group->revert(doc);  // newest first; the group is then discarded, never pushed
+  return n;
+}
+
+// ── UndoTransaction (RAII over one group) ───────────────────────────────────
+UndoTransaction::UndoTransaction(UndoStack& stack, PartDocument& doc, std::string label)
+    : stack_(stack), doc_(doc) {
+  if (stack_.beginGroup(std::move(label))) serial_ = stack_.openGroupSerial();
+}
+
+UndoTransaction::~UndoTransaction() {
+  // NOT committed is ROLLED BACK, through the same UndoableEdit::revert() bodies
+  // an Undo runs. They report nothing and throw only if an allocation fails, and
+  // a destructor that met that would terminate -- the honest outcome for a
+  // document that can no longer be put back.
+  rollback();
+}
+
+bool UndoTransaction::commit() {
+  if (!active()) return false;
+  serial_ = 0;
+  return stack_.commitGroup();
+}
+
+std::size_t UndoTransaction::rollback() {
+  if (!active()) return 0;
+  serial_ = 0;
+  return stack_.rollbackGroup(doc_);
+}
+
 bool UndoStack::undo(PartDocument& doc) {
+  if (group_) return false;  // never underneath a half-applied transaction
   if (done_.empty()) return false;
   std::unique_ptr<UndoableEdit> edit = std::move(done_.back());
   done_.pop_back();
@@ -339,6 +421,7 @@ bool UndoStack::undo(PartDocument& doc) {
 }
 
 bool UndoStack::redo(PartDocument& doc) {
+  if (group_) return false;  // never underneath a half-applied transaction
   if (undone_.empty()) return false;
   std::unique_ptr<UndoableEdit> edit = std::move(undone_.back());
   undone_.pop_back();
@@ -366,6 +449,7 @@ std::string UndoStack::redoLabel() const {
 void UndoStack::clear() noexcept {
   done_.clear();
   undone_.clear();
+  group_.reset();
 }
 
 // ── registration ────────────────────────────────────────────────────────────
