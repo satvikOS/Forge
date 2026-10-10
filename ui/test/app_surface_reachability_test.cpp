@@ -460,7 +460,15 @@ int main() {
   //                          parameter or dimension, and a derived SurfaceItem carries no
   //                          argument. They are also on every ribbon and in the palette
   //                          like any Part command, which the checks above prove.
+  //   file.export_drawing -- (T-294) invoke() PARKS File > Save the Drawing when the
+  //                          isolated worker can work out the drawing's views off the frame
+  //                          thread, and pumpDrawingJob() dispatches it exactly once, through
+  //                          shell_.invoke(), when they are in. It is a literal because
+  //                          invoke() has to recognise THIS command to park it; its menu row,
+  //                          ribbon button and palette entry are derived like every other
+  //                          command's, which the checks above prove.
   const std::set<std::string> allowedLiterals = {"app.command_palette", "app.load_sample",
+                                                 "file.export_drawing",
                                                  "file.open", "file.save",
                                                  "part.edit_feature", "part.set_material",
                                                  "part.parameter_bind", "part.parameter_remove",
