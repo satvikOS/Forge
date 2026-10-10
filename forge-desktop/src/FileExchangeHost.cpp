@@ -231,15 +231,17 @@ void measure(forge::ShapeHandle handle, ExchangeReport& report) {
     }
   } catch (...) {
   }
-  // ONE call where there were two. nativeShapeOf() answers a NULL Shape for a
+  // ONE call where there were two. nativeShapeLease() answers a NULL Shape for a
   // handle that is not native-solid-backed -- an OCCT body, a result mesh, a
   // handle that names nothing -- so the kind test and the fetch are the same
   // question asked once, and neither of them needs the registry's OCCT-typed
   // surface. asSolid() is a tag-checked downcast: non-null here means SOLID.
-  const forge::native::shape::Shape nativeShape = forge::nativeShapeOf(handle);
+  // T-261: the LEASE is held for the whole walk below. nativeShapeOf() handed
+  // back a bare view that dangled the moment any thread released `handle`.
+  const forge::NativeShapeLease nativeShape = forge::nativeShapeLease(handle);
   if ((report.faceCount <= 0 || report.faceKinds.empty()) && !nativeShape.isNull()) {
     try {
-      const forge::native::brep::Solid& solid = *nativeShape.asSolid();
+      const forge::native::brep::Solid& solid = *nativeShape.shape().asSolid();
       long fCount = 0;
       std::unordered_set<const forge::native::brep::Edge*> uniqueEdges;
       for (const auto* sh : solid.shells) {

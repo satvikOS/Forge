@@ -28,7 +28,7 @@
 // one builder and welded); a NativeMesh operand or an OCCT body the importer DEFERS on
 // HONESTLY falls through to OCCT.
 #ifdef FORGE_NATIVE_BREP
-#include "forge/NativeShapeAccess.hpp"         // nativeSolidOf — the OCCT-free registry read
+#include "forge/NativeShapeAccess.hpp"         // nativeSolidLease — the OCCT-free, owning read
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Solid/Shell
@@ -123,12 +123,14 @@ bool tryNativeSew(const std::vector<ShapeHandle>& shapes, double tolerance,
     std::vector<Face*> faces;
     for (ShapeHandle h : shapes) {
         // T-129: the NativeSolid arm is ONE question through the OCCT-free seam.
-        // INVALID HANDLE: unchanged. nativeSolidOf() answers nullptr instead of
+        // INVALID HANDLE: unchanged. nativeSolidLease() answers an empty lease instead of
         // throwing, but control then falls into the `else if (reg.kindOf(h) ...)`
         // below, which is the SAME kindOf() call that used to be first — so an
         // unknown handle still raises ShapeRegistry's "invalid handle" error, from
         // the same function, with the same message.
-        if (const Solid* sp = nativeSolidOf(h)) {
+        // T-261: a LEASE held for the clone loop (the borrow it replaces dangled
+        // if another thread released the operand mid-clone).
+        if (const auto sp = nativeSolidLease(h)) {
             const Solid& s = *sp;
             for (Shell* sh : s.shells)
                 for (Face* sf : sh->faces)

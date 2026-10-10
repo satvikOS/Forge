@@ -39,6 +39,7 @@
 
 #include <memory>
 
+#include "forge/NativeLease.hpp"     // NativeLease<T> — OCCT-free (T-261)
 #include "forge/ShapeHandle.hpp"
 #include "forge/native/brep/Topology.hpp"    // brep::TopologyBuilder, brep::Solid
 #include "forge/native/shape/Shape.hpp"      // shape::Shape
@@ -75,8 +76,8 @@ ShapeHandle addNativeSolidShape(std::shared_ptr<native::brep::TopologyBuilder> o
 // ShapeHandle.hpp when you need to tell those cases apart.
 //
 // The returned Shape is NON-OWNING, like TopoDS_Shape: it stays valid as long as
-// the handle does. Release the handle and it dangles — which is the same
-// contract every other borrow in this registry has.
+// the handle does. Release the handle and it dangles. A caller that cannot rule
+// out a concurrent release takes nativeShapeLease(h) (below) instead.
 native::shape::Shape nativeShapeOf(ShapeHandle h);
 
 // ── THE NATIVE PAYLOAD, READ DIRECTLY ────────────────────────────────────────
@@ -98,8 +99,12 @@ native::shape::Shape nativeShapeOf(ShapeHandle h);
 // CONTRACT, the same one nativeShapeOf() carries, said once for both:
 //   * NON-OWNING BORROWS. The pointee lives in the registry entry and dies with
 //     the handle (for a solid, with the TopologyBuilder the entry owns). Release
-//     the handle and the pointer dangles — exactly like nativeShapeOf()'s Shape
-//     and like every other borrow in this registry.
+//     the handle and the pointer dangles — exactly like nativeShapeOf()'s Shape.
+//     The owning siblings nativeSolidLease()/nativeMeshLease() below are what a
+//     caller uses when a release can happen while it reads (T-261). Every call
+//     site in forge-kernel/src and forge-desktop/src has moved onto them except
+//     the ones run_native_access_lease_gate.sh lists as ALLOWED_BORROWS (with
+//     the reason); any other new borrow call site fails that gate.
 //   * nullptr, never a plausible substitute, for: a handle that names nothing
 //     (unknown, released, or kInvalidHandle); an entry of the WRONG KIND — an
 //     OCCT-backed entry is not a native solid and a native mesh is not one
@@ -117,5 +122,81 @@ native::shape::Shape nativeShapeOf(ShapeHandle h);
 const native::brep::Solid* nativeSolidOf(ShapeHandle h);
 
 const native::mesh::HalfEdgeMesh* nativeMeshOf(ShapeHandle h);
+
+// ── LEASES: THE SAME THREE READS, OWNING (T-261) ─────────────────────────────
+//
+// WHY. The three reads above are BORROWS: each takes the pointer out of the
+// registry's own lease and lets the lease go, so what it returns is valid only
+// while the handle is. Nothing stops another thread — a document closing, a
+// rebuild releasing the previous generation — from releasing that handle while
+// the caller is still reading, and then the caller reads freed topology.
+// MEASURED (test/run_native_access_lease_gate.sh, 64 races per scenario): a
+// reader holding nativeSolidOf(h) / nativeMeshOf(h) / nativeShapeOf(h) while
+// another thread releases h is reported by AddressSanitizer (heap-use-after-
+// free) and by ThreadSanitizer (a data race with the payload's destruction) on
+// every run. Through the real library, forge::massProperties() looping on a
+// native prism while another thread released it, on the borrow-reading build:
+// the payload's last owner was never the reading call (0/200 rounds) or the
+// process died of SIGSEGV reading the freed solid. With the leases: the reading
+// call was the last owner in 187-199 of 200 rounds, and nothing crashed.
+//
+// The siblings below hand back SHARED OWNERSHIP instead (forge::NativeLease, the
+// lease ShapeRegistry::getNativeSolid()/getNativeMesh() already return, moved
+// to the OCCT-free forge/NativeLease.hpp so it can be returned from here):
+// holding the lease keeps the payload alive however the handle is released,
+// and the payload dies with the last lease or entry that shares it.
+//
+// CONTRACT, the borrows' contract with the lifetime fixed:
+//   * an EMPTY lease (operator bool false), never a plausible substitute, for a
+//     handle that names nothing (unknown, released, kInvalidHandle), an entry of
+//     the wrong kind, and a build without FORGE_NATIVE_BREP;
+//   * NEVER THROWS, for the reason the borrows do not;
+//   * HOLD THE LEASE, not what it points at:
+//         const auto s = nativeSolidLease(h);  if (s) use(*s);      // pinned
+//         use(*nativeSolidLease(h));          // pinned to the full-expression
+//         const Solid& s = *nativeSolidLease(h);   // DANGLES (clang -Wdangling)
+//
+// Prefer these everywhere a release can happen while the payload is read —
+// which, for any handle a document owns, is everywhere off the owning thread.
+NativeLease<native::brep::Solid> nativeSolidLease(ShapeHandle h);
+
+NativeLease<native::mesh::HalfEdgeMesh> nativeMeshLease(ShapeHandle h);
+
+// nativeShapeOf()'s owning sibling: the traversal facade TOGETHER with the
+// lease that keeps the topology it points into alive. shape::Shape is a
+// non-owning tagged pointer by design (like TopoDS_Shape's TShape view), so
+// the pin has to travel beside it. A NULL shape() (and operator bool false)
+// for exactly the handles nativeShapeOf() answers a NULL Shape for.
+//
+// The Shape is valid while THIS OBJECT is. A COPY of shape() taken out of it
+// is the old borrow again — keep the NativeShapeLease alive for as long as
+// the Shape (or anything an Explorer reached through it) is used.
+class NativeShapeLease {
+public:
+    NativeShapeLease() = default;
+
+    // Views the solid `solid` leases; pins it for this object's lifetime.
+    explicit NativeShapeLease(NativeLease<native::brep::Solid> solid) noexcept
+        : solid_(std::move(solid)),
+          // The object is the non-const brep::Solid the builder owns (the
+          // registry stores it non-const); shape::Shape's factories take a
+          // mutable pointer, so the constness the lease added is cast back off.
+          shape_(solid_ ? native::shape::Shape::ofSolid(
+                              const_cast<native::brep::Solid*>(solid_.get()))
+                        : native::shape::Shape()) {}
+
+    const native::shape::Shape& shape() const noexcept FORGE_LIFETIMEBOUND { return shape_; }
+    bool isNull() const noexcept { return shape_.isNull(); }
+    explicit operator bool() const noexcept { return !shape_.isNull(); }
+
+    // The pin itself, for a caller that needs the payload as a brep::Solid too.
+    const NativeLease<native::brep::Solid>& solid() const noexcept { return solid_; }
+
+private:
+    NativeLease<native::brep::Solid> solid_;
+    native::shape::Shape shape_;
+};
+
+NativeShapeLease nativeShapeLease(ShapeHandle h);
 
 }  // namespace forge
