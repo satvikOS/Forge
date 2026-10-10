@@ -45,12 +45,50 @@ inline void addSample(Accum& a, const Vec3& p, const Vec3& n, double w) {
     a.izx += 0.5 * z * z * x * n.z * w;          // ∫zx dV
 }
 
-// Gauss-Legendre nodes/weights on [-1,1] for n in {2..10}. Returned mapped to
-// [0,1]. Hard-coded high-precision values (standard tables).
+// Gauss-Legendre nodes/weights on [-1,1] for ANY n >= 2 by Newton iteration on
+// the three-term Legendre recurrence; nodes ascending. Used for the orders the
+// table below does not hold, so massProperties(solid, gaussN) honours the order
+// it is asked for (before T-274 every n outside {2..8,10} silently ran the
+// 8-point rule: gaussN 16/32/64 returned the 8-point bits).
+void gaussLegendreNewton(int n, std::vector<double>& x, std::vector<double>& w) {
+    const double pi = 3.14159265358979323846;
+    const std::size_t N = static_cast<std::size_t>(n);
+    x.assign(N, 0.0); w.assign(N, 0.0);
+    for (int i = 0; i < n; ++i) {
+        double z = std::cos(pi * (i + 0.75) / (n + 0.5));   // i-th largest root
+        double p1 = 1.0, p2 = 0.0, dp = 1.0;
+        for (int it = 0; it < 100; ++it) {
+            p1 = 1.0; p2 = 0.0;
+            for (int j = 0; j < n; ++j) {
+                const double p3 = p2; p2 = p1;
+                p1 = ((2.0 * j + 1.0) * z * p2 - j * p3) / (j + 1.0);
+            }
+            dp = n * (z * p1 - p2) / (z * z - 1.0);
+            const double z1 = z;
+            z = z1 - p1 / dp;
+            if (std::fabs(z - z1) < 1e-14) break;   // quadratic: z now ~1 ulp
+        }
+        p1 = 1.0; p2 = 0.0;                          // P'_n at the converged root
+        for (int j = 0; j < n; ++j) {
+            const double p3 = p2; p2 = p1;
+            p1 = ((2.0 * j + 1.0) * z * p2 - j * p3) / (j + 1.0);
+        }
+        dp = n * (z * p1 - p2) / (z * z - 1.0);
+        const std::size_t k = N - 1 - static_cast<std::size_t>(i);
+        x[k] = z;
+        w[k] = 2.0 / ((1.0 - z * z) * dp * dp);
+    }
+}
+
+// Gauss-Legendre nodes/weights mapped to [0,1]. Orders {2..8,10} come from the
+// hard-coded high-precision standard tables (unchanged); any other order in
+// [9,64] is generated (gaussLegendreNewton), larger orders are clamped to 64,
+// and n < 2 keeps the historical 8-point default.
 void gauss01(int n, std::vector<double>& xs, std::vector<double>& ws) {
     // nodes/weights on [-1,1]
     std::vector<double> x, w;
-    switch (n) {
+    if (n == 9 || n > 10) gaussLegendreNewton(std::min(n, 64), x, w);
+    else switch (n) {
     case 2:
         x = {-0.5773502691896257, 0.5773502691896257};
         w = {1.0, 1.0}; break;
@@ -103,22 +141,49 @@ void gauss01(int n, std::vector<double>& xs, std::vector<double>& ws) {
     }
 }
 
-// Integrate one curved (or any) face by tensor Gauss-Legendre over its trim
-// window [u0,u1]x[v0,v1]. Uses the analytic Jacobian |S_u x S_v| and the
-// parametric normal, sign-corrected to point OUTWARD by comparing against the
-// surface's intended outward normal (`reversed` handled inside normalAt, but we
-// re-derive from the cross product so the trim-orientation cannot fool us).
-void integrateParametric(const Face* f, int gaussN, Accum& acc) {
-    const Surface* s = f->surface;
-    std::vector<double> gu, gw, gv, gwv;
-    gauss01(gaussN, gu, gw);
-    gv = gu; gwv = gw;
-    const double du = f->u1 - f->u0;
-    const double dv = f->v1 - f->v0;
+// The integration breakpoints of one trim interval [a,b] of a NURBS face along
+// one parameter direction: a, then every DISTINCT knot lying strictly inside the
+// interval (in the a->b direction), then b. A B-spline is a polynomial (rational:
+// a ratio of polynomials) only BETWEEN knots; at an interior knot of multiplicity
+// m it drops to C^(p-m) — C0 at the double knots of the exact rational circle —
+// so one Gauss rule spanning a knot integrates a kinked/piecewise integrand
+// inexactly and no Gauss order fixes it (measured, T-274: a 9-point rational
+// cylinder third integrated 786.524110981 vs pi*25*10 = 785.398163397, rel
+// 1.43e-3, IDENTICALLY at gaussN 8/16/32/64). Splitting at the knots makes every
+// cell smooth again. A knot within 1e-12 of the interval width of an end or of
+// the previous break is merged (no sliver cells from exporter knot round-off).
+// With NO interior knot this returns exactly {a, b}, i.e. the prior single cell.
+void knotBreaks(const std::vector<double>& knots, double a, double b,
+                std::vector<double>& out) {
+    out.clear();
+    out.push_back(a);
+    const double lo = std::min(a, b), hi = std::max(a, b);
+    const double tol = 1e-12 * (hi - lo);
+    std::vector<double> inner;
+    for (double k : knots)
+        if (std::isfinite(k) && k > lo + tol && k < hi - tol) inner.push_back(k);
+    std::sort(inner.begin(), inner.end());
+    if (b < a) std::reverse(inner.begin(), inner.end());
+    for (double k : inner)
+        if (std::fabs(k - out.back()) > tol) out.push_back(k);
+    out.push_back(b);
+}
+
+// Tensor Gauss-Legendre over ONE cell [ua,ub]x[va,vb] of a face's surface. Uses
+// the analytic Jacobian |S_u x S_v| and the surface's outward normal. For the
+// single cell [u0,u1]x[v0,v1] this is, operation for operation, the integral the
+// pre-T-274 integrateParametric computed (same node mapping, same weight
+// product, same sample order), so an un-split face stays byte-identical.
+void integrateCell(const Surface* s, double ua, double ub, double va, double vb,
+                   const std::vector<double>& gu, const std::vector<double>& gw,
+                   const std::vector<double>& gv, const std::vector<double>& gwv,
+                   Accum& acc) {
+    const double du = ub - ua;
+    const double dv = vb - va;
     for (std::size_t a = 0; a < gu.size(); ++a) {
-        double u = f->u0 + du * gu[a];
+        double u = ua + du * gu[a];
         for (std::size_t b = 0; b < gv.size(); ++b) {
-            double v = f->v0 + dv * gv[b];
+            double v = va + dv * gv[b];
             Vec3 p, su, sv;
             s->evaluateDeriv(u, v, p, su, sv);
             double jac = vlen(vcross(su, sv));
@@ -133,6 +198,28 @@ void integrateParametric(const Face* f, int gaussN, Accum& acc) {
             addSample(acc, p, n, w);
         }
     }
+}
+
+// Integrate one curved (or any) face by tensor Gauss-Legendre over its trim
+// window [u0,u1]x[v0,v1]. An analytic quadric face is one smooth cell. A NURBS
+// face is cut at the distinct interior knots of its window (knotBreaks) and every
+// knot-span cell gets its own gaussN x gaussN rule, so the rule never straddles a
+// knot. COST: gaussN^2 samples per cell, cells = (knot spans the u-window meets)
+// x (knot spans the v-window meets); a window inside one span is one cell, the
+// prior cost and the prior bits.
+void integrateParametric(const Face* f, int gaussN, Accum& acc) {
+    const Surface* s = f->surface;
+    std::vector<double> gu, gw, gv, gwv;
+    gauss01(gaussN, gu, gw);
+    gv = gu; gwv = gw;
+    std::vector<double> bu{f->u0, f->u1}, bv{f->v0, f->v1};
+    if (s->kind == SurfaceKind::Nurbs) {
+        knotBreaks(s->nurbs.knotsU, f->u0, f->u1, bu);
+        knotBreaks(s->nurbs.knotsV, f->v0, f->v1, bv);
+    }
+    for (std::size_t i = 0; i + 1 < bu.size(); ++i)
+        for (std::size_t j = 0; j + 1 < bv.size(); ++j)
+            integrateCell(s, bu[i], bu[i + 1], bv[j], bv[j + 1], gu, gw, gv, gwv, acc);
 }
 
 // Integrate one CURVED analytic face over its ACTUAL trimmed (u,v) region — the
