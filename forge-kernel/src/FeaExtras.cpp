@@ -58,6 +58,60 @@ inline void inv3x3(const double J[3][3], double Ji[3][3], double det) {
     hex::inv3(J, Ji, det);
 }
 
+// ---------------------------- convection (Robin) areas, per node
+// The area each node carries on one side of the mesh's bounding box, for the
+// Robin term h (T - T_inf) on that side. Every brick face whose FOUR corners
+// all lie on the side (nodeToFace bit) contributes a quarter of its own area to
+// each corner: the row sums of h * integral(N_i N_j dA) over a bilinear quad,
+// i.e. h * integral(N_i dA) = h A / 4 on a parallelogram. The total is the
+// area of the part that is ACTUALLY on that side -- not the bounding box's face
+// -- and a node carries only the area of the faces around it.
+//
+// MEASURED before this (T-393, evidence convection_probe.log): the area of the
+// whole bounding-box face was shared EQUALLY over every node tagged with the
+// side. On a 100x10x10 mm bar with a 4x4 section the +X end read 59.75..61.15 C
+// against the closed form 60.746 C (corner nodes over-cooled, interior under),
+// and on a bar whose section fills 3/4 of its box face it read 54.10..55.51 C,
+// 6.6 K low, because a quarter of the convected area was not there.
+//
+// Brick faces in the mesher's node order (see Fea.cpp meshFromBRep):
+// -x {0,4,7,3}, +x {1,2,6,5}, -y {0,1,5,4}, +y {3,7,6,2}, -z {0,3,2,1}, +z {4,5,6,7}.
+std::vector<double> robinNodeAreas(const Mesh& mesh, std::uint32_t faceId) {
+    const std::size_t nNodes = mesh.nodes.size() / 3;
+    std::vector<double> area(nNodes, 0.0);
+    if (faceId >= 6 || mesh.elemNodeCount != 8 || mesh.nodeToFace.size() != nNodes) {
+        return area;
+    }
+    static constexpr int kBrickFace[6][4] = {
+        {0, 4, 7, 3}, {1, 2, 6, 5}, {0, 1, 5, 4}, {3, 7, 6, 2}, {0, 3, 2, 1}, {4, 5, 6, 7}};
+    const std::uint32_t bit = 1u << faceId;
+    const std::size_t nElems = mesh.tets.size() / 8;
+    for (std::size_t e = 0; e < nElems; ++e) {
+        for (int f = 0; f < 6; ++f) {
+            std::uint32_t q[4];
+            bool onSide = true;
+            for (int c = 0; c < 4; ++c) {
+                q[c] = mesh.tets[e * 8 + static_cast<std::size_t>(kBrickFace[f][c])];
+                if (q[c] >= nNodes || (mesh.nodeToFace[q[c]] & bit) == 0u) onSide = false;
+            }
+            if (!onSide) continue;
+            // Area of a planar quad: half the cross product of its diagonals.
+            const double* p0 = &mesh.nodes[3 * q[0]];
+            const double* p1 = &mesh.nodes[3 * q[1]];
+            const double* p2 = &mesh.nodes[3 * q[2]];
+            const double* p3 = &mesh.nodes[3 * q[3]];
+            const double d1[3] = {p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]};
+            const double d2[3] = {p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]};
+            const double cx = d1[1] * d2[2] - d1[2] * d2[1];
+            const double cy = d1[2] * d2[0] - d1[0] * d2[2];
+            const double cz = d1[0] * d2[1] - d1[1] * d2[0];
+            const double a = 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
+            for (int c = 0; c < 4; ++c) area[q[c]] += 0.25 * a;
+        }
+    }
+    return area;
+}
+
 } // namespace
 
 // =====================================================================
@@ -67,10 +121,13 @@ inline void inv3x3(const double J[3][3], double Ji[3][3], double det) {
 // Element K_T (8×8) for ∇·(k ∇T) is the standard Laplacian stiffness:
 //   K_e^{ij} = ∫_Ω k (∇N_i)·(∇N_j) dΩ
 // summed at Gauss points. Body source per element is lumped to the 8 nodes
-// (q·V/8 each). Convective BCs use the 2×2 Gauss quadrature on the AABB face
-// patch with the standard Robin contribution K_h += h Σ N_i N_j dA and
-// f_h += h T∞ Σ N_i dA. Because the mesh is brick-grid we know each AABB face
-// patch's area = element_face_area directly from the cell spacing.
+// (q·V/8 each). Convective BCs add the row-summed Robin term on each side
+// they name: every brick face lying on that side gives each of its corners
+// h·A_face/4 on K's diagonal and h·T∞·A_face/4 in f (robinNodeAreas above),
+// which is h ∫ N_i dA exactly, so a temperature linear across the face loses
+// exactly h ∫ (T - T∞) dA. (This comment used to describe a 2x2 Gauss
+// quadrature of h Σ N_i N_j dA that the code never did; the code shared the
+// bounding-box face area equally over the side's nodes. T-393.)
 ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
                            const std::vector<ThermalNodalT>&     dirichlet,
                            const std::vector<ThermalElemSource>& sources,
@@ -139,38 +196,19 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
     // CSR level after this assembly, by reading the assembled entries and
     // re-assembling a filtered triplet list (see below).
 
-    // ---- convective BCs on AABB faces -------------------------------------
+    // ---- convective BCs on the sides of the bounding box ------------------
     //
-    // For each face id we walk every node on that face (from `nodeToFace`) and
-    // add h·A_node·(T_node) to the diagonal of K and h·A_node·T∞ to f. A_node
-    // is approximated as the area of the AABB face divided by the number of
-    // face-nodes (consistent with the brick-grid mesher's lumped distribution
-    // strategy used for pressure loads in Fea.cpp).
+    // For each convected side, every node carries the area of the brick faces
+    // around it that lie on that side (robinNodeAreas): h·A_node on K's
+    // diagonal and h·A_node·T∞ in f.
     if (mesh.nodeToFace.size() == nNodes && !convection.empty()) {
-        double minP[3] = { 1e300, 1e300, 1e300};
-        double maxP[3] = {-1e300,-1e300,-1e300};
-        for (std::size_t i = 0; i < nNodes; ++i) {
-            for (int j = 0; j < 3; ++j) {
-                minP[j] = std::min(minP[j], mesh.nodes[3*i + j]);
-                maxP[j] = std::max(maxP[j], mesh.nodes[3*i + j]);
-            }
-        }
-        const double Lx = maxP[0] - minP[0];
-        const double Ly = maxP[1] - minP[1];
-        const double Lz = maxP[2] - minP[2];
-        const double faceArea[6] = { Ly*Lz, Ly*Lz, Lx*Lz, Lx*Lz, Lx*Ly, Lx*Ly };
-
         for (const auto& c : convection) {
             if (c.faceId >= 6) continue;
-            std::vector<std::size_t> faceNodes;
+            const std::vector<double> nodeArea = robinNodeAreas(mesh, c.faceId);
             for (std::size_t i = 0; i < nNodes; ++i) {
-                if (mesh.nodeToFace[i] & (1u << c.faceId)) faceNodes.push_back(i);
-            }
-            if (faceNodes.empty()) continue;
-            const double per = faceArea[c.faceId] / static_cast<double>(faceNodes.size());
-            for (std::size_t i : faceNodes) {
-                trips.emplace_back(i, i, c.h * per);
-                f[i] += c.h * c.Tinf * per;
+                if (!(nodeArea[i] > 0.0)) continue;
+                trips.emplace_back(i, i, c.h * nodeArea[i]);
+                f[i] += c.h * c.Tinf * nodeArea[i];
             }
         }
     }
@@ -357,28 +395,16 @@ TransientThermalResult solveTransientThermal(
     }
 
     // Convection (Robin) — part of the SPATIAL operator: h·A_node adds to A's
-    // diagonal, h·A_node·T∞ to the constant load F0 (same AABB-face lumping as
-    // solveThermal). Held constant across the march.
+    // diagonal, h·A_node·T∞ to the constant load F0, with the SAME per-node
+    // areas as solveThermal (robinNodeAreas). Held constant across the march.
     if (mesh.nodeToFace.size() == nNodes && !convection.empty()) {
-        double minP[3] = { 1e300, 1e300, 1e300};
-        double maxP[3] = {-1e300,-1e300,-1e300};
-        for (std::size_t i = 0; i < nNodes; ++i)
-            for (int j = 0; j < 3; ++j) {
-                minP[j] = std::min(minP[j], mesh.nodes[3*i + j]);
-                maxP[j] = std::max(maxP[j], mesh.nodes[3*i + j]);
-            }
-        const double Lx = maxP[0]-minP[0], Ly = maxP[1]-minP[1], Lz = maxP[2]-minP[2];
-        const double faceArea[6] = { Ly*Lz, Ly*Lz, Lx*Lz, Lx*Lz, Lx*Ly, Lx*Ly };
         for (const auto& c : convection) {
             if (c.faceId >= 6) continue;
-            std::vector<std::size_t> faceNodes;
-            for (std::size_t i = 0; i < nNodes; ++i)
-                if (mesh.nodeToFace[i] & (1u << c.faceId)) faceNodes.push_back(i);
-            if (faceNodes.empty()) continue;
-            const double per = faceArea[c.faceId] / static_cast<double>(faceNodes.size());
-            for (std::size_t i : faceNodes) {
-                aTrips.emplace_back(i, i, c.h * per);
-                F0[i] += c.h * c.Tinf * per;
+            const std::vector<double> nodeArea = robinNodeAreas(mesh, c.faceId);
+            for (std::size_t i = 0; i < nNodes; ++i) {
+                if (!(nodeArea[i] > 0.0)) continue;
+                aTrips.emplace_back(i, i, c.h * nodeArea[i]);
+                F0[i] += c.h * c.Tinf * nodeArea[i];
             }
         }
     }
