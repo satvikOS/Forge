@@ -75,6 +75,8 @@ const char* machineName(PlanCheck check) noexcept {
     case PlanCheck::WrongParameterType:       return "wrong_parameter_type";
     case PlanCheck::MissingRequiredParameter: return "missing_required_parameter";
     case PlanCheck::OpConstraintRefused:      return "op_constraint_refused";
+    case PlanCheck::StaleDocument:            return "stale_document";
+    case PlanCheck::NotPlannable:             return "not_plannable";
   }
   return "ok";
 }
@@ -91,6 +93,8 @@ const char* userText(PlanCheck check) noexcept {
     case PlanCheck::WrongParameterType:       return "a step gives a value of the wrong kind";
     case PlanCheck::MissingRequiredParameter: return "a step is missing a value it needs";
     case PlanCheck::OpConstraintRefused:      return "a step is not something Forge can build";
+    case PlanCheck::StaleDocument:            return "the part changed after this was asked";
+    case PlanCheck::NotPlannable:             return "a step is not an edit Archie may make";
   }
   return "accepted";
 }
@@ -211,6 +215,10 @@ std::vector<PlanTool> planTools(const CommandRegistry& registry,
   for (const std::string& id : registry.ids()) {
     const CommandDescriptor* d = registry.find(id);
     if (d == nullptr) continue;
+    // NOT OFFERED (T-181): a command the undo stack cannot revert -- file I/O and
+    // export, undo/redo, app and view commands -- is not a part edit, and a planner
+    // that is never shown it cannot propose it. validatePlan refuses it anyway.
+    if (d->undo == UndoContract::NotUndoable) continue;
     PlanTool t;
     t.id = d->id;
     t.label = d->label;
@@ -331,13 +339,11 @@ const Verb kVerbs[] = {
     {"grid",        "part.pattern_grid",     PlanSelect::LatestSolid,   {"nx", "ny", "dx", "dy"},             "pattern"},
     {"circular",    "part.pattern_circular", PlanSelect::LatestSolid,   {"count", "total_angle"},             "pattern"},
     {"polar",       "part.pattern_circular", PlanSelect::LatestSolid,   {"count", "total_angle"},             "pattern"},
-    // edit.undo / edit.redo, NOT part.undo / part.redo. The Part workspace's own
-    // pair was removed when ForgeShell::DocumentHost made edit.undo drive the
-    // real stack: two Undo commands over ONE stack is the defect that removal
-    // fixed, and a planner naming the retired id would be refused as an unknown
-    // command on every request that used the word.
-    {"undo",        "edit.undo",             PlanSelect::Keep,          {},                                   nullptr},
-    {"redo",        "edit.redo",             PlanSelect::Keep,          {},                                   nullptr},
+    // NO "undo" / "redo" VERBS (T-181). They mapped to edit.undo / edit.redo, and a
+    // plan is an EDIT OF THE PART that its own rollback can take back -- a step that
+    // rewrites the undo history breaks the one-record-per-step assumption that
+    // rollback rests on. Undo is the Edit menu and Cmd-Z; planTools() no longer
+    // offers NotUndoable commands and validatePlan() refuses them.
 };
 
 const Verb* findVerb(const std::string& word) {
@@ -603,6 +609,21 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
     // immediately below; recording the plan's word here would put a lie in the
     // panel on the exact step whose lie is being caught.
     sv.irOp = cmd->featureIrOp;
+
+    // ── ONLY EDITS THE UNDO STACK CAN TAKE BACK (T-181) ─────────────────────
+    // A model plan could name ANY registry command: file.save_as, file.export_stl
+    // with a path, file.new, edit.undo. Those write outside the document, discard
+    // it, or rewrite its history, and none of them is undone by the plan's own
+    // rollback. A plan is a proposal to EDIT THE PART; a step whose command is
+    // NotUndoable is refused before anything is offered.
+    if (cmd->undo == UndoContract::NotUndoable) {
+      sv.refused = true;
+      sv.reason = "this is not an edit to the part (" + step.commandId + ")";
+      out.steps.push_back(std::move(sv));
+      out.check = PlanCheck::NotPlannable;
+      out.explanation = where + " is not an edit Archie may make: " + step.commandId + ".";
+      return out;
+    }
 
     if (step.irOp != cmd->featureIrOp) {
       sv.refused = true;
@@ -1003,7 +1024,8 @@ void ArchieCopilot::say(TranscriptRole role, std::string text) {
 }
 
 std::uint64_t ArchieCopilot::submit(std::string intent, std::vector<PlanTool> tools,
-                                    std::string selectionSummary, std::string documentSummary) {
+                                    std::string selectionSummary, std::string documentSummary,
+                                    std::uint64_t documentRevision) {
   // Trim: a line of spaces is not an intent, and " " would otherwise open a
   // request no planner can answer.
   const std::size_t first = intent.find_first_not_of(" \t\r\n");
@@ -1018,6 +1040,7 @@ std::uint64_t ArchieCopilot::submit(std::string intent, std::vector<PlanTool> to
   request_.tools = std::move(tools);
   request_.selectionSummary = std::move(selectionSummary);
   request_.documentSummary = std::move(documentSummary);
+  request_.documentRevision = documentRevision;
   pending_ = true;
   plan_ = Plan{};        // the old offer was made against an older document
   verdict_ = PlanVerdict{};  // ...and so was the ruling on it
@@ -1074,6 +1097,7 @@ PlanCheck ArchieCopilot::deliver(const PlanResponse& response, const CommandRegi
   }
 
   plan_ = response.plan;
+  planRevision_ = request_.documentRevision;
   ++accepted_;
   say(TranscriptRole::Copilot, plan_.summary.empty()
                                    ? ("Here is an edit in " + std::to_string(plan_.size()) +
@@ -1116,6 +1140,22 @@ ApplyOutcome ArchieCopilot::apply(ForgeShell& shell, const PartDocument& documen
   ApplyOutcome out;
   if (plan_.empty()) {
     say(TranscriptRole::System, "There is nothing on offer to apply.");
+    return out;
+  }
+  // ── THE DOCUMENT MUST BE THE ONE THE PLAN WAS MADE AGAINST (T-181) ─────────
+  // A model answer can take 20 s, and a user can edit the part while it thinks,
+  // or after the plan is offered and before Accept. Applying it then would run
+  // steps written for one document against another -- the silent mutation the
+  // transaction contract forbids. Nothing is dispatched; the plan is consumed.
+  if (document.revision() != planRevision_) {
+    out.requested = plan_.size();
+    out.staleDocument = true;
+    ++stepsBlocked_;
+    plan_ = Plan{};
+    outcome_ = out;
+    say(TranscriptRole::System,
+        "The part changed after that was asked, so nothing was applied. Ask again and "
+        "I will plan against the part as it is now.");
     return out;
   }
   out = applyPlan(plan_, shell, document, bridge_);

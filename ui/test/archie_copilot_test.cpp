@@ -16,6 +16,7 @@
 //   4. A REFUSAL IS A REFUSAL. A step that cannot resolve its selection, or that
 //      the command's own enabled predicate rejects, stops the plan and is
 //      reported by name — it does not half-apply.
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -71,7 +72,7 @@ struct Fixture {
 
 PlanResponse ask(Fixture& fx, ArchieCopilot& cp, const std::string& intent) {
   LocalPlanner planner;
-  cp.submit(intent, fx.tools(), "nothing picked", "seeded");
+  cp.submit(intent, fx.tools(), "nothing picked", "seeded", fx.doc.revision());
   return planner.plan(cp.request());
 }
 
@@ -234,8 +235,8 @@ int testValidation() {
   // dropped, so a double press cannot queue two plans against one document.
   {
     ArchieCopilot busy;
-    const std::uint64_t first = busy.submit("extrude 20", fx.tools(), "", "");
-    const std::uint64_t second = busy.submit("fillet 4", fx.tools(), "", "");
+    const std::uint64_t first = busy.submit("extrude 20", fx.tools(), "", "", fx.doc.revision());
+    const std::uint64_t second = busy.submit("fillet 4", fx.tools(), "", "", fx.doc.revision());
     CHECK(first != 0);
     CHECK_EQ_INT(second, 0);
     CHECK_EQ_STR(busy.request().intent, "extrude 20");
@@ -244,7 +245,7 @@ int testValidation() {
   // A blank line is not an intent.
   {
     ArchieCopilot blank;
-    CHECK_EQ_INT(blank.submit("   \t ", fx.tools(), "", ""), 0);
+    CHECK_EQ_INT(blank.submit("   \t ", fx.tools(), "", "", fx.doc.revision()), 0);
     CHECK(!blank.requestPending());
   }
   return H.finish();
@@ -402,7 +403,7 @@ int testRefusal() {
     Fixture fx;
     ArchieCopilot cp;
     LocalPlanner planner;
-    cp.submit("extrude 20 then counterbore 30 then fillet 2", fx.tools(), "", "");
+    cp.submit("extrude 20 then counterbore 30 then fillet 2", fx.tools(), "", "", fx.doc.revision());
     PlanResponse r = planner.plan(cp.request());
     CHECK(r.ok);
     CHECK_EQ_INT(r.plan.size(), 3);
@@ -609,7 +610,7 @@ int testOpConstraintGate() {
   {
     Fixture fx;
     ArchieCopilot cp;
-    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded");
+    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded", fx.doc.revision());
     PlanResponse r;
     r.id = cp.request().id;
     r.ok = true;
@@ -646,7 +647,7 @@ int testOpConstraintGate() {
   {
     Fixture fx;
     ArchieCopilot cp;
-    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded");
+    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded", fx.doc.revision());
     PlanResponse r;
     r.id = cp.request().id;
     r.ok = true;
@@ -665,7 +666,7 @@ int testOpConstraintGate() {
     CHECK_EQ_INT(fx.doc.featureCount(), 0);
 
     // ACCEPT: a second offer, applied.
-    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded");
+    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded", fx.doc.revision());
     PlanResponse r2;
     r2.id = cp.request().id;
     r2.ok = true;
@@ -701,7 +702,15 @@ int testTools() {
   Harness H("archie_copilot:tools");
   Fixture fx;
   const std::vector<PlanTool> tools = planTools(fx.shell.registry(), fx.shell.selection());
-  CHECK_EQ_INT(tools.size(), fx.shell.registry().size());
+  // Every command the undo stack can revert, and none it cannot (T-181): file I/O,
+  // export, undo/redo, app and view commands are not edits a planner may propose.
+  std::size_t plannable = 0;
+  for (const std::string& id : fx.shell.registry().ids()) {
+    const CommandDescriptor* d = fx.shell.registry().find(id);
+    if (d != nullptr && d->undo != UndoContract::NotUndoable) ++plannable;
+  }
+  CHECK_EQ_INT(tools.size(), plannable);
+  CHECK(plannable < fx.shell.registry().size());   // the filter is not vacuous here
 
   for (const PlanTool& t : tools) {
     const CommandDescriptor* d = fx.shell.registry().find(t.id);
@@ -726,6 +735,141 @@ int testTools() {
   return H.finish();
 }
 
+// ── T-181: a plan is an edit OF ONE DOCUMENT, and only an edit ─────────────
+// Two silent-mutation paths, both reachable from a model reply before this:
+//   1. the plan was not bound to a document revision, so an answer that arrived
+//      after the user edited the part (a 30B model takes ~20 s) was applied to a
+//      document it was never made for;
+//   2. any registry command could be named, including file.export_stl with a path,
+//      file.new and edit.undo -- writes outside the document and history rewrites
+//      that the plan's own rollback cannot take back.
+int testPlanBinding() {
+  Harness H("archie_copilot:t181");
+  const auto filletPlan = []() {
+    Plan p;
+    p.intent = "fillet the body";
+    PlanStep step;
+    step.commandId = "part.fillet";
+    step.irOp = "FILLET";
+    step.select = PlanSelect::LatestSolid;
+    step.args.push_back(PlanArg::num("radius", 2.0));
+    step.args.push_back(PlanArg::str("selector", "VERTICAL"));
+    p.steps.push_back(std::move(step));
+    p.summary = "1 op: FILLET";
+    return p;
+  };
+
+  // -- the revision itself ---------------------------------------------------
+  {
+    PartDocument a;
+    PartDocument b;
+    CHECK(a.revision() != b.revision());          // unique across documents
+    const std::uint64_t r0 = a.revision();
+    CHECK(a.seed(IrValueKind::Profile, "s", "RECT", {IrArg::num(10.0), IrArg::num(5.0)}) != 0);
+    CHECK(a.revision() != r0);                    // an append is a new state
+    const std::uint64_t r1 = a.revision();
+    const PartDocument::Snapshot one = a.snapshot();
+    CHECK(a.revision() == r1);                    // a snapshot is not a mutation
+    PartDocument::Snapshot named = one;           // NAMING an existing value...
+    named.bindings["pick_1"] = 1;
+    a.restore(named);
+    CHECK(a.revision() == r1);                    // ...is not a new state (ForgeFrame does it every frame)
+    CHECK(a.seed(IrValueKind::Profile, "t", "RECT", {IrArg::num(4.0), IrArg::num(2.0)}) != 0);
+    const std::uint64_t r1b = a.revision();
+    a.restore(one);                               // UNDO: records cut back
+    CHECK(a.revision() != r1b);                   // IS a new state
+    const std::uint64_t r2 = a.revision();
+    a.setParameters(a.parameters());              // the same parameters again
+    CHECK(a.revision() == r2);                    // a no-op set is not a new state
+    CHECK(!a.setMaterial(a.material()));          // a no-op is refused...
+    CHECK(a.revision() == r2);                    // ...and does not invalidate a plan
+  }
+
+  // -- 1. the part changed after the ask: NOTHING is dispatched --------------
+  {
+    Fixture fx;
+    ArchieCopilot cp;
+    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded", fx.doc.revision());
+    PlanResponse r;
+    r.id = cp.request().id;
+    r.ok = true;
+    r.plan = filletPlan();
+    CHECK_EQ_INT(static_cast<int>(cp.deliver(r, fx.shell.registry())), static_cast<int>(PlanCheck::Ok));
+    const std::size_t journalBefore = fx.shell.journal().size();
+    const std::size_t featuresBefore = fx.doc.featureCount();
+    // The user edits the part meanwhile: a new statement in the document.
+    CHECK(fx.doc.seed(IrValueKind::Profile, "user.sketch", "RECT", {IrArg::num(5.0), IrArg::num(5.0)}) != 0);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc);
+    CHECK(out.staleDocument);
+    CHECK_EQ_INT(out.applied, 0);
+    CHECK_EQ_INT(fx.shell.journal().size(), journalBefore);
+    CHECK_EQ_INT(fx.doc.featureCount(), featuresBefore);
+    CHECK(!cp.hasPlan());                         // consumed: it was for another document
+  }
+  // ...and the control: the same sequence with no edit in between applies.
+  {
+    Fixture fx;
+    ArchieCopilot cp;
+    cp.submit("fillet the body", fx.tools(), "nothing picked", "seeded", fx.doc.revision());
+    PlanResponse r;
+    r.id = cp.request().id;
+    r.ok = true;
+    r.plan = filletPlan();
+    CHECK_EQ_INT(static_cast<int>(cp.deliver(r, fx.shell.registry())), static_cast<int>(PlanCheck::Ok));
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc);
+    CHECK(!out.staleDocument);
+    CHECK_EQ_INT(out.applied, 1);
+  }
+
+  // -- 2. only edits the undo stack can take back ----------------------------
+  {
+    Fixture fx;
+    // The shell's REAL file.export_stl, not a stand-in: the property is about
+    // the command the application ships.
+    const CommandDescriptor* real = fx.shell.registry().find("file.export_stl");
+    CHECK(real != nullptr && real->undo == UndoContract::NotUndoable);
+    const std::size_t journalBefore = fx.shell.journal().size();
+    char path[] = "/tmp/archie_t181_export.XXXXXX";
+    const int tmpfd = mkstemp(path);
+    if (tmpfd >= 0) { close(tmpfd); std::remove(path); }   // a path that does not exist
+
+    for (const PlanTool& t : fx.tools()) {
+      const CommandDescriptor* d = fx.shell.registry().find(t.id);
+      CHECK(d != nullptr && d->undo != UndoContract::NotUndoable);   // never offered
+    }
+    bool sawFillet = false;
+    for (const PlanTool& t : fx.tools()) sawFillet = sawFillet || t.id == "part.fillet";
+    CHECK(sawFillet);                             // part edits still are
+
+    Plan bad;
+    bad.intent = "save it";
+    PlanStep step;
+    step.commandId = "file.export_stl";
+    step.args.push_back(PlanArg::str("path", path));
+    bad.steps.push_back(step);
+    bad.summary = "1 step";
+    const OpConstraintBridge bridge;
+    CHECK_EQ_INT(static_cast<int>(validatePlan(bad, fx.shell.registry(), bridge).check),
+                 static_cast<int>(PlanCheck::NotPlannable));
+
+    ArchieCopilot cp;
+    cp.submit("save it", fx.tools(), "nothing picked", "seeded", fx.doc.revision());
+    PlanResponse r;
+    r.id = cp.request().id;
+    r.ok = true;
+    r.plan = bad;
+    CHECK_EQ_INT(static_cast<int>(cp.deliver(r, fx.shell.registry())),
+                 static_cast<int>(PlanCheck::NotPlannable));
+    CHECK(!cp.hasPlan());
+    // The door refuses it too, for a caller that skipped deliver().
+    const ApplyOutcome out = applyPlan(bad, fx.shell, fx.doc, bridge);
+    CHECK_EQ_INT(out.applied, 0);
+    CHECK_EQ_INT(fx.shell.journal().size(), journalBefore);   // nothing was dispatched
+    CHECK(access(path, F_OK) != 0);                            // and nothing was written
+  }
+  return H.finish();
+}
+
 }  // namespace
 
 int main() {
@@ -737,5 +881,6 @@ int main() {
   rc |= testRefusal();
   rc |= testOpConstraintGate();
   rc |= testTools();
+  rc |= testPlanBinding();
   return rc;
 }

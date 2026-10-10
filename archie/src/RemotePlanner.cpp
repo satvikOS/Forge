@@ -25,9 +25,10 @@ namespace {
 std::string jstr(const std::string& raw) { return json::escape(raw); }
 
 std::string jnum(double v) {
-  // A NaN or an infinity is not JSON. No declared default is either, but a body
-  // that fails to parse on the far side is a failure nobody would trace here.
-  if (!std::isfinite(v)) v = 0.0;
+  // A NaN or an infinity is not JSON. It used to be sent as 0 -- a default the
+  // schema never declared, handed to a model as if it had. `null` is the truthful
+  // spelling of "this default is not a number" (T-181).
+  if (!std::isfinite(v)) return "null";
   return json::Value::makeNumber(v).dump();
 }
 
@@ -46,13 +47,19 @@ std::string schemaJson(const std::vector<ParamSpec>& schema) {
     const ParamSpec& p = schema[i];
     if (i != 0) out += ",";
     out += "{\"name\":" + jstr(p.name) + ",\"type\":\"" + typeName(p.type) + "\"" +
-           ",\"required\":" + (p.required ? "true" : "false");
-    switch (p.type) {
-      case ParamType::Number: out += ",\"default\":" + jnum(p.defaultNumber); break;
-      case ParamType::Text:   out += ",\"default\":" + jstr(p.defaultText); break;
-      case ParamType::Flag:   out += std::string(",\"default\":") +
-                                     (p.defaultNumber != 0.0 ? "true" : "false");
-                              break;
+           ",\"required\":" + (p.required ? "true" : "false") +
+           ",\"hasDefault\":" + (p.hasDefault ? "true" : "false");
+    // A parameter with NO default carries no "default" key (T-181). It used to
+    // advertise defaultNumber (0) as one, so a model could be told a hole may be
+    // drilled at x=0 "by default" when the command declares no such thing.
+    if (p.hasDefault) {
+      switch (p.type) {
+        case ParamType::Number: out += ",\"default\":" + jnum(p.defaultNumber); break;
+        case ParamType::Text:   out += ",\"default\":" + jstr(p.defaultText); break;
+        case ParamType::Flag:   out += std::string(",\"default\":") +
+                                       (p.defaultNumber != 0.0 ? "true" : "false");
+                                break;
+      }
     }
     out += "}";
   }
@@ -155,7 +162,15 @@ bool parseReply(const std::string& body, const PlanRequest& request, Plan& out,
   // THE REPLY MUST BE FOR THIS REQUEST. serve.py echoes the id it was sent. A
   // reply carrying a different one answers some other ask -- a retried request,
   // a second window -- and a plan made for a different sentence is a wrong part.
-  if (root.has("id")) {
+  // REQUIRED, not merely checked when present (T-181): requestBody always sends
+  // it and /plan always echoes it, so a reply without one is a reply nobody can
+  // attribute -- and "no id" used to pass as "the right id".
+  if (!root.has("id")) {
+    error = "the model service's reply carries no request id, so it cannot be matched "
+            "to this request";
+    return false;
+  }
+  {
     const json::Value& id = root.at("id");
     const std::string want = std::to_string(request.id);
     const bool same = (id.isNumber() && id.number(-1.0) == static_cast<double>(request.id)) ||
@@ -200,16 +215,55 @@ bool parseReply(const std::string& body, const PlanRequest& request, Plan& out,
         return false;
       }
     }
-    const double count = s.numberField("selectCount", 0.0);
-    if (count >= 1.0 && count < 1.0e6) step.selectCount = static_cast<std::size_t>(count);
+    if (s.has("selectCount")) {
+      // A count is a whole number of operands. 2.7, -1, 1e9 or "two" used to be
+      // truncated or dropped silently (T-181); each is refused by name instead.
+      const json::Value& c = s.at("selectCount");
+      const double count = c.isNumber() ? c.number(-1.0) : -1.0;
+      if (!c.isNumber() || !std::isfinite(count) || count < 1.0 || count >= 1.0e6 ||
+          count != std::floor(count)) {
+        error = "the model returned a step with an invalid selectCount for " + step.commandId;
+        return false;
+      }
+      step.selectCount = static_cast<std::size_t>(count);
+    }
 
     const json::Value& args = s.at("args");
+    if (s.has("args") && !args.isArray()) {
+      error = "the model returned a step whose args is not a list (" + step.commandId + ")";
+      return false;
+    }
     if (args.isArray()) {
+      std::vector<std::string> seen;
       for (const json::Value& arg : args.items()) {
+        // EVERY ARGUMENT IS ACCOUNTED FOR (T-181). An unnamed one was skipped, a
+        // repeated name resolved last-wins, and {"number": null} became an empty
+        // TEXT -- three ways for the client to decide what the model meant.
         const std::string name = arg.stringField("name", "");
-        if (name.empty()) continue;
+        if (!arg.isObject() || name.empty()) {
+          error = "the model returned an argument with no name in " + step.commandId;
+          return false;
+        }
+        for (const std::string& n : seen) {
+          if (n == name) {
+            error = "the model gave " + step.commandId + " the argument \"" + name + "\" twice";
+            return false;
+          }
+        }
+        seen.push_back(name);
+        const int kinds = (arg.has("number") ? 1 : 0) + (arg.has("flag") ? 1 : 0) +
+                          (arg.has("text") ? 1 : 0);
         const json::Value& num = arg.at("number");
         const json::Value& flag = arg.at("flag");
+        const bool wellTyped = kinds == 1 &&
+                               (!arg.has("number") || (num.isNumber() && std::isfinite(num.number(0.0)))) &&
+                               (!arg.has("flag") || flag.kind() == json::Kind::Bool) &&
+                               (!arg.has("text") || arg.at("text").isString());
+        if (!wellTyped) {
+          error = "the model gave " + step.commandId + "." + name +
+                  " no value, or more than one kind of value (exactly one of number, flag, text)";
+          return false;
+        }
         const ParamSpec* spec = findSpec(tool, name);
         // The TYPE is the schema's, where the value converts without inventing
         // anything: a number stated for a flag is 0 or not-0, and a flag is a

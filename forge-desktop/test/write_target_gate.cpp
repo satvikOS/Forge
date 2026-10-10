@@ -1344,9 +1344,15 @@ void popSaveWaist(const std::string& root) {
   }
   std::printf("   [plan] planTools offers %zu file.* commands; file.save_as callableNow=%s\n",
               fileTools, saveAsOffered ? "true" : "false");
-  check(fileTools >= 9, "the planner is still offered the file commands it was",
+  // T-181 CHANGED THIS DECISION, deliberately. This gate used to pin that the
+  // planner IS offered the file commands and that the protection lives only at the
+  // WRITE. A plan is now an edit OF THE PART: NotUndoable commands (file I/O, export,
+  // undo/redo) are never offered and validatePlan refuses them. The write-target
+  // guard is not weakened -- the direct-dispatch loop above still proves a caller
+  // cannot replace another user's part -- it is now the SECOND line, not the only one.
+  check(fileTools == 0, "T-181: the planner is offered NO file.* command (they write outside the part)",
         std::to_string(fileTools));
-  check(saveAsOffered, "★ and file.save_as is still one of them -- nothing was hidden");
+  check(!saveAsOffered, "★ T-181: file.save_as is not offered to a planner");
 
   forge::ui::Plan plan;
   forge::ui::PlanStep step;
@@ -1358,8 +1364,8 @@ void popSaveWaist(const std::string& root) {
       forge::ui::validatePlan(plan, b.shell.registry(), bridge);
   std::printf("   [plan] validatePlan accepted=%s |%s|\n",
               verdict.accepted() ? "true" : "false", verdict.explanation.c_str());
-  check(verdict.accepted(),
-        "★ validatePlan still accepts it -- the fix is at the WRITE, not the plan",
+  check(!verdict.accepted() && verdict.check == forge::ui::PlanCheck::NotPlannable,
+        "★ T-181: validatePlan refuses it as NOT PLANNABLE (and the write guard stays behind it)",
         verdict.explanation);
   const forge::ui::ApplyOutcome applied =
       forge::ui::applyPlan(plan, b.shell, b.frame->document(), bridge);
@@ -1653,8 +1659,8 @@ void popStrangerFile(const std::string& root) {
         forge::ui::validatePlan(plan, b.shell.registry(), bridge);
     std::printf("   [plan] validatePlan accepted=%s |%s|\n",
                 verdict.accepted() ? "true" : "false", verdict.explanation.c_str());
-    check(verdict.accepted(),
-          "★ validatePlan still accepts it -- the fix is at the WRITE, not the plan",
+    check(!verdict.accepted() && verdict.check == forge::ui::PlanCheck::NotPlannable,
+          "★ T-181: validatePlan refuses it as NOT PLANNABLE (and the write guard stays behind it)",
           verdict.explanation);
     const forge::ui::ApplyOutcome applied =
         forge::ui::applyPlan(plan, b.shell, b.frame->document(), bridge);

@@ -513,9 +513,20 @@ int main(int argc, char** argv) {
           "  ...carrying what was typed as `text`", req.stringField("text", "").substr(0, 80));
     check(req.stringField("image", "") == framePng,
           "  ...and the live viewport frame as `image`", req.stringField("image", ""));
-    check(req.at("tools").items().size() == shell.registry().size(),
-          "  ...offering every tool in the live registry",
-          std::to_string(req.at("tools").items().size()));
+    // T-181: a command that cannot be undone (file.save_as, file.export_stl, ...) is
+    // never offered to the planner, so the tool list is the PLANNABLE subset of the
+    // live registry, not all of it.
+    std::size_t plannable = 0;
+    for (const std::string& id : shell.registry().ids()) {
+      const forge::ui::CommandDescriptor* d = shell.registry().find(id);
+      if (d != nullptr && d->undo != forge::ui::UndoContract::NotUndoable) ++plannable;
+    }
+    check(plannable > 0 && plannable < shell.registry().size(),
+          "  ...the live registry has both plannable and non-undoable commands",
+          std::to_string(plannable) + " of " + std::to_string(shell.registry().size()));
+    check(req.at("tools").items().size() == plannable,
+          "  ...offering every PLANNABLE tool in the live registry",
+          std::to_string(req.at("tools").items().size()) + " want " + std::to_string(plannable));
     const forge::retrieval::json::Value* hole = nullptr;
     for (const auto& t : req.at("tools").items()) {
       if (t.stringField("id", "") == "part.hole") hole = &t;

@@ -1,5 +1,6 @@
 #include "forge/ui/PartCommands.hpp"
 
+#include <atomic>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -95,6 +96,11 @@ const char* toString(EditCheck check) noexcept {
 }
 
 // ── PartDocument ────────────────────────────────────────────────────────────
+std::uint64_t nextDocumentRevision() noexcept {
+  static std::atomic<std::uint64_t> counter{0};
+  return ++counter;
+}
+
 int PartDocument::seed(IrValueKind kind, const std::string& nodeId, const std::string& op,
                        std::vector<IrArg> args) {
   FeatureRecord rec;
@@ -163,6 +169,7 @@ bool PartDocument::appendFeature(const FeatureRecord& record,
   records_.push_back(record);
   for (const std::string& node : consumedNodes) bindings_.erase(node);
   if (!producedNode.empty()) bindings_[producedNode] = record.irId;
+  revision_ = nextDocumentRevision();
   return true;
 }
 
@@ -216,6 +223,7 @@ bool PartDocument::editFeatureArgs(int irId, const std::vector<IrArg>& args) {
   }
 
   rec.line = candidate;  // no binding, no id and no produces-kind moved
+  revision_ = nextDocumentRevision();
   return true;
 }
 
@@ -224,16 +232,29 @@ PartDocument::Snapshot PartDocument::snapshot() const {
 }
 
 void PartDocument::restore(const Snapshot& state) {
+  // A NEW STATE only when something a plan could depend on moved: records were cut
+  // (undo), or an existing name was removed or now names a different value. Merely
+  // ADDING a name for a value that already exists -- ensureBodyBinding(), the
+  // viewport pick naming a statement so it can be selected -- changes no geometry and
+  // no value, and counting it made every frame invalidate the plan on offer (T-181,
+  // measured: forge_desktop_copilot_gate applied 0 of 2 steps).
+  bool changed = state.records < records_.size();
+  for (auto it = bindings_.begin(); !changed && it != bindings_.end(); ++it) {
+    const auto found = state.bindings.find(it->first);
+    changed = found == state.bindings.end() || found->second != it->second;
+  }
   if (state.records < records_.size()) {
     records_.resize(state.records);
   }
   bindings_ = state.bindings;
+  if (changed) revision_ = nextDocumentRevision();
 }
 
 // ── the material ────────────────────────────────────────────────────────────
 bool PartDocument::setMaterial(const Material& value) {
   if (value == material_) return false;  // a no-op is not an edit
   material_ = value;
+  revision_ = nextDocumentRevision();
   return true;
 }
 

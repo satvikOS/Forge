@@ -88,7 +88,15 @@ int g_mutation = 0;
 // not all reach the result ("unexplained_orphans=1 [%2] — these ops contribute
 // nothing to the result"). Section 9 exercises the profile-consuming path
 // separately, where nothing is compiled.
-const char* const kIntent = "fillet 4 then drill 8";
+//
+// The radius is one the kernel builds AT THAT SIZE on this document (whose bracket
+// already carries FILLET(%4, 3, VERTICAL)). It was 4, which only ever "applied"
+// because FeatureTreeCompiler retried a declined fillet at 0.75r, 0.5r... and
+// reported success on the smaller part. That retry is gone (T-182: the size asked
+// for, or a loud refusal), and the kernel declines a second all-edge fillet at 3
+// and 4 here (measured through forge_verify: r=4 "declined radius 4", r=2 V=77081.31);
+// run_fillet_radius_honesty_gate.sh pins that boundary (2.5 builds, 3 is refused).
+const char* const kIntent = "fillet 2 then drill 8";
 constexpr std::size_t kSteps = 2;
 
 void check(bool ok, const char* what, const std::string& detail) {
@@ -256,8 +264,15 @@ int main(int argc, char** argv) {
     return 1;
   }
   checkStr(req->intent, kIntent, "the request carries what was typed");
-  checkEq(req->tools.size(), shell.registry().size(),
-          "the request offers the LIVE registry as its tool list");
+  // The LIVE registry minus what a plan may not name (T-181): NotUndoable commands --
+  // file I/O and export, undo/redo, app and view -- are never offered.
+  std::size_t plannable = 0;
+  for (const std::string& id : shell.registry().ids()) {
+    const forge::ui::CommandDescriptor* d = shell.registry().find(id);
+    if (d != nullptr && d->undo != forge::ui::UndoContract::NotUndoable) ++plannable;
+  }
+  checkEq(req->tools.size(), plannable,
+          "the request offers the LIVE registry's plannable commands as its tool list");
   {
     // ...and every offered tool is really in that registry, with the op the
     // descriptor declares. A planner reading this list cannot invent a command.

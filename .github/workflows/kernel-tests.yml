@@ -2176,6 +2176,15 @@ jobs:
         # defect the crash was hiding -- base-16 stoi stops at the first non-hex character, so
         # "\u00ZZ" partially parsed to 0 and silently injected a NUL byte.
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh
+      - name: FILLET / CHAMFER / BLEND build the size asked for, or refuse (T-182)
+        # FeatureTreeCompiler retried a declined fillet at 0.75r, 0.5r, 0.35r and 0.2r
+        # inside a bare catch(...) and reported ok=true on the first that built. MEASURED
+        # through forge_verify before the fix: the bracket's second FILLET(%5, 3) came
+        # back ok at exactly the r=2.25 volume, CHAMFER(%1, 11) on a 20 mm cube ok at
+        # V=2827.25. The oracle is the closed-form volume of an all-edge-filleted cube,
+        # so a shrunk fillet cannot pass; declined sizes must come back refused and say
+        # they were not retried. Reuses build-verify; forge_verify's absence is exit 3.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-kernel/test/run_fillet_radius_honesty_gate.sh
       - name: a dying verifier answers for itself (unit)
         # forge_verify aborted SEVEN times during a completed 600-row run on
         # 2026-09-01 -- uncaught Standard_ConstructionError out of forge::rotate,

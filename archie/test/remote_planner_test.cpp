@@ -15,6 +15,7 @@
 
 #include "LoopbackSidecarStub.hpp"
 
+#include <limits>
 #include <chrono>
 #include <cstdio>
 #include <functional>
@@ -67,16 +68,25 @@ forge::ui::PlanRequest makeRequest() {
   rq.selectionSummary = "nothing selected";
   forge::ui::PlanTool box;
   box.id = "part.primitive_box"; box.label = "Box"; box.featureIrOp = "BOX";
-  box.schema.push_back(forge::ui::ParamSpec{"dx", forge::ui::ParamType::Number, true, 10.0, ""});
+  box.schema.push_back(forge::ui::ParamSpec{.name = "dx", .type = forge::ui::ParamType::Number,
+                                            .required = true, .defaultNumber = 10.0,
+                                            .hasDefault = true});
   box.signature = forge::ui::SelectionSignature::none();
   rq.tools.push_back(box);
   forge::ui::PlanTool fillet;
   fillet.id = "part.fillet"; fillet.label = "Edge Fillet"; fillet.featureIrOp = "FILLET";
-  fillet.schema.push_back(
-      forge::ui::ParamSpec{"radius", forge::ui::ParamType::Number, true, 1.0, ""});
-  fillet.schema.push_back(
-      forge::ui::ParamSpec{"selector", forge::ui::ParamType::Text, false, 0.0, "ALL"});
-  fillet.schema.push_back(forge::ui::ParamSpec{"smooth", forge::ui::ParamType::Flag, false, 0.0, ""});
+  // As the REAL part.fillet declares them (archie_op_vocabulary.json): radius has a
+  // default, selector does NOT. The fixture used to give selector a default "ALL",
+  // which pinned the very defect T-181 removes -- advertising a default the command
+  // never declared.
+  fillet.schema.push_back(forge::ui::ParamSpec{.name = "radius", .type = forge::ui::ParamType::Number,
+                                               .required = true, .defaultNumber = 1.0,
+                                               .hasDefault = true});
+  fillet.schema.push_back(forge::ui::ParamSpec{.name = "selector", .type = forge::ui::ParamType::Text,
+                                               .required = false, .defaultText = "ALL",
+                                               .hasDefault = false});
+  fillet.schema.push_back(forge::ui::ParamSpec{.name = "smooth", .type = forge::ui::ParamType::Flag,
+                                               .required = false});
   fillet.signature = forge::ui::SelectionSignature::atLeast(forge::ui::EntityKind::Edge, 1);
   rq.tools.push_back(fillet);
   return rq;
@@ -120,8 +130,13 @@ int main() {
        schema.size() == 3 && schema[0].stringField("name", "") == "radius" &&
            schema[1].stringField("name", "") == "selector" &&
            schema[0].stringField("type", "") == "number" &&
-           schema[0].at("required").boolean(false) &&
-           schema[1].stringField("default", "") == "ALL",
+           schema[0].at("required").boolean(false),
+       body);
+    ck("  ...a parameter WITH a default says so and sends it (T-181)",
+       schema[0].at("hasDefault").boolean(false) && schema[0].at("default").number(-1) == 1.0, body);
+    ck("  ...a parameter WITHOUT one says so and sends NO default (T-181)",
+       schema[1].has("hasDefault") && !schema[1].at("hasDefault").boolean(true) &&
+           !schema[1].has("default"),
        body);
     ck("  ...and NO image key when there is no image", !v.has("image"), body);
 
@@ -245,6 +260,57 @@ int main() {
     forge::archie::RemotePlanner p(nullptr, {});
     const forge::ui::PlanResponse r = p.plan(makeRequest());
     ck("no transport is a refusal, not a crash", !r.ok && !r.error.empty(), r.error);
+  }
+
+  // ── T-181: every argument is accounted for; nothing is decided for the model ──
+  {
+    const auto refuses = [](const char* what, const std::string& reply, const char* needle) {
+      auto fake = std::make_shared<FakeTransport>();
+      fake->reply = okBody(reply);
+      forge::archie::RemotePlanner p(fake, {});
+      const forge::ui::PlanResponse r = p.plan(makeRequest());
+      ck(what, !r.ok && r.error.find(needle) != std::string::npos, r.error);
+    };
+    const std::string head = "{\"id\":7,\"ok\":true,\"plan\":{\"steps\":[{\"commandId\":\"part.fillet\",";
+    refuses("a reply with NO request id is refused (it used to pass as the right one)",
+            "{\"ok\":true,\"plan\":{\"steps\":[{\"commandId\":\"part.primitive_box\",\"args\":[]}]}}",
+            "no request id");
+    refuses("an argument with no name is refused, not skipped",
+            head + "\"args\":[{\"number\":2}]}]}}", "no name");
+    refuses("the same argument twice is refused, not last-wins",
+            head + "\"args\":[{\"name\":\"radius\",\"number\":2},{\"name\":\"radius\",\"number\":9}]}]}}",
+            "twice");
+    refuses("{\"number\": null} is refused, not turned into empty text",
+            head + "\"args\":[{\"name\":\"radius\",\"number\":null}]}]}}", "exactly one of");
+    refuses("an argument with two kinds of value is refused",
+            head + "\"args\":[{\"name\":\"radius\",\"number\":2,\"text\":\"2\"}]}]}}", "exactly one of");
+    refuses("an argument with no value at all is refused",
+            head + "\"args\":[{\"name\":\"radius\"}]}]}}", "exactly one of");
+    refuses("args that is not a list is refused",
+            head + "\"args\":{\"radius\":2}}]}}", "not a list");
+    refuses("a fractional selectCount is refused, not truncated",
+            head + "\"selectCount\":2.5,\"args\":[]}]}}", "selectCount");
+    refuses("a negative selectCount is refused",
+            head + "\"selectCount\":-1,\"args\":[]}]}}", "selectCount");
+    refuses("a selectCount that is not a number is refused",
+            head + "\"selectCount\":\"two\",\"args\":[]}]}}", "selectCount");
+    auto fake = std::make_shared<FakeTransport>();
+    fake->reply = okBody(head + "\"selectCount\":2,\"args\":[{\"name\":\"radius\",\"number\":2}]}]}}");
+    forge::archie::RemotePlanner p(fake, {});
+    const forge::ui::PlanResponse r = p.plan(makeRequest());
+    ck("  ...and a well-formed whole selectCount is still accepted (control)",
+       r.ok && r.plan.steps.size() == 1 && r.plan.steps[0].selectCount == 2, r.error);
+  }
+  {
+    forge::ui::PlanRequest rq = makeRequest();
+    rq.tools[0].schema[0].defaultNumber = std::numeric_limits<double>::quiet_NaN();
+    const std::string body = forge::archie::requestBody(rq);
+    forge::retrieval::json::Value v;
+    std::string perr;
+    ck("a non-finite default is sent as null, never as an invented 0 (T-181)",
+       forge::retrieval::json::parse(body, v, perr) &&
+           v.at("tools").items()[0].at("schema").items()[0].at("default").isNull(),
+       body.substr(0, 160));
   }
 
   // ── /health ───────────────────────────────────────────────────────────────
