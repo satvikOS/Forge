@@ -94,15 +94,30 @@
 // integrates it with ONE Gauss rule, which is exact only when no interior knot
 // lies inside the rectangle -- a MassProps limit, not this reader's.)
 //
-// KNOWN PRE-EXISTING VIOLATION (measured, NOT introduced or fixed by T-158): a
-// CURVED quadric face whose trim is not its (u,v) rectangle -- the readForeign-
-// Step import of a general trimmed cylinder/cone/torus face (Face::regionUV) --
-// is also read back as its vertex rectangle, with NO refusal. On the 126-file
-// in-tree corpus, 35 of the 42 solids the import ladder reads via
-// readForeignStep round-trip write()->read() ok=1 with volume error > 1e-9,
-// worst 111.9 % (cadgenbench_81_FINAL_20260702/102); the 18 solids read via
-// read() itself round-trip exactly. The written FILE is right (readForeignStep
-// re-reads it to ~1e-14); the defect is in read().
+// CURVED QUADRIC READ BOUNDARY (T-270): read() gives a cylinder / cone /
+// sphere / torus face the (u,v) box of its loop vertices ONLY when the face IS
+// that box: every loop vertex and 7 interior samples of every edge (along the
+// edge's file geometry) lie on the surface, the outer loop traverses the box once
+// with theta unwrapped CONTINUOUSLY along the loop (a seam face spans its full
+// turn), and the face has no inner loop -- every native primitive tiling. Any
+// other curved face whose edges are all STRAIGHT in (u,v) (generators, latitude /
+// meridian / minor circles) is integrated over its real (u,v) region, outer
+// polygon minus hole polygons (Face::regionUV, the representation
+// readForeignStep gives the same face); a curved face with an edge that leaves
+// the surface (a chord written for a curved edge, edgesChord > 0) or is curved in
+// (u,v), a loop that winds around the axis with no seam, or a hole outside its
+// outer loop's span is REFUSED with a reason. (Before T-270 every such face was
+// read as its vertex box with no refusal: on the 126-file in-tree corpus, 35 of
+// the 42 solids the import ladder reads via readForeignStep round-tripped
+// write()->read() ok=1 with the wrong volume, worst +111.9 %; now 36 are exact,
+// 2 refused, 4 equal in volume whose planar disk caps read as exact disks where
+// the readForeignStep source carries 96-gons.) A planar face reads as an exact
+// disk / annular sector only when its single loop is concentric arcs plus radial
+// lines and it has NO hole. A holed disk integrates as its boundary polygon (as
+// every other planar face bounded by arcs does, MassProps) only when every arc of
+// it is chorded no coarser than pi/32 -- readForeignStep's own chording, which is
+// what an imported part written by write() carries; a holed disk bounded by
+// coarser arcs (a circle in 4 arcs reads as its inscribed square) is REFUSED.
 
 #ifndef FORGE_NATIVE_BREP_STEPANALYTIC_HPP
 #define FORGE_NATIVE_BREP_STEPANALYTIC_HPP
