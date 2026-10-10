@@ -43,6 +43,7 @@
 #include "forge/ui/DrawingExport.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
+#include "forge/ui/FileExchange.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/InspectionReport.hpp"
 #include "forge/ui/Keymap.hpp"
@@ -119,8 +120,11 @@ const char* prettyPanelName(const std::string& id) {
   return id.c_str();
 }
 
+// The 3-D views. "sheet_canvas" used to be one of them, and that was the defect
+// T-296 removes: the Drawing workspace's Sheet tab drew the model instead of the
+// sheet. It now has its own branch in drawPanel() and draws the paper.
 bool isViewportPanel(const std::string& id) {
-  return id.rfind("viewport_", 0) == 0 || id == "sheet_canvas";
+  return id.rfind("viewport_", 0) == 0;
 }
 
 const char* featureStateLabel(forge::ui::FeatureState s) {
@@ -811,6 +815,8 @@ bool ForgeFrame::documentNew(std::string& error) {
   // put somebody else's part number and revision on a part that has neither.
   drawing_ = forge::ui::DrawingModel{};
   drawingLayoutBuilt_ = false;
+  // ...and no sheet: the Sheet tab's drawing was of the part just thrown away.
+  sheet_ = SheetCanvas{};
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
   // A DIFFERENT PART. The camera was framed on the one being thrown away, and
   // its distance has nothing to do with the starter part's size.
@@ -1258,6 +1264,8 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
   bindInputFile(boundInput);
   drawing_ = file.drawing;
   drawingLayoutBuilt_ = false;
+  // A sheet drawn of the document being replaced is not shown over this one.
+  sheet_ = SheetCanvas{};
   partUndo_.clear();
   ensureBodyBinding();
   documentPath_ = path;
@@ -1914,6 +1922,7 @@ bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candida
   }
   drawing_ = drawing;
   drawingLayoutBuilt_ = false;
+  sheet_ = SheetCanvas{};
   partUndo_.clear();
   ensureBodyBinding();
   // Where the user's OWN file is, if the dead session had one AND this recovery
@@ -3682,6 +3691,10 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   panelIdsDrawn_.clear();
   tabHits_.clear();
   splitterHits_.clear();
+  // The Sheet tab's per-frame instrumentation: true of THIS frame or of none.
+  sheetDrawButtonRect_ = WidgetRect{};
+  sheetPaperRect_ = WidgetRect{};
+  sheetNotice_.clear();
   // reseatsDuringWalk_ is deliberately NOT reset here. It is a LIFETIME total,
   // not a per-frame one: the violation happens during the frame that carries the
   // gesture, and every useful assertion about it is made after the FOLLOWING
@@ -3889,6 +3902,13 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   if (pendingQualityCheck_) {
     pendingQualityCheck_ = false;
     runQualityCheck();
+  }
+  // "Draw the sheet", deferred for the same reason: it compiles the part and
+  // runs the hidden-line remover, which takes seconds, and the button that asked
+  // for it was drawn inside the dock walk.
+  if (pendingSheetDraw_) {
+    pendingSheetDraw_ = false;
+    runPendingSheetDraw();
   }
   // Open Recent, last: it REPLACES the document, so anything above that acts on
   // the document the user was looking at when they clicked must run first.
@@ -4535,6 +4555,11 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
   panelIdsDrawn_.push_back(panelId);
   if (isViewportPanel(panelId)) {
     drawViewportPanel(viewportTexture);
+  } else if (panelId == "sheet_canvas") {
+    // THE SHEET, not the model (T-296): the drawing File > Save the Drawing
+    // writes, laid out on its paper. It draws no viewport texture and asks the
+    // 3-D renderer for nothing.
+    drawSheetCanvasPanel();
   } else if (panelId == "feature_tree") {
     drawFeatureTreePanel();
   } else if (panelId == "model_browser") {
@@ -9370,6 +9395,412 @@ void ForgeFrame::drawViewListPanel() {
                       layout.scale.scale.text().c_str());
   ImGui::TextDisabled("The isometric view is not one of the projected views: it is placed wherever "
                       "there is room.");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE SHEET TAB (T-296)
+//
+// The drawing File > Save the Drawing writes, on its paper, in the tab the
+// workspace has always promised it in. Until this the tab drew the 3-D model
+// (drawPanel() sent "sheet_canvas" to drawViewportPanel()), so a user could not
+// see a drawing before opening the file they had saved.
+// ════════════════════════════════════════════════════════════════════════════
+namespace {
+
+// The pens and the type, in PAPER millimetres: DrawingSheetWriter.cpp's own
+// numbers, so the sheet on screen is drawn with the pens the SVG is drawn with.
+// The ink is one colour, as on paper -- a hidden line is told from a visible
+// one by being thinner and dashed. forge_desktop_sheet_canvas_gate compares
+// every line of this picture with the saved SVG, so a number here that drifts
+// from the writer's is a red gate, not a quiet disagreement.
+constexpr double kSheetPenVisibleMm = 0.5;
+constexpr double kSheetPenHiddenMm = 0.25;
+constexpr double kSheetPenFrameMm = 0.7;
+constexpr double kSheetPenTitleMm = 0.5;
+constexpr double kSheetPenRowMm = 0.25;
+constexpr double kSheetDashMm = 3.0;
+constexpr double kSheetGapMm = 1.5;
+constexpr double kSheetTextMm = 2.5;
+constexpr double kSheetRowMm = 5.0;  // one title block row
+constexpr double kSheetLabelColumnMm = 38.0;
+constexpr double kSheetViewLabelGapMm = 4.0;
+// A pen is never thinner than a pixel, or a zoomed-out sheet would lose its
+// hidden lines altogether; a dash and a gap never shorter than a few pixels, or
+// the dashing would blur into a solid line.
+constexpr float kSheetMinPenPx = 1.0f;
+constexpr float kSheetMinDashPx = 4.0f;
+constexpr float kSheetMinGapPx = 2.0f;
+// Type is drawn at whole pixel sizes, and only up to this one: every distinct
+// size is a separate set of glyphs in the font atlas, and a zoom wheel must not
+// be able to grow the atlas without bound.
+constexpr float kSheetMinTextPx = 3.0f;
+constexpr float kSheetMaxTextPx = 96.0f;
+constexpr float kSheetMaxZoom = 16.0f;
+
+const ImU32 kSheetPaperColour = IM_COL32(255, 255, 255, 255);
+const ImU32 kSheetInkColour = IM_COL32(0, 0, 0, 255);
+const ImU32 kSheetShadowColour = IM_COL32(10, 11, 13, 255);
+const ImU32 kSheetDeskColour = IM_COL32(44, 48, 55, 255);
+
+// "FRONT", "TOP", "RIGHT": the label the SVG writes under each view.
+std::string sheetViewWord(forge::ui::NamedView v) {
+  std::string word = forge::ui::toString(v);
+  for (char& c : word) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  return word;
+}
+
+// Strokes `pts` dashed -- `dash` on, `gap` off, measured along the line and
+// carried round its corners, the way an SVG stroke-dasharray is.
+void strokeDashed(ImDrawList* dl, const std::vector<ImVec2>& pts, float dash, float gap,
+                  ImU32 colour, float pen) {
+  std::vector<ImVec2> piece;
+  bool on = true;
+  float left = dash;  // what is left of the current dash or gap
+  const auto flush = [&]() {
+    if (on && piece.size() >= 2) {
+      dl->AddPolyline(piece.data(), static_cast<int>(piece.size()), colour, pen, ImDrawFlags_None);
+    }
+    piece.clear();
+  };
+  for (std::size_t i = 1; i < pts.size(); ++i) {
+    const ImVec2 a = pts[i - 1];
+    const ImVec2 b = pts[i];
+    const float len = std::hypot(b.x - a.x, b.y - a.y);
+    if (!(len > 0.0f)) continue;
+    float t = 0.0f;
+    while (t < len) {
+      const float step = std::min(left, len - t);
+      if (!(step > 0.0f)) break;
+      if (on) {
+        if (piece.empty()) piece.push_back(ImVec2(a.x + (b.x - a.x) * (t / len),
+                                                  a.y + (b.y - a.y) * (t / len)));
+        const float u = (t + step) / len;
+        piece.push_back(ImVec2(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u));
+      }
+      t += step;
+      left -= step;
+      if (left <= 0.0f) {
+        flush();
+        on = !on;
+        left = on ? dash : gap;
+      }
+    }
+  }
+  flush();
+}
+
+// Text with its BASELINE at `baseline`, which is where the SVG puts a text's y.
+void sheetText(ImDrawList* dl, float sizePx, ImVec2 baseline, const std::string& text,
+               bool centred) {
+  if (text.empty() || !(sizePx >= kSheetMinTextPx)) return;
+  const float size = std::round(std::min(sizePx, kSheetMaxTextPx));
+  ImFont* font = ImGui::GetFont();
+  ImVec2 at(baseline.x, baseline.y - 0.8f * size);
+  if (centred) at.x -= 0.5f * font->CalcTextSizeA(size, 1.0e9f, 0.0f, text.c_str()).x;
+  dl->AddText(font, size, at, kSheetInkColour, text.c_str());
+}
+
+}  // namespace
+
+ForgeFrame::SheetWitness ForgeFrame::sheetWitness() {
+  SheetWitness w;
+  w.program = partDoc_.irProgram();
+  w.builds = scene_.builds();
+  w.inputFile = scene_.inputFile();
+  const forge::ui::TitleBlockData& t = drawing_.titleBlock();
+  w.sheetId = t.sheetId;
+  w.projection = t.projection;
+  w.scaleMode = t.scaleMode;
+  w.fixedScale = t.fixedScale;
+  // The words exactly as drawingSheet() hands them to the sheet: every title
+  // block row, then every note and every tolerance in the user's words.
+  for (const forge::ui::TitleBlockField& row : titleBlockRows()) {
+    w.words += row.key + '\x1f' + row.value + '\x1e';
+  }
+  for (const forge::ui::Annotation& a : drawing_.annotations()) {
+    w.words += std::string(forge::ui::annotationLabel(a.kind)) + ": " + a.text + '\x1e';
+  }
+  for (const forge::ui::FeatureControlFrame& f : drawing_.frames()) {
+    w.words += forge::ui::describeFcf(f) + '\x1e';
+  }
+  return w;
+}
+
+std::string ForgeFrame::sheetChange(const SheetWitness& then, const SheetWitness& now) {
+  if (then.program != now.program || then.builds != now.builds ||
+      then.inputFile != now.inputFile) {
+    return "The part has changed since this sheet was drawn, so it no longer shows the part as "
+           "it is. Press Draw the sheet to bring it up to date.";
+  }
+  if (then.sheetId != now.sheetId || then.projection != now.projection ||
+      then.scaleMode != now.scaleMode || !(then.fixedScale == now.fixedScale)) {
+    return "The sheet size, the scale or the projection has changed since this sheet was drawn. "
+           "Press Draw the sheet to lay it out again.";
+  }
+  if (then.words != now.words) {
+    return "The title block or the notes have changed since this sheet was drawn. Press Draw "
+           "the sheet to bring them up to date.";
+  }
+  return std::string();
+}
+
+void ForgeFrame::runPendingSheetDraw() {
+  ++sheetDrawRequests_;
+  SheetCanvas next;
+  // Taken BEFORE the source is asked, so a change that lands while the sheet is
+  // being made reads as a change afterwards rather than being absorbed.
+  next.witness = sheetWitness();
+  const auto t0 = std::chrono::steady_clock::now();
+  // THE SHELL'S drawing source, not this frame's own: it is the one
+  // File > Save the Drawing writes from, so the sheet on screen and the file on
+  // disk are made by one call.
+  forge::ui::DrawingSource* source = shell_.drawingSource();
+  forge::ui::DrawingSheetContent content;
+  bool got = false;
+  if (source != nullptr) {
+    try {
+      got = source->drawingSheet(content);
+    } catch (...) {
+      got = false;
+      content.advice.clear();
+    }
+  }
+  if (!got) {
+    next.advice = content.advice;
+  } else {
+    forge::ui::DrawingLayoutResult layout = forge::ui::layoutDrawing(content);
+    if (!layout.ok) {
+      next.advice = layout.reason;
+    } else {
+      next.drawn = true;
+      next.content = std::move(content);
+      next.layout = std::move(layout);
+    }
+  }
+  // A sentence the source wrote for a person is shown as it is; anything else
+  // is not shown at all, and the activity log already holds the cause.
+  if (!next.drawn && (next.advice.empty() || !forge::ui::isUserReadable(next.advice))) {
+    next.advice = "The sheet could not be drawn. The activity log has the reason.";
+  }
+  next.milliseconds =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+  char timing[96];
+  std::snprintf(timing, sizeof(timing), "%.0f ms", next.milliseconds);
+  if (next.drawn) {
+    shell_.log().info("Drawing", "Drew the sheet in the Sheet tab.", timing);
+  } else {
+    shell_.log().warning("Drawing", "The Sheet tab could not draw the sheet.", timing);
+  }
+  sheet_ = std::move(next);
+}
+
+void ForgeFrame::paintSheet(float x, float y, float w, float h, bool hovered, bool dragging) {
+  const forge::ui::DrawingSheetContent& c = sheet_.content;
+  const forge::ui::DrawingLayoutResult& L = sheet_.layout;
+  const double W = c.sheet.widthMm;
+  const double H = c.sheet.heightMm;
+  if (!(W > 0.0) || !(H > 0.0)) return;
+
+  // ── where the paper goes: the whole sheet, centred, then zoomed and panned ─
+  const double margin = 14.0 * static_cast<double>(dpiScale_);
+  const double fit = std::max(1e-6, std::min((static_cast<double>(w) - 2.0 * margin) / W,
+                                             (static_cast<double>(h) - 2.0 * margin) / H));
+  const ImGuiIO& io = ImGui::GetIO();
+  if (hovered && io.MouseWheel != 0.0f) {
+    // Zoom about the pointer: the paper point under it stays under it.
+    const double s0 = fit * static_cast<double>(sheetZoom_);
+    const double left0 = x + 0.5 * (w - W * s0) + sheetPanX_;
+    const double top0 = y + 0.5 * (h - H * s0) + sheetPanY_;
+    const double u = (io.MousePos.x - left0) / s0;
+    const double v = (io.MousePos.y - top0) / s0;
+    sheetZoom_ = std::clamp(sheetZoom_ * std::pow(1.25f, io.MouseWheel), 1.0f, kSheetMaxZoom);
+    const double s1 = fit * static_cast<double>(sheetZoom_);
+    sheetPanX_ = static_cast<float>(io.MousePos.x - u * s1 - x - 0.5 * (w - W * s1));
+    sheetPanY_ = static_cast<float>(io.MousePos.y - v * s1 - y - 0.5 * (h - H * s1));
+  }
+  if (dragging) {
+    sheetPanX_ += io.MouseDelta.x;
+    sheetPanY_ += io.MouseDelta.y;
+  }
+  if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) sheetZoom_ = 1.0f;
+  // The whole sheet is the whole sheet: at no zoom it is centred again.
+  if (sheetZoom_ <= 1.0f) {
+    sheetPanX_ = 0.0f;
+    sheetPanY_ = 0.0f;
+  }
+  const double s = fit * static_cast<double>(sheetZoom_);
+  const double left = x + 0.5 * (w - W * s) + sheetPanX_;
+  const double top = y + 0.5 * (h - H * s) + sheetPanY_;
+  // Paper millimetres, y UP from the sheet's bottom-left corner -- the layout's
+  // own frame -- to screen pixels, y DOWN. The flip is made here and nowhere
+  // else, as the SVG writer makes it once.
+  const auto px = [&](double mx, double my) {
+    return ImVec2(static_cast<float>(left + mx * s), static_cast<float>(top + (H - my) * s));
+  };
+  const auto pen = [&](double mm) { return std::max(kSheetMinPenPx, static_cast<float>(mm * s)); };
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->PushClipRect(ImVec2(x, y), ImVec2(x + w, y + h), true);
+  const ImVec2 corner0 = px(0.0, H);
+  const ImVec2 corner1 = px(W, 0.0);
+  const float shadow = 3.0f * dpiScale_;
+  dl->AddRectFilled(ImVec2(corner0.x + shadow, corner0.y + shadow),
+                    ImVec2(corner1.x + shadow, corner1.y + shadow), kSheetShadowColour);
+  dl->AddRectFilled(corner0, corner1, kSheetPaperColour);
+  sheetPaperRect_ = WidgetRect{corner0.x, corner0.y, corner1.x, corner1.y, true};
+
+  const auto box = [&](double x0, double y0, double x1, double y1, float thickness) {
+    const ImVec2 q[4] = {px(x0, y0), px(x1, y0), px(x1, y1), px(x0, y1)};
+    dl->AddPolyline(q, 4, kSheetInkColour, thickness, ImDrawFlags_Closed);
+  };
+  box(L.frameMinX, L.frameMinY, L.frameMaxX, L.frameMaxY, pen(kSheetPenFrameMm));
+
+  // ── the views ───────────────────────────────────────────────────────────
+  const float textPx = static_cast<float>(kSheetTextMm * s);
+  const float dashPx = std::max(kSheetMinDashPx, static_cast<float>(kSheetDashMm * s));
+  const float gapPx = std::max(kSheetMinGapPx, static_cast<float>(kSheetGapMm * s));
+  std::vector<ImVec2> pts;
+  for (const forge::ui::PlacedView& p : L.views) {
+    const forge::ui::DrawingViewLines* lines = nullptr;
+    for (const forge::ui::DrawingViewLines& v : c.views) {
+      if (v.view == p.view) {
+        lines = &v;
+        break;
+      }
+    }
+    if (lines == nullptr) continue;
+    // Model millimetres in the view's own frame -> paper -> screen, exactly the
+    // writer's  paper = origin + model x factor.
+    const auto onScreen = [&](const forge::ui::DrawingPolyline& pl) {
+      pts.clear();
+      if (pl.points.size() < 2) return;
+      for (const std::array<double, 2>& q : pl.points) {
+        if (!std::isfinite(q[0]) || !std::isfinite(q[1])) {
+          pts.clear();
+          return;
+        }
+        pts.push_back(px(p.originX + q[0] * L.factor, p.originY + q[1] * L.factor));
+      }
+    };
+    for (const forge::ui::DrawingPolyline& pl : lines->visible) {
+      onScreen(pl);
+      if (pts.size() >= 2) {
+        dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), kSheetInkColour,
+                        pen(kSheetPenVisibleMm), ImDrawFlags_None);
+      }
+    }
+    for (const forge::ui::DrawingPolyline& pl : lines->hidden) {
+      onScreen(pl);
+      if (pts.size() >= 2) strokeDashed(dl, pts, dashPx, gapPx, kSheetInkColour, pen(kSheetPenHiddenMm));
+    }
+    sheetText(dl, textPx,
+              px(0.5 * (p.cellMinX + p.cellMaxX), p.cellMinY - kSheetViewLabelGapMm + 0.5),
+              sheetViewWord(p.view), true);
+  }
+
+  // ── the title block, and the notes stacked above it ─────────────────────
+  box(L.titleMinX, L.titleMinY, L.titleMaxX, L.titleMaxY, pen(kSheetPenTitleMm));
+  double rowTop = L.titleMaxY;
+  sheetText(dl, textPx, px(L.titleMinX + 2.0, rowTop - 3.5),
+            "Forge drawing  " + c.scale.text() + "  " + forge::ui::projectionLabel(c.projection),
+            false);
+  rowTop -= kSheetRowMm;
+  for (const forge::ui::TitleBlockField& row : c.titleBlock) {
+    if (rowTop - kSheetRowMm < L.titleMinY - 1e-6) break;
+    const ImVec2 rule[2] = {px(L.titleMinX, rowTop), px(L.titleMaxX, rowTop)};
+    dl->AddPolyline(rule, 2, kSheetInkColour, pen(kSheetPenRowMm), ImDrawFlags_None);
+    sheetText(dl, textPx, px(L.titleMinX + 2.0, rowTop - 3.5), row.label, false);
+    sheetText(dl, textPx, px(L.titleMinX + kSheetLabelColumnMm, rowTop - 3.5), row.value, false);
+    rowTop -= kSheetRowMm;
+  }
+  double noteY = L.titleMaxY + 2.0;
+  for (const std::string& note : c.notes) {
+    sheetText(dl, textPx, px(L.titleMinX + 2.0, noteY), note, false);
+    noteY += kSheetRowMm;
+  }
+  dl->PopClipRect();
+}
+
+void ForgeFrame::drawSheetCanvasPanel() {
+  // ONE child holds the whole tab -- the button, the sentences and the paper --
+  // so what the tab shows is one draw list.
+  if (!ImGui::BeginChild("##sheet_canvas", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None,
+                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+    ImGui::EndChild();
+    return;
+  }
+  forge::ui::DrawingSource* source = shell_.drawingSource();
+  // hasDrawing() computes nothing (it is an enabled predicate), so asking it
+  // every frame is free; drawingSheet() is the expensive one and runs only on
+  // the press.
+  const bool canDraw = source != nullptr && source->hasDrawing();
+  ImGui::BeginDisabled(!canDraw);
+  if (ImGui::Button("Draw the sheet")) pendingSheetDraw_ = true;
+  ImGui::EndDisabled();
+  {
+    const ImVec2 lo = ImGui::GetItemRectMin();
+    const ImVec2 hi = ImGui::GetItemRectMax();
+    sheetDrawButtonRect_ = WidgetRect{lo.x, lo.y, hi.x, hi.y, true};
+  }
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    ImGui::SetTooltip("Works out which edges of the part are hidden in each view and lays the "
+                      "views out on the sheet, exactly as Save the Drawing writes it. It can take "
+                      "a few seconds.");
+  }
+  ImGui::SameLine();
+  if (sheet_.drawn) {
+    ImGui::TextDisabled("%s   %s   %s   drawn in %.1f s", sheet_.content.sheet.label.c_str(),
+                        sheet_.content.scale.text().c_str(),
+                        forge::ui::projectionLabel(sheet_.content.projection),
+                        sheet_.milliseconds / 1000.0);
+  } else {
+    ImGui::TextDisabled("Not drawn yet.");
+  }
+
+  // ── what the user must be told before they trust the picture ─────────────
+  std::vector<std::string> notices;
+  if (sheet_.drawn) {
+    const std::string changed = sheetChange(sheet_.witness, sheetWitness());
+    if (!changed.empty()) notices.push_back(changed);
+    if (sheet_.layout.crowded) {
+      notices.push_back("At this scale the views run into the title block or past the frame. "
+                        "Choose a larger sheet or a smaller scale in the Title Block tab.");
+    }
+  }
+  if (!sheet_.advice.empty()) notices.push_back(sheet_.advice);
+  if (!canDraw) {
+    notices.push_back(source == nullptr
+                          ? "This copy of Forge cannot lay out a drawing sheet."
+                          : "There is no built part to draw yet. Add a feature, or fix the step "
+                            "the feature tree marks as failed, and the sheet can be drawn.");
+  }
+  ImGui::PushTextWrapPos(0.0f);
+  for (const std::string& n : notices) {
+    ImGui::TextColored(rgb(235, 175, 95), "%s", n.c_str());
+    if (!sheetNotice_.empty()) sheetNotice_ += ' ';
+    sheetNotice_ += n;
+  }
+  ImGui::PopTextWrapPos();
+
+  // ── the paper ────────────────────────────────────────────────────────────
+  const ImVec2 at = ImGui::GetCursorScreenPos();
+  const ImVec2 avail = ImGui::GetContentRegionAvail();
+  const float w = std::max(16.0f, avail.x);
+  const float h = std::max(16.0f, avail.y);
+  ImGui::InvisibleButton("##sheet_paper", ImVec2(w, h));
+  const bool hovered = ImGui::IsItemHovered();
+  const bool dragging = ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(at, ImVec2(at.x + w, at.y + h), kSheetDeskColour);
+  if (sheet_.drawn) {
+    paintSheet(at.x, at.y, w, h, hovered, dragging);
+  } else {
+    dl->AddText(ImVec2(at.x + 16.0f * dpiScale_, at.y + 16.0f * dpiScale_),
+                ImGui::GetColorU32(rgb(150, 157, 168)),
+                "The sheet appears here: the views, the title block and the notes, laid out as "
+                "they will print.");
+  }
+  ImGui::EndChild();
 }
 
 // ── geometric tolerances ────────────────────────────────────────────────────

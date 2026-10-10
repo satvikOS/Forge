@@ -858,14 +858,14 @@ int main() {
     // the mirror is pinned: if the predicate changes, this assertion fails and
     // asks for the mirror to be updated rather than silently disagreeing.
     const bool predicatePinned =
-        frameSrc.find("return id.rfind(\"viewport_\", 0) == 0 || id == \"sheet_canvas\";") !=
+        frameSrc.find("return id.rfind(\"viewport_\", 0) == 0;") !=
         std::string::npos;
     if (!predicatePinned) {
       std::printf("  isViewportPanel() has changed; update the mirror in this gate\n");
     }
     CHECK(predicatePinned);
     auto drawnByFrame = [&](const std::string& id) {
-      if (id.rfind("viewport_", 0) == 0 || id == "sheet_canvas") return true;
+      if (id.rfind("viewport_", 0) == 0) return true;
       return contains(implemented, id);
     };
     CHECK(implemented.size() >= 10);

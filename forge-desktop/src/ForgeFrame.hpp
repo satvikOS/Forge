@@ -825,6 +825,43 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   std::size_t gdtRowsDrawn() const noexcept { return gdtRowsDrawn_; }
   std::size_t annotationRowsDrawn() const noexcept { return annotationRowsDrawn_; }
 
+  // ── THE SHEET TAB (T-296) ───────────────────────────────────────────────
+  // The Drawing workspace's centre tab used to be dispatched to
+  // drawViewportPanel(), so the one picture of a drawing a user could look at
+  // was the 3-D model, while File > Save the Drawing wrote a sheet nobody could
+  // see before opening the file. The tab now draws THE SHEET: paper, frame, the
+  // three views with their hidden lines thin and dashed, the view labels, the
+  // title block and the notes -- laid out by forge::ui::layoutDrawing() from
+  // what the shell's drawing source hands over. That is the same source and the
+  // same layout the Save writes, so the screen and the file cannot disagree.
+  //
+  // ON DEMAND, NEVER PER FRAME. The views come out of the kernel's hidden-line
+  // remover, which takes seconds on the starting part (measured in T-230), so
+  // the tab draws when its "Draw the sheet" button is pressed and keeps that
+  // sheet together with the witnesses it was drawn from -- the part's history
+  // and build count, the sheet, the scale, the projection, the title block and
+  // the notes. When any of them changes the sheet is NOT silently redrawn and
+  // NOT silently kept: a sentence over it says what changed, until it is drawn
+  // again.
+  //
+  // The press is deferred out of the dock walk like every other mutation here.
+  // These are instrumentation for the headless gate; the picture itself is
+  // asserted on the draw list, not on these. The macro lets that gate compile
+  // against a tree without them, which is how its failing-first run was made.
+#define FORGE_FRAME_HAS_SHEET_CANVAS 1
+  WidgetRect sheetDrawButtonRect() const noexcept { return sheetDrawButtonRect_; }
+  // Where the paper was drawn this frame, in screen pixels, y down.
+  WidgetRect sheetPaperRect() const noexcept { return sheetPaperRect_; }
+  bool sheetDrawn() const noexcept { return sheet_.drawn; }
+  // The sentence drawn over the sheet this frame ("" when there is none): why
+  // the sheet on screen is not the part as it is now, or why it could not be
+  // drawn.
+  const std::string& sheetNotice() const noexcept { return sheetNotice_; }
+  // How many times the tab has asked the drawing source for a sheet, in this
+  // frame builder's whole lifetime. "Never per frame" is a claim about this.
+  std::size_t sheetDrawRequests() const noexcept { return sheetDrawRequests_; }
+  double sheetDrawMilliseconds() const noexcept { return sheet_.milliseconds; }
+
   // ── the simulation study ────────────────────────────────────────────────
   // The study the Restraints and Loads panels edit, and the answer the solver
   // last gave for it. Public so a gate drives the SHIPPING path -- the button in
@@ -1351,6 +1388,10 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   void drawDimensionsPanel();
   void drawTitleBlockPanel();
   void drawViewListPanel();
+  // The Sheet tab (T-296), the press it defers, and the paper itself.
+  void drawSheetCanvasPanel();
+  void runPendingSheetDraw();
+  void paintSheet(float x, float y, float w, float h, bool hovered, bool dragging);
   void drawGdtPanel();
   void drawAnnotationPanel();
   // One editable title-block row. Returns true when the user changed it. Not a
@@ -1716,6 +1757,47 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   std::size_t viewListRowsDrawn_ = 0;
   std::size_t gdtRowsDrawn_ = 0;
   std::size_t annotationRowsDrawn_ = 0;
+
+  // ── the Sheet tab's sheet (T-296) ───────────────────────────────────────
+  // Everything the drawing source reads when it makes a sheet, captured when
+  // the sheet is drawn and compared every frame the tab is up. The history and
+  // the build count are the PART (builtProgram_'s idiom: a witness taken from
+  // the thing itself, not a dirty flag somebody must remember to set); the
+  // sheet, scale mode, fixed scale and projection are the LAYOUT; the title
+  // block rows and the notes, as they would print, are the WORDS.
+  struct SheetWitness {
+    std::string program;
+    std::size_t builds = 0;
+    std::string inputFile;
+    std::string sheetId;
+    forge::ui::ProjectionAngle projection = forge::ui::ProjectionAngle::First;
+    forge::ui::ScaleMode scaleMode = forge::ui::ScaleMode::Automatic;
+    forge::ui::Scale fixedScale{1, 1};
+    std::string words;
+  };
+  SheetWitness sheetWitness();
+  // The sentence for what changed between `then` and now, "" when nothing did.
+  static std::string sheetChange(const SheetWitness& then, const SheetWitness& now);
+  struct SheetCanvas {
+    bool drawn = false;
+    forge::ui::DrawingSheetContent content;
+    forge::ui::DrawingLayoutResult layout;
+    SheetWitness witness;
+    // When the last press could not draw a sheet: the source's own sentence.
+    std::string advice;
+    double milliseconds = 0.0;
+  };
+  SheetCanvas sheet_;
+  // Recorded inside the dock walk, run after it (see "deferred mutations").
+  bool pendingSheetDraw_ = false;
+  std::size_t sheetDrawRequests_ = 0;
+  WidgetRect sheetDrawButtonRect_{};
+  WidgetRect sheetPaperRect_{};
+  std::string sheetNotice_;
+  // Zoom about the pointer and drag to pan; 1 and (0, 0) is the whole sheet.
+  float sheetZoom_ = 1.0f;
+  float sheetPanX_ = 0.0f;
+  float sheetPanY_ = 0.0f;
 
   // The recovered edges, on the SAME triangle-count witness as the measure
   // cache. Two witnesses for one tessellation is how one of them goes stale.

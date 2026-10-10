@@ -735,6 +735,22 @@ target_link_libraries(forge_desktop_drawing_export_gate PRIVATE forge_desktop_co
 set_target_properties(forge_desktop_drawing_export_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ---------------------------------------------------- the SHEET CANVAS gate
+# T-296. HEADLESS: the Drawing workspace's Sheet tab, which used to draw the 3-D
+# viewport texture, must draw the SHEET -- and the same ink File > Save the
+# Drawing writes. The tab's draw list is decoded quad by quad and compared with
+# the saved SVG after the paper -> pixel transform: every line within 0.5 px both
+# ways, hidden lines dashed, frame and title block present, no viewport texture.
+# An edit must mark the drawn sheet stale in words until it is drawn again.
+# `--mutate 1..3` corrupt the sheet the tab is handed, through a DrawingSource the
+# gate installs in front of the frame's own; 4 reads the tab from before the edit.
+add_executable(forge_desktop_sheet_canvas_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/sheet_canvas_gate.cpp")
+target_compile_options(forge_desktop_sheet_canvas_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_sheet_canvas_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_sheet_canvas_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # ---------------------------------------------------- the SIMULATION gate
 # The Restraints and Loads panels, against a real solve of a real cantilever and
 # the Euler-Bernoulli deflection for it. `--mutate 1..6` breaks the SET-UP the
@@ -1159,6 +1175,14 @@ foreach(_de RANGE 1 9)
     add_test(NAME forge_desktop_drawing_export_mutation_${_de}
              COMMAND forge_desktop_drawing_export_gate --mutate ${_de})
     set_tests_properties(forge_desktop_drawing_export_mutation_${_de} PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_sheet_canvas_gate COMMAND forge_desktop_sheet_canvas_gate)
+# Same WILL_FAIL idiom: a mutation that starts exiting zero is one whose defect
+# the gate no longer detects. Do not "fix" that by removing the property.
+foreach(_sc RANGE 1 4)
+    add_test(NAME forge_desktop_sheet_canvas_mutation_${_sc}
+             COMMAND forge_desktop_sheet_canvas_gate --mutate ${_sc})
+    set_tests_properties(forge_desktop_sheet_canvas_mutation_${_sc} PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_file_exchange_gate COMMAND forge_desktop_file_exchange_gate)
 add_test(NAME forge_desktop_file_dialog_gate COMMAND forge_desktop_file_dialog_gate)

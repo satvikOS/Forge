@@ -382,6 +382,15 @@ run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # corrupt what the frame hands the writer, through a DrawingSource the gate
 # installs in front of the frame's own.
 run_gate forge_desktop_drawing_export_gate 1 2 3 4 5 6 7 8 9
+# The SHEET CANVAS gate (T-296): the Drawing workspace's Sheet tab used to draw
+# the 3-D viewport texture. It must draw the SHEET -- the same ink File > Save the
+# Drawing writes, read out of the tab's draw list and compared with the saved SVG
+# line by line (0.5 px, both ways), hidden lines dashed -- and say in words when
+# an edit has made the drawn sheet stale. 1-3 corrupt the sheet the tab is handed
+# (another scale, hidden lines dropped, views upside down) through a DrawingSource
+# the gate installs in front of the frame's own; 4 reads the tab from before the
+# edit, as a tab that never re-reads its witnesses would look.
+run_gate forge_desktop_sheet_canvas_gate 1 2 3 4
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.
 run_gate forge_desktop_sketch_panels_gate 1 2 3 4 5 6
 # THE TRUST PANELS: Interference, Verification, Continuity, Draft and Zebra,
