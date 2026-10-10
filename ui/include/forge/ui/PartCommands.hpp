@@ -411,23 +411,126 @@ class SetMaterialEdit final : public UndoableEdit {
   std::string label_;
 };
 
+// The FOURTH ConcreteCommand, and GoF's Composite over the other three (T-189):
+// several edits that were accepted as ONE, so they are taken back as one and put
+// back as one. It is what an UndoStack group commits -- an applied Archie plan of
+// N steps is ONE record, so one Undo restores the part the user had before Apply,
+// not the part with N-1 of the plan's steps still in it.
+//
+// apply() is REDO: it re-applies every member in order, and when a member refuses
+// it reverts the members it already re-applied, newest first, and refuses as a
+// whole -- a redo that put back two of three steps would be the half-plan the
+// group exists to make impossible. revert() reverts every member, newest first.
+class EditGroup final : public UndoableEdit {
+ public:
+  explicit EditGroup(std::string label);
+
+  const std::string& label() const noexcept override { return label_; }
+  bool apply(PartDocument& doc) override;
+  void revert(PartDocument& doc) override;
+
+  // Records an edit that has ALREADY been applied to the document. Only
+  // UndoStack::perform calls this, inside an open group.
+  void adopt(std::unique_ptr<UndoableEdit> applied);
+  std::size_t size() const noexcept { return edits_.size(); }
+  bool empty() const noexcept { return edits_.empty(); }
+
+ private:
+  std::string label_;
+  std::vector<std::unique_ptr<UndoableEdit>> edits_;
+};
+
 // ── the caretaker ───────────────────────────────────────────────────────────
 class UndoStack {
  public:
   // Applies the edit; pushes it only if it applied. A new edit clears redo.
+  // INSIDE AN OPEN GROUP the edit is applied exactly the same way but recorded
+  // into the group, and the redo branch is left alone until the group commits --
+  // so a group that is rolled back leaves redo as it found it.
   bool perform(PartDocument& doc, std::unique_ptr<UndoableEdit> edit);
+  // Both REFUSE while a group is open: stepping the history underneath a
+  // half-applied transaction would revert an edit the group also holds, and the
+  // group's own rollback would then revert it a second time.
   bool undo(PartDocument& doc);
   bool redo(PartDocument& doc);
 
+  // The COMMITTED history. An open group is not on the stack until it commits.
   std::size_t undoDepth() const noexcept { return done_.size(); }
   std::size_t redoDepth() const noexcept { return undone_.size(); }
   std::string undoLabel() const;  // "" when the stack is empty
   std::string redoLabel() const;
+  // Drops the history AND any open group, reverting nothing: it is called when
+  // the document itself is replaced (File > New, Open), and there is nothing
+  // left to revert into.
   void clear() noexcept;
+
+  // ── ONE RECORD FOR MANY EDITS (T-189) ─────────────────────────────────────
+  // An Archie plan is accepted WHOLE, so it must be undone whole and, when one
+  // of its steps fails, taken back whole. Before this the stack could only hold
+  // one record per perform(): a 3-step plan was 3 records, one Undo left 2 of
+  // its steps in the part, and the frame's own rollback (one undo per step that
+  // REPORTED success) left behind a step that wrote and then refused, and pushed
+  // every step it did take back onto the REDO branch -- where Redo put the
+  // half-plan back.
+  //
+  // beginGroup() opens a group; every perform() until it closes is recorded in
+  // it. commitGroup() pushes the group as ONE record (and abandons redo, exactly
+  // as a single perform does); a group that recorded nothing pushes nothing.
+  // rollbackGroup() reverts every edit the group recorded, newest first, and
+  // leaves the stack -- undo AND redo -- exactly as beginGroup() found it.
+  //
+  // Groups do not nest: beginGroup() refuses while one is open.
+  bool beginGroup(std::string label);
+  bool groupOpen() const noexcept { return group_ != nullptr; }
+  std::size_t groupSize() const noexcept { return group_ ? group_->size() : 0; }
+  // WHICH group is open: a number no other group on this stack has had, 0 when
+  // none is open. It is how a transaction knows the open group is still ITS group
+  // -- after clear() dropped it and someone opened another, a commit or rollback
+  // by the first owner would otherwise close the second.
+  std::uint64_t openGroupSerial() const noexcept { return group_ ? groupSerial_ : 0; }
+  bool commitGroup();
+  std::size_t rollbackGroup(PartDocument& doc);
 
  private:
   std::vector<std::unique_ptr<UndoableEdit>> done_;
   std::vector<std::unique_ptr<UndoableEdit>> undone_;
+  std::unique_ptr<EditGroup> group_;
+  std::uint64_t groupSerial_ = 0;
+};
+
+// ── the group, owned as a scope (RAII) ──────────────────────────────────────
+// A transaction that is opened by a call and closed by another call is a
+// transaction an early return, a `break` or an exception leaves open -- and an
+// open group swallows every later edit into a record nobody will commit. So the
+// group is held by an object: constructing it opens the group, commit() closes
+// it as one record, and destroying it without commit() ROLLS BACK. The default
+// outcome of a scope that did not say "keep it" is the document it started with.
+//
+// active() is false when the group could not be opened (one is already open on
+// that stack), and becomes false if the stack drops the group (clear()). Such a
+// transaction commits nothing and rolls back nothing: it does not own the group
+// that is open, and must not close it.
+class UndoTransaction {
+ public:
+  UndoTransaction(UndoStack& stack, PartDocument& doc, std::string label);
+  ~UndoTransaction();
+  UndoTransaction(const UndoTransaction&) = delete;
+  UndoTransaction& operator=(const UndoTransaction&) = delete;
+  UndoTransaction(UndoTransaction&&) = delete;
+  UndoTransaction& operator=(UndoTransaction&&) = delete;
+
+  bool active() const noexcept { return serial_ != 0 && stack_.openGroupSerial() == serial_; }
+  // How many edits the open group holds so far.
+  std::size_t size() const noexcept { return active() ? stack_.groupSize() : 0; }
+  // Closes the group as ONE undo record. True when a record was pushed.
+  bool commit();
+  // Reverts every edit the group holds, newest first; returns how many.
+  std::size_t rollback();
+
+ private:
+  UndoStack& stack_;
+  PartDocument& doc_;
+  std::uint64_t serial_ = 0;  // the group this transaction opened; 0 = none
 };
 
 // ── which SKETCH does this statement belong to ──────────────────────────────

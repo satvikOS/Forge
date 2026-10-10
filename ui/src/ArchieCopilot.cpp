@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,7 +13,9 @@
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/Material.hpp"
 #include "forge/ui/OpConstraintBridge.hpp"
+#include "forge/ui/ParameterSet.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -891,8 +894,22 @@ std::string describeRefs(const std::vector<EntityRef>& refs) {
 // the outcome (`constraint`, `dispatch.status`) for the log and for a gate.
 std::string ApplyOutcome::summary() const {
   const std::string steps_ = requested == 1 ? " step" : " steps";
-  std::string out = "Applied " + std::to_string(applied) + " of " +
+  // A rolled-back plan left nothing in the part, however far it got: "Applied 1
+  // of 3" over a part holding none of them would be the wrong number.
+  std::string out = "Applied " + std::to_string(rolledBack ? 0 : applied) + " of " +
                     std::to_string(requested) + steps_;
+  // What became of what the plan had already changed, when it was applied AS ONE
+  // EDIT and rolled back (T-189). Said from the measured comparison, never from
+  // the mechanism: "taken back" is only "as it was" when the part reads so.
+  const auto rollback = [this]() -> std::string {
+    if (!restored) {
+      return " Forge took back what the plan had changed, but the part does not read as it "
+             "did before Apply; use Undo and check it.";
+    }
+    return revertedEdits == 0
+               ? " Nothing had changed, so your part is as it was."
+               : " What the plan had changed was taken back, so your part is as it was.";
+  };
   for (std::size_t n = 0; n < steps.size(); ++n) {
     const StepOutcome& s = steps[n];
     if (s.ok()) continue;
@@ -905,12 +922,15 @@ std::string ApplyOutcome::summary() const {
         out += " — " + std::string(userText(s.constraint));
       }
       if (!s.constraintReason.empty()) out += ": " + s.constraintReason;
-      out += ". Nothing after it was run and your part is unchanged.";
+      out += rolledBack ? ". Nothing after it was run." + rollback()
+                        : std::string(". Nothing after it was run and your part is unchanged.");
       break;
     }
     out += ". Step " + std::to_string(n + 1) + " could not run — " +
            std::string(userText(s.dispatch.status)) +
-           ". Nothing after it was run and the steps before it are still applied.";
+           (rolledBack ? ". Nothing after it was run." + rollback()
+                       : std::string(". Nothing after it was run and the steps before it are "
+                                     "still applied."));
     break;  // the first refusal is the cause; everything after it never ran
   }
   return out;
@@ -1007,6 +1027,110 @@ ApplyOutcome applyPlan(const Plan& plan, ForgeShell& shell, const PartDocument& 
     if (!ok) break;  // a plan is a SEQUENCE; later steps consume earlier ones
     ++out.applied;
   }
+  return out;
+}
+
+// ── the plan as ONE edit (T-189) ────────────────────────────────────────────
+namespace {
+
+// Everything a user could see change in the document, held so the rollback's
+// result can be COMPARED with it rather than assumed from "every edit was
+// reverted". The revision is deliberately absent: it is a counter that moves on
+// every mutation, a rollback included, and says nothing about content.
+struct DocumentImage {
+  std::vector<FeatureRecord> records;
+  std::map<std::string, int> bindings;
+  Material material;
+  ParameterSet parameters;
+
+  explicit DocumentImage(const PartDocument& doc)
+      : records(doc.records()),
+        bindings(doc.snapshot().bindings),
+        material(doc.material()),
+        parameters(doc.parameters()) {}
+
+  bool matches(const PartDocument& doc) const {
+    const std::vector<FeatureRecord>& now = doc.records();
+    if (now.size() != records.size()) return false;
+    for (std::size_t i = 0; i < now.size(); ++i) {
+      const FeatureRecord& a = now[i];
+      const FeatureRecord& b = records[i];
+      if (a.irId != b.irId || a.commandId != b.commandId || a.label != b.label ||
+          a.produces != b.produces || a.line.text() != b.line.text()) {
+        return false;
+      }
+    }
+    return doc.snapshot().bindings == bindings && doc.material() == material &&
+           doc.parameters() == parameters;
+  }
+};
+
+void tellHostDocumentChanged(ForgeShell& shell) {
+  if (DocumentHost* host = shell.documentHost(); host != nullptr) host->documentChanged();
+}
+
+}  // namespace
+
+std::string planUndoLabel(const Plan& plan) {
+  if (!plan.intent.empty()) return "Archie: " + plan.intent;
+  const std::size_t n = plan.size();
+  return "Archie: " + std::to_string(n) + (n == 1 ? " step" : " steps");
+}
+
+ApplyOutcome applyPlanAsOneEdit(const Plan& plan, ForgeShell& shell, PartDocument& document,
+                                UndoStack& undo, const OpConstraintBridge& bridge) {
+  const DocumentImage before(document);
+  UndoTransaction tx(undo, document, planUndoLabel(plan));
+  if (!tx.active()) {
+    // Another transaction is open on this stack. Dispatching now would fold this
+    // plan's edits into a group this call does not own and cannot roll back, so
+    // the all-or-nothing promise could not be kept: nothing runs.
+    ApplyOutcome refused;
+    refused.requested = plan.size();
+    refused.blocked = plan.size();
+    StepOutcome so;
+    so.commandId = plan.empty() ? std::string() : plan.steps.front().commandId;
+    so.gateRefused = true;
+    so.constraintReason = "another edit is still being applied to this part";
+    so.detail = so.constraintReason;
+    refused.steps.push_back(std::move(so));
+    return refused;
+  }
+
+  ApplyOutcome out;
+  try {
+    out = applyPlan(plan, shell, document, bridge);
+  } catch (...) {
+    // A handler threw. Nothing it or the steps before it wrote may stay in the
+    // part; the host is told, because the steps that ran already told it the
+    // document had moved. Then the exception goes on to the caller unchanged.
+    tx.rollback();
+    tellHostDocumentChanged(shell);
+    shell.refreshDocumentStats();
+    throw;
+  }
+  out.transaction = true;
+
+  if (out.allOk()) {
+    out.undoRecords = tx.commit() ? 1 : 0;
+    // The last step's dispatch pulled the undo counters while the group was still
+    // open; the record exists only now. Without this, Undo stays greyed out.
+    shell.refreshDocumentStats();
+    return out;
+  }
+
+  // ── ALL OR NOTHING ────────────────────────────────────────────────────────
+  // The group holds every edit any dispatched handler performed -- also the edit
+  // of a step that wrote and THEN refused, which `out.applied` never counted.
+  // Reverting the group, rather than undoing `applied` records, is what takes
+  // that one back too.
+  out.revertedEdits = tx.rollback();
+  out.rolledBack = true;
+  out.restored = before.matches(document);
+  // Every step that dispatched OK told the host the document moved; it has moved
+  // back now (or, if not restored, somewhere else), and the host must re-derive.
+  if (out.revertedEdits > 0 || !out.restored) tellHostDocumentChanged(shell);
+  shell.refreshDocumentStats();
   return out;
 }
 
@@ -1136,11 +1260,11 @@ void ArchieCopilot::discardPlan() {
                                 (n == 1 ? " step" : " steps") + ")");
 }
 
-ApplyOutcome ArchieCopilot::apply(ForgeShell& shell, const PartDocument& document) {
-  ApplyOutcome out;
+bool ArchieCopilot::refuseApply(const PartDocument& document, ApplyOutcome& out) {
+  out = ApplyOutcome{};
   if (plan_.empty()) {
     say(TranscriptRole::System, "There is nothing on offer to apply.");
-    return out;
+    return true;
   }
   // ── THE DOCUMENT MUST BE THE ONE THE PLAN WAS MADE AGAINST (T-181) ─────────
   // A model answer can take 20 s, and a user can edit the part while it thinks,
@@ -1156,13 +1280,41 @@ ApplyOutcome ArchieCopilot::apply(ForgeShell& shell, const PartDocument& documen
     say(TranscriptRole::System,
         "The part changed after that was asked, so nothing was applied. Ask again and "
         "I will plan against the part as it is now.");
-    return out;
+    return true;
   }
-  out = applyPlan(plan_, shell, document, bridge_);
-  stepsApplied_ += out.applied;
+  return false;
+}
+
+ApplyOutcome ArchieCopilot::apply(ForgeShell& shell, PartDocument& document, UndoStack& undo) {
+  ApplyOutcome out;
+  if (refuseApply(document, out)) return out;
+  try {
+    out = applyPlanAsOneEdit(plan_, shell, document, undo, bridge_);
+  } catch (...) {
+    // A step's handler threw. applyPlanAsOneEdit has already taken back every
+    // edit the plan made; the plan is consumed here too, so the panel does not
+    // keep offering a plan that has just failed. The exception goes on.
+    plan_ = Plan{};
+    outcome_ = ApplyOutcome{};
+    throw;
+  }
+  return finishApply(std::move(out));
+}
+
+ApplyOutcome ArchieCopilot::apply(ForgeShell& shell, const PartDocument& document) {
+  ApplyOutcome out;
+  if (refuseApply(document, out)) return out;
+  return finishApply(applyPlan(plan_, shell, document, bridge_));
+}
+
+ApplyOutcome ArchieCopilot::finishApply(ApplyOutcome out) {
+  // A rolled-back plan left NOTHING applied, whatever it got through first: the
+  // panel's "steps applied" counts steps that are in the part, not steps that ran.
+  stepsApplied_ += out.rolledBack ? 0 : out.applied;
   stepsBlocked_ += out.blocked;
   // The plan is CONSUMED whether or not every step landed: the document has
-  // moved, so a plan made against the old one is no longer that plan. The
+  // moved, so a plan made against the old one is no longer that plan -- and a
+  // plan that was rolled back failed, and is not offered a second time. The
   // verdict it was offered under is kept -- the panel draws each step's ruling
   // beside what that step then did.
   plan_ = Plan{};

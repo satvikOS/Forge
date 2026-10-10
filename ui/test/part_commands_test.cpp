@@ -18,11 +18,13 @@
 //   (d) the UNDO CONTRACT holds — undo restores the program, redo replays it
 //       with the SAME statement ids, and a new edit abandons the redo branch.
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
+#include "forge/ui/Material.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -1772,6 +1774,169 @@ int main() {
     CHECK_EQ_INT(docM.records().size(), 0);
     CHECK_EQ_STR(docM.material().id, "titanium-ti6al4v");
     CHECK_NEAR(docM.material().densityKgPerM3, 4430.0, 1e-12);
+  }
+
+  // ── (d) MANY EDITS AS ONE RECORD: the UndoStack group (T-189) ─────────────
+  // What an applied Archie plan needs from the caretaker: N performs recorded as
+  // ONE record, undone and redone whole, or reverted whole with the history left
+  // exactly as it was. Driven through the real commands, so every member is the
+  // edit a handler really performs.
+  {
+    CommandRegistry regG;
+    PartDocument docG;
+    UndoStack stackG;
+    SelectionService selG;
+    CHECK_EQ_INT(registerPartCommands(regG, docG, stackG), 71);
+    const auto rect = [&](double w, double h) {
+      CommandParams p;
+      p.setNumber("width", w);
+      p.setNumber("height", h);
+      return regG.dispatch("part.sketch_rect", selG, p).ok();
+    };
+    // A user's history first: one record to undo, one to redo.
+    CHECK(rect(10.0, 5.0));
+    CHECK(rect(11.0, 5.0));
+    CHECK(stackG.undo(docG));
+    const std::string before = docG.irProgram();
+    CHECK_EQ_INT(stackG.undoDepth(), 1);
+    CHECK_EQ_INT(stackG.redoDepth(), 1);
+    const std::string undoLabel = stackG.undoLabel();
+    const std::string redoLabel = stackG.redoLabel();
+
+    // -- commit: three performs, ONE record, named for the group --------------
+    CHECK(stackG.beginGroup("three rectangles"));
+    CHECK(stackG.groupOpen());
+    CHECK(!stackG.beginGroup("nested"));             // groups do not nest
+    CHECK(rect(20.0, 5.0));
+    CHECK(rect(21.0, 5.0));
+    CHECK(!rect(0.0, 5.0));                          // refused: never recorded
+    CHECK(rect(22.0, 5.0));
+    CHECK_EQ_INT(stackG.groupSize(), 3);
+    CHECK_EQ_INT(stackG.undoDepth(), 1);             // not on the stack until it commits
+    CHECK_EQ_INT(stackG.redoDepth(), 1);             // and redo is not abandoned yet
+    CHECK(!stackG.undo(docG));                       // never underneath an open group
+    CHECK(!stackG.redo(docG));
+    CHECK_EQ_INT(docG.records().size(), 4);
+    CHECK(stackG.commitGroup());
+    CHECK(!stackG.groupOpen());
+    CHECK_EQ_INT(stackG.undoDepth(), 2);
+    CHECK_EQ_INT(stackG.redoDepth(), 0);             // abandoned ONCE, at commit
+    CHECK_EQ_STR(stackG.undoLabel(), "three rectangles");
+    const std::string after = docG.irProgram();
+    CHECK_EQ_STR(after,
+                 "%1 = RECT(10, 5)\n"
+                 "%2 = RECT(20, 5)\n"
+                 "%3 = RECT(21, 5)\n"
+                 "%4 = RECT(22, 5)\n");
+    CHECK(stackG.undo(docG));                        // ONE undo: all three
+    CHECK_EQ_STR(docG.irProgram(), before);
+    CHECK_EQ_STR(stackG.undoLabel(), undoLabel);
+    CHECK(stackG.redo(docG));                        // ONE redo: all three, same ids
+    CHECK_EQ_STR(docG.irProgram(), after);
+    CHECK(stackG.undo(docG));
+    CHECK_EQ_STR(docG.irProgram(), before);
+
+    // -- an empty group pushes nothing --------------------------------------
+    const std::size_t depth = stackG.undoDepth();
+    const std::size_t redoDepth = stackG.redoDepth();
+    CHECK(stackG.beginGroup("nothing"));
+    CHECK(!stackG.commitGroup());
+    CHECK(!stackG.groupOpen());
+    CHECK_EQ_INT(stackG.undoDepth(), depth);
+    CHECK_EQ_INT(stackG.redoDepth(), redoDepth);     // and abandons no redo
+
+    // -- rollback: the document AND the history exactly as before ------------
+    // Rebuild the user's one-undo / one-redo history from where the commit left it.
+    CHECK(stackG.redoDepth() == 1 && stackG.redoLabel() == "three rectangles");
+    stackG.clear();
+    CHECK(!stackG.groupOpen());
+    CHECK(rect(11.0, 5.0));
+    CHECK(stackG.undo(docG));
+    CHECK_EQ_STR(docG.irProgram(), before);
+    CHECK(stackG.beginGroup("doomed"));
+    CHECK(rect(30.0, 5.0));
+    CHECK(rect(31.0, 5.0));
+    CHECK_EQ_INT(stackG.rollbackGroup(docG), 2);
+    CHECK(!stackG.groupOpen());
+    CHECK_EQ_STR(docG.irProgram(), before);
+    CHECK_EQ_INT(stackG.undoDepth(), 0);
+    CHECK_EQ_INT(stackG.redoDepth(), 1);
+    CHECK_EQ_STR(stackG.redoLabel(), redoLabel);
+    CHECK(stackG.redo(docG));                        // the USER's redo, intact
+    CHECK_EQ_STR(docG.irProgram(), "%1 = RECT(10, 5)\n%2 = RECT(11, 5)\n");
+    CHECK(stackG.undo(docG));
+    CHECK_EQ_INT(stackG.rollbackGroup(docG), 0);     // nothing open: nothing to do
+
+    // -- RAII: a scope that does not say "keep it" rolls back ---------------
+    {
+      UndoTransaction tx(stackG, docG, "scoped");
+      CHECK(tx.active());
+      CHECK(rect(40.0, 5.0));
+      CHECK_EQ_INT(tx.size(), 1);
+      UndoTransaction inner(stackG, docG, "inner");  // cannot own the open group
+      CHECK(!inner.active());
+      CHECK(!inner.commit());
+      CHECK_EQ_INT(inner.rollback(), 0);
+      CHECK(stackG.groupOpen());                     // the inner one closed nothing
+    }
+    CHECK(!stackG.groupOpen());
+    CHECK_EQ_STR(docG.irProgram(), before);
+    CHECK_EQ_INT(stackG.undoDepth(), 0);
+    CHECK_EQ_INT(stackG.redoDepth(), 1);
+    {
+      UndoTransaction tx(stackG, docG, "kept");
+      CHECK(rect(41.0, 5.0));
+      CHECK(rect(42.0, 5.0));
+      CHECK(tx.commit());
+      CHECK(!tx.active());
+      CHECK_EQ_INT(tx.rollback(), 0);                // committed is committed
+    }
+    CHECK_EQ_INT(stackG.undoDepth(), 1);
+    CHECK_EQ_STR(stackG.undoLabel(), "kept");
+    CHECK_EQ_INT(docG.records().size(), 3);
+    CHECK(stackG.undo(docG));
+    CHECK_EQ_STR(docG.irProgram(), before);
+
+    // -- a transaction closes only ITS OWN group --------------------------------
+    // clear() drops the open group (the document was replaced); someone opens a
+    // new one. The first owner's commit, rollback and destructor must leave it.
+    {
+      UndoTransaction first(stackG, docG, "first");
+      CHECK(first.active());
+      stackG.clear();
+      CHECK(!first.active());
+      CHECK(stackG.beginGroup("second"));
+      CHECK(rect(60.0, 5.0));
+      CHECK(!first.active());
+      CHECK(!first.commit());
+      CHECK_EQ_INT(first.rollback(), 0);
+      CHECK(stackG.groupOpen());                     // "second" is still open
+      CHECK_EQ_INT(stackG.groupSize(), 1);
+      CHECK_EQ_INT(stackG.rollbackGroup(docG), 1);
+      CHECK_EQ_STR(docG.irProgram(), before);
+    }
+    CHECK(!stackG.groupOpen());
+
+    // -- a REDO that cannot put back every member puts back none -------------
+    // Member 2 is a material edit; setting that material behind the stack's back
+    // makes its replay a no-op, which SetMaterialEdit refuses. The group must then
+    // take member 1 back again and stay on the redo branch.
+    const Material* ti = findMaterial("titanium-ti6al4v");
+    CHECK(ti != nullptr);
+    if (ti != nullptr) {
+      stackG.clear();
+      CHECK(stackG.beginGroup("rect + material"));
+      CHECK(rect(50.0, 5.0));
+      CHECK(stackG.perform(docG, std::make_unique<SetMaterialEdit>(*ti)));
+      CHECK(stackG.commitGroup());
+      CHECK(stackG.undo(docG));
+      CHECK_EQ_STR(docG.irProgram(), before);
+      CHECK(docG.setMaterial(*ti));                  // behind the stack's back
+      CHECK(!stackG.redo(docG));
+      CHECK_EQ_STR(docG.irProgram(), before);        // member 1 did not stay
+      CHECK_EQ_INT(stackG.redoDepth(), 1);           // and the group is not lost
+      CHECK_EQ_INT(stackG.undoDepth(), 0);
+    }
   }
 
   return H.finish();

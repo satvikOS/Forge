@@ -24,6 +24,12 @@
 // comes back UnknownCommand, so the reachable op set is by construction the set
 // of ops the 18 Part commands declare.
 //
+// The one non-const document this header names is applyPlanAsOneEdit's (T-189),
+// and it still writes nothing itself: it opens ONE undo transaction around those
+// dispatches, and when a step fails the transaction reverts what the handlers
+// wrote, through the same revert() bodies an Undo runs. A plan lands whole, as
+// one undo record, or not at all.
+//
 // ── the network seam ────────────────────────────────────────────────────────
 // forge::ui is HEADLESS and opens no socket, and neither does the ImGui frame
 // builder. So the CoPilot does not "call a model": it RAISES A REQUEST and
@@ -386,6 +392,25 @@ struct ApplyOutcome {
   // was made against.
   bool staleDocument = false;
 
+  // ── T-189: THE PLAN AS ONE EDIT ───────────────────────────────────────────
+  // True when the steps ran inside ONE undo transaction (applyPlanAsOneEdit, and
+  // ArchieCopilot::apply given the undo stack). The bare applyPlan() door below
+  // leaves this false: it records one undo step per dispatched step.
+  bool transaction = false;
+  // A step failed or was refused, so the transaction was ROLLED BACK: every edit
+  // the plan had already made was reverted, newest first -- including the edit of
+  // a step that wrote and then reported a failure, which `applied` never counted.
+  // `applied` still says how far the plan GOT; after a rollback none of it stays.
+  bool rolledBack = false;
+  std::size_t revertedEdits = 0;
+  // After a rollback: the document's statements, bindings, material and
+  // parameters read EXACTLY as they did before Apply. Compared, never assumed --
+  // "every edit was reverted" is the mechanism, this is the fact.
+  bool restored = false;
+  // Records this Apply left on the undo stack: 1 for a plan that landed whole
+  // (so one Undo takes the whole plan back), 0 for one that was rolled back.
+  std::size_t undoRecords = 0;
+
   std::vector<StepOutcome> steps;
 
   bool allOk() const noexcept { return requested > 0 && applied == requested; }
@@ -413,6 +438,40 @@ struct ApplyOutcome {
 // were written to consume what it would have produced.
 ApplyOutcome applyPlan(const Plan& plan, ForgeShell& shell, const PartDocument& document,
                        const OpConstraintBridge& bridge);
+
+// ── APPLY AS ONE EDIT (T-189) ───────────────────────────────────────────────
+// The user accepts a plan WHOLE, so it lands whole or not at all, and it is
+// undone whole. applyPlan() above dispatches the steps; this wraps it in ONE
+// UndoTransaction on `undo` -- the stack every Part command handler performs
+// onto, so it is the stack the steps' edits are recorded in.
+//
+//   * every step dispatched OK  -> the group commits as ONE undo record, labelled
+//                                  for the plan. One Undo restores the part the
+//                                  user had before Apply; one Redo puts all of it
+//                                  back.
+//   * any step failed/refused   -> the group ROLLS BACK: every edit made so far is
+//                                  reverted, newest first, and the undo AND redo
+//                                  history are left exactly as they were. That
+//                                  includes a step whose handler wrote and then
+//                                  refused -- an edit `applied` never counted, and
+//                                  so an edit a "one undo per applied step"
+//                                  rollback leaves behind.
+//   * a handler THROWS          -> rolled back the same way, then rethrown.
+//
+// The document is still never written HERE: dispatches write through their own
+// handlers, and the rollback reverts through the same UndoableEdit::revert()
+// bodies an Undo runs. After a rollback the host is told the document changed
+// (DocumentHost::documentChanged, when one is installed), because each step that
+// dispatched OK already told it the opposite.
+//
+// Refuses (nothing dispatched, `blocked` == requested) when a transaction is
+// already open on `undo`: it could not own the group, so it could not keep the
+// all-or-nothing promise.
+ApplyOutcome applyPlanAsOneEdit(const Plan& plan, ForgeShell& shell, PartDocument& document,
+                                UndoStack& undo, const OpConstraintBridge& bridge);
+
+// The undo record's name for an applied plan: "Archie: <what the user asked>".
+std::string planUndoLabel(const Plan& plan);
 
 // ── the transcript ──────────────────────────────────────────────────────────
 enum class TranscriptRole : std::uint8_t { User, Copilot, System };
@@ -478,6 +537,15 @@ class ArchieCopilot {
   // one is no longer the plan. Returns an all-zero outcome when there is nothing
   // on offer. Every step passes the op-constraint gate again on the way through
   // applyPlan(); a step the gate refuses is never dispatched.
+  //
+  // T-189: GIVEN THE UNDO STACK, the plan is applied AS ONE EDIT
+  // (applyPlanAsOneEdit): it lands whole as one undo record, or it is rolled back
+  // whole and the part is as it was. This is the form an application uses.
+  ApplyOutcome apply(ForgeShell& shell, PartDocument& document, UndoStack& undo);
+  // WITHOUT the stack it is the per-step form: one undo record per step, and a
+  // failed step leaves the steps before it applied for the CALLER to take back.
+  // It is kept only until ForgeFrame::runCopilotApply passes its stack (that
+  // file is held by another task); new callers use the form above.
   ApplyOutcome apply(ForgeShell& shell, const PartDocument& document);
 
   // What the last Accept did, step by step, kept until the next ask. The plan
@@ -517,6 +585,10 @@ class ArchieCopilot {
 
  private:
   void say(TranscriptRole role, std::string text);
+  // The half of apply() both forms share: nothing on offer, or a plan made
+  // against another revision. True when `out` is already the answer.
+  bool refuseApply(const PartDocument& document, ApplyOutcome& out);
+  ApplyOutcome finishApply(ApplyOutcome out);
 
   OpConstraintBridge bridge_;
   std::vector<TranscriptLine> transcript_;

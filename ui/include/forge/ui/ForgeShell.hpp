@@ -291,6 +291,14 @@ class ForgeShell {
   // are refreshed from the host immediately, and again after every dispatch.
   void setDocumentHost(DocumentHost* host) noexcept;
   DocumentHost* documentHost() const noexcept { return documentHost_; }
+  // Re-pulls the counters from the host NOW, for a change to the document's
+  // history that was not itself a dispatch. The one such change (T-189): an
+  // Archie plan's undo transaction COMMITS (or rolls back) after its last step's
+  // dispatch has already pulled the counters -- MEASURED: without this the status
+  // strip read "0 to undo" over a plan one Undo takes back, and `edit.undo`, which
+  // is enabled on that counter, was Disabled until some other command ran.
+  // Pulled, like every other refresh: nothing here is accumulated.
+  void refreshDocumentStats() { syncDocumentStats(); }
   // Why the last file.* command did not do what it says. Empty when it did.
   // `execute` returns void, so this is how a refused open reaches the UI.
   //

@@ -20,6 +20,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,7 +30,9 @@
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/Material.hpp"
 #include "forge/ui/OpConstraintBridge.hpp"
+#include "forge/ui/ParameterSet.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -870,6 +874,500 @@ int testPlanBinding() {
   return H.finish();
 }
 
+// ── 6. T-189: AN APPLIED PLAN IS ONE EDIT ────────────────────────────────────
+// A user accepts a plan WHOLE. Before T-189 the undo stack held one record per
+// step, so:
+//   * one Undo after a 3-step plan left two of its steps in the part;
+//   * the application's rollback of a failed plan undid one record per step that
+//     REPORTED success -- so a step whose handler wrote and then refused stayed
+//     in the part, and every step it did take back went onto the REDO branch,
+//     where Redo put the half-plan back.
+// Asserted here, through the same registry and undo stack the app uses:
+//   a. a 3-step plan is ONE undo record ("the journal shows one transaction"),
+//      ONE Undo restores the pre-plan document exactly, ONE Redo puts all three
+//      back with their ids;
+//   b. a fault injected at step 2 of 3 -- refused before writing, written THEN
+//      refused, or thrown after writing -- leaves the document byte-identical to
+//      before Apply AND the undo/redo history exactly as it was;
+//   c. the same for a step the op-constraint gate blocks and a step the command's
+//      own enabled predicate refuses (no injection);
+//   d. a plan cannot run inside a transaction it does not own.
+
+// EVERYTHING a document holds that a user or a file could see: every record (id,
+// command, label, kind, statement), every name binding, the material and the
+// parameters. The revision is NOT here: it moves on every mutation, a rollback
+// included, and is not content.
+std::string documentBytes(const PartDocument& doc) {
+  std::string out;
+  for (const FeatureRecord& r : doc.records()) {
+    out += std::to_string(r.irId) + "|" + r.commandId + "|" + r.label + "|" +
+           toString(r.produces) + "|" + r.line.text() + "\n";
+  }
+  for (const auto& kv : doc.snapshot().bindings) {
+    out += "bind " + kv.first + "=" + std::to_string(kv.second) + "\n";
+  }
+  const Material& m = doc.material();
+  out += "material " + m.id + "|" + m.name + "|" + std::to_string(m.densityKgPerM3) + "\n";
+  for (const ParameterDef& p : doc.parameters().parameters()) {
+    out += "param " + p.name + "=" + p.expression + "|" + p.comment + "\n";
+  }
+  for (const DimensionBinding& b : doc.parameters().bindings()) {
+    out += "drive " + std::to_string(b.irId) + ":" + b.argument + ":" +
+           std::to_string(b.slot) + "=" + b.expression + "\n";
+  }
+  return out;
+}
+
+enum class Fault : std::uint8_t {
+  None,
+  RefuseBeforeWrite,  // the handler refuses and writes nothing
+  WriteThenRefuse,    // the handler's edit lands, THEN it refuses (dispatch != Ok)
+  ThrowAfterWrite,    // the handler's edit lands, THEN it throws
+  // The handler changes the document BEHIND the undo stack (a direct write no
+  // UndoableEdit records), then refuses. No rollback can take that back -- the
+  // case exists to prove `restored` is MEASURED: it must come back false here.
+  WriteBehindStackThenRefuse,
+};
+
+// The app's own Part commands, through the shell's own registry -- with ONE
+// handler wrapped to fail on cue. CommandRegistry::add refuses a duplicate id, so
+// the commands are registered into a SOURCE registry first and copied across,
+// the chosen one wrapped on the way: the registry under test never holds the
+// unwrapped handler for that id. Every other command is the shipped one.
+struct FaultFixture {
+  ForgeShell shell;
+  PartDocument doc;
+  UndoStack undo;
+  CommandRegistry source;
+  std::size_t faultCalls = 0;
+
+  FaultFixture(const std::string& faultId, Fault fault) {
+    doc.seed(IrValueKind::Profile, "sketch.base", "RECT", {IrArg::num(80.0), IrArg::num(50.0)});
+    doc.seed(IrValueKind::Solid, "body.bracket", "EXTRUDE",
+             {IrArg::valueRef(1), IrArg::num(20.0)});
+    registerPartCommands(source, doc, undo);
+    for (const std::string& id : source.ids()) {
+      CommandDescriptor d = *source.find(id);
+      if (id == faultId && fault != Fault::None) {
+        std::function<void(CommandContext&)> real = d.execute;
+        d.execute = [this, real, fault](CommandContext& ctx) {
+          ++faultCalls;
+          if (fault == Fault::RefuseBeforeWrite) {
+            ctx.fail("injected fault: refused before writing");
+            return;
+          }
+          if (fault == Fault::WriteBehindStackThenRefuse) {
+            const Material* ti = findMaterial("titanium-ti6al4v");
+            if (ti != nullptr) doc.setMaterial(*ti);
+            ctx.fail("injected fault: wrote behind the undo stack, then refused");
+            return;
+          }
+          real(ctx);
+          if (fault == Fault::WriteThenRefuse) {
+            ctx.fail("injected fault: refused after its edit was recorded");
+            return;
+          }
+          throw std::runtime_error("injected fault: threw after its edit was recorded");
+        };
+      }
+      shell.registry().add(std::move(d));
+    }
+  }
+
+  // A user's own history BEFORE the plan: two edits, the second undone, so the
+  // stack holds one undo record AND one redo record. A plan that leaves either
+  // side different from this has rewritten the user's history.
+  void userHistory() {
+    shell.selection().replaceWith({EntityRef{"body.bracket", EntityKind::Edge, "e1", 1}});
+    CommandParams chamfer;
+    chamfer.setNumber("distance", 1.0);
+    chamfer.setText("selector", "VERTICAL");
+    userEdits += shell.run("part.chamfer", chamfer).ok() ? 1 : 0;
+    CommandParams sketch;
+    sketch.setNumber("width", 10.0);
+    sketch.setNumber("height", 6.0);
+    shell.selection().clearSelection();
+    userEdits += shell.run("part.sketch_rect", sketch).ok() ? 1 : 0;
+    userEdits += undo.undo(doc) ? 1 : 0;
+    shell.selection().clearSelection();
+  }
+  int userEdits = 0;
+};
+
+void planOnOffer(FaultFixture& fx, ArchieCopilot& cp, const std::string& intent, Harness& H) {
+  LocalPlanner planner;
+  cp.submit(intent, planTools(fx.shell.registry(), fx.shell.selection()), "nothing picked",
+            "seeded", fx.doc.revision());
+  const PlanResponse r = planner.plan(cp.request());
+  CHECK(r.ok);
+  CHECK_EQ_INT(static_cast<int>(cp.deliver(r, fx.shell.registry())),
+               static_cast<int>(PlanCheck::Ok));
+}
+
+const char* const kThreeSteps = "extrude 20 then fillet 4 then shell 2";
+
+// The document's owner, as the shell sees one: Ctrl+Z is `edit.undo` -> here, and
+// every Document-side-effect dispatch calls documentChanged(), which is when the
+// application re-derives its geometry. It records what the document read THE LAST
+// TIME it was told to re-derive -- the picture the app would be showing.
+struct RecordingHost final : DocumentHost {
+  PartDocument& doc;
+  UndoStack& undo;
+  std::size_t changed = 0;
+  std::string derivedFrom;
+  RecordingHost(PartDocument& d, UndoStack& u) : doc(d), undo(u) {}
+  bool documentNew(std::string& error) override { error = "test host"; return false; }
+  bool documentReset(std::string& error) override { error = "test host"; return false; }
+  bool documentOpen(const std::string&, std::string& error) override {
+    error = "test host";
+    return false;
+  }
+  bool documentSave(const std::string&, std::string& error) override {
+    error = "test host";
+    return false;
+  }
+  bool documentUndo() override {
+    if (!undo.undo(doc)) return false;
+    documentChanged();
+    return true;
+  }
+  bool documentRedo() override {
+    if (!undo.redo(doc)) return false;
+    documentChanged();
+    return true;
+  }
+  void documentChanged() override {
+    ++changed;
+    derivedFrom = documentBytes(doc);
+  }
+  std::size_t documentFeatureCount() const override { return doc.featureCount(); }
+  std::size_t documentUndoDepth() const override { return undo.undoDepth(); }
+  std::size_t documentRedoDepth() const override { return undo.redoDepth(); }
+  bool documentDirty() const override { return false; }
+  std::string documentPath() const override { return std::string(); }
+  std::vector<std::string> documentBoundFiles() const override { return {}; }
+};
+
+int testPlanTransaction() {
+  Harness H("archie_copilot:t189");
+
+  // ── a. ONE RECORD; ONE UNDO RESTORES; ONE REDO REPLAYS ─────────────────────
+  {
+    FaultFixture fx("", Fault::None);
+    fx.userHistory();
+    CHECK_EQ_INT(fx.userEdits, 3);
+    CHECK_EQ_INT(fx.undo.undoDepth(), 1);
+    CHECK_EQ_INT(fx.undo.redoDepth(), 1);
+    const std::string userUndoLabel = fx.undo.undoLabel();
+    const std::string before = documentBytes(fx.doc);
+    const std::size_t journalBefore = fx.shell.journal().size();
+
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc, fx.undo);
+    CHECK(out.transaction);
+    CHECK(out.allOk());
+    CHECK_EQ_INT(out.applied, 3);
+    CHECK(!out.rolledBack);
+    CHECK_EQ_INT(out.undoRecords, 1);
+    CHECK(!fx.undo.groupOpen());
+
+    // THE JOURNAL SHOWS ONE TRANSACTION: three dispatches went through the one
+    // door (the shell's journal lists each, unchanged contract) and the undo
+    // history -- the record of what can be taken back -- gained exactly ONE
+    // record, named for the plan the user accepted.
+    CHECK_EQ_INT(fx.shell.journal().size(), journalBefore + 3);
+    CHECK_EQ_INT(fx.undo.undoDepth(), 2);
+    CHECK_EQ_STR(fx.undo.undoLabel(), std::string("Archie: ") + kThreeSteps);
+    CHECK_EQ_INT(fx.undo.redoDepth(), 0);   // a new edit abandons redo, once
+    const std::string after = documentBytes(fx.doc);
+    CHECK(after != before);
+    CHECK_EQ_INT(fx.doc.records().size(), 6);  // 2 seeds + the user's chamfer + 3
+
+    // ONE Undo: the pre-plan document, byte for byte -- and the user's own
+    // chamfer, which is not the plan's, is still there.
+    CHECK(fx.undo.undo(fx.doc));
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK_EQ_INT(fx.undo.undoDepth(), 1);
+    CHECK_EQ_STR(fx.undo.undoLabel(), userUndoLabel);
+    // ONE Redo: all three, with the ids they had.
+    CHECK_EQ_INT(fx.undo.redoDepth(), 1);
+    CHECK(fx.undo.redo(fx.doc));
+    CHECK_EQ_STR(documentBytes(fx.doc), after);
+    CHECK(fx.undo.undo(fx.doc));
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    // The panel counted three steps applied and said so.
+    CHECK_EQ_INT(cp.stepsApplied(), 3);
+    CHECK(cp.lastOutcome().transaction);
+  }
+
+  // ── b. A FAULT AT STEP 2 OF 3, THREE WAYS ──────────────────────────────────
+  struct FaultCase {
+    Fault fault;
+    const char* name;
+    std::size_t reverted;  // edits the rollback must revert: step 1, plus step 2's own write
+  };
+  const FaultCase faults[] = {
+      {Fault::RefuseBeforeWrite, "refuse before write", 1},
+      {Fault::WriteThenRefuse, "write then refuse", 2},
+      {Fault::ThrowAfterWrite, "throw after write", 2},
+  };
+  for (const FaultCase& fc : faults) {
+    std::printf("  [t189] fault at step 2 of 3: %s\n", fc.name);
+    FaultFixture fx("part.fillet", fc.fault);
+    fx.userHistory();
+    CHECK_EQ_INT(fx.userEdits, 3);
+    const std::string before = documentBytes(fx.doc);
+    const std::size_t undoBefore = fx.undo.undoDepth();
+    const std::size_t redoBefore = fx.undo.redoDepth();
+    const std::string undoLabel = fx.undo.undoLabel();
+    const std::string redoLabel = fx.undo.redoLabel();
+    CHECK_EQ_INT(undoBefore, 1);
+    CHECK_EQ_INT(redoBefore, 1);
+
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const std::size_t faultCallsBefore = fx.faultCalls;
+    ApplyOutcome out;
+    bool threw = false;
+    try {
+      out = cp.apply(fx.shell, fx.doc, fx.undo);
+    } catch (const std::runtime_error& e) {
+      threw = true;
+      CHECK(std::string(e.what()).find("injected fault") != std::string::npos);
+    }
+    CHECK_EQ_INT(threw ? 1 : 0, fc.fault == Fault::ThrowAfterWrite ? 1 : 0);
+    CHECK(!cp.hasPlan());   // consumed, thrown or not: a failed plan is not offered again
+    CHECK_EQ_INT(fx.faultCalls, faultCallsBefore + 1);   // step 2 really ran
+
+    // THE ACCEPTANCE: the document is byte-identical to before Apply...
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    // ...and so is the history: nothing pushed, nothing lost, nothing on redo
+    // that the user did not put there.
+    CHECK_EQ_INT(fx.undo.undoDepth(), undoBefore);
+    CHECK_EQ_INT(fx.undo.redoDepth(), redoBefore);
+    CHECK_EQ_STR(fx.undo.undoLabel(), undoLabel);
+    CHECK_EQ_STR(fx.undo.redoLabel(), redoLabel);
+    CHECK(!fx.undo.groupOpen());
+    // The user's Redo still brings back THEIR edit, and not a step of the plan.
+    CHECK(fx.undo.redo(fx.doc));
+    CHECK(fx.doc.lastFeature() != nullptr &&
+          fx.doc.lastFeature()->commandId == "part.sketch_rect");
+    CHECK(fx.undo.undo(fx.doc));
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+
+    if (!threw) {
+      CHECK(out.transaction);
+      CHECK(out.rolledBack);
+      CHECK(out.restored);
+      CHECK_EQ_INT(out.undoRecords, 0);
+      CHECK_EQ_INT(out.applied, 1);                // how far it got...
+      CHECK_EQ_INT(out.revertedEdits, fc.reverted);  // ...and what was taken back
+      CHECK_EQ_INT(out.steps.size(), 2);           // step 3 never ran
+      if (out.steps.size() == 2) {
+        CHECK_EQ_INT(static_cast<int>(out.steps[1].dispatch.status),
+                     static_cast<int>(DispatchStatus::EditRefused));
+      }
+      CHECK_EQ_INT(cp.stepsApplied(), 0);          // nothing of it is in the part
+      // The transcript says what happened in words, and does not claim the steps
+      // before the failure are still applied.
+      const std::string said = cp.transcript().empty() ? std::string()
+                                                        : cp.transcript().back().text;
+      CHECK(said.find("your part is as it was") != std::string::npos);
+      CHECK(said.find("still applied") == std::string::npos);
+      CHECK(said.find("Applied 0 of 3") != std::string::npos);
+    }
+  }
+
+  // ── a FAULT AT THE LAST STEP: two whole steps and the third's write go back ─
+  {
+    FaultFixture fx("part.shell", Fault::WriteThenRefuse);
+    const std::string before = documentBytes(fx.doc);
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc, fx.undo);
+    CHECK(out.rolledBack);
+    CHECK(out.restored);
+    CHECK_EQ_INT(out.applied, 2);
+    CHECK_EQ_INT(out.revertedEdits, 3);
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK_EQ_INT(fx.undo.undoDepth(), 0);
+    CHECK_EQ_INT(fx.undo.redoDepth(), 0);
+  }
+
+  // ── `restored` is MEASURED, not assumed ────────────────────────────────────
+  // A handler that writes behind the stack leaves something no rollback can
+  // revert. The outcome must then say the part does NOT read as it did, and the
+  // panel must not tell the user it does.
+  {
+    FaultFixture fx("part.fillet", Fault::WriteBehindStackThenRefuse);
+    const std::string before = documentBytes(fx.doc);
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc, fx.undo);
+    CHECK(out.rolledBack);
+    CHECK_EQ_INT(out.revertedEdits, 1);           // step 1 was taken back...
+    CHECK(!out.restored);                          // ...and the part still differs
+    CHECK(documentBytes(fx.doc) != before);
+    CHECK_EQ_STR(fx.doc.material().id, "titanium-ti6al4v");
+    CHECK_EQ_INT(fx.doc.records().size(), 2);      // the statements are back to the seeds
+    const std::string said = cp.transcript().empty() ? std::string()
+                                                      : cp.transcript().back().text;
+    CHECK(said.find("your part is as it was") == std::string::npos);
+    CHECK(said.find("does not read as it did before") != std::string::npos);
+  }
+
+  // ── c. NO INJECTION: the command's own predicate, and the op-constraint gate ─
+  // The counterbore narrower than its hole is refused by part.counterbore's own
+  // enabled predicate (testRefusal measures it) -- a real step-2 failure.
+  {
+    FaultFixture fx("", Fault::None);
+    const std::string before = documentBytes(fx.doc);
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, "extrude 20 then counterbore 30 then fillet 2", H);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc, fx.undo);
+    CHECK_EQ_INT(out.applied, 1);
+    CHECK_EQ_INT(out.steps.size(), 2);
+    if (out.steps.size() == 2) {
+      CHECK_EQ_INT(static_cast<int>(out.steps[1].dispatch.status),
+                   static_cast<int>(DispatchStatus::Disabled));
+    }
+    CHECK(out.rolledBack);
+    CHECK(out.restored);
+    CHECK_EQ_INT(out.revertedEdits, 1);
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK_EQ_INT(fx.undo.undoDepth(), 0);
+  }
+  // A plan handed straight to the door whose step 2 the op-constraint gate
+  // blocks: step 1 has already run when the gate stops step 2.
+  {
+    FaultFixture fx("", Fault::None);
+    const std::string before = documentBytes(fx.doc);
+    Plan p;
+    p.intent = "extrude, then a fillet that smuggles a SLOT";
+    PlanStep extrude;
+    extrude.commandId = "part.extrude";
+    extrude.irOp = "EXTRUDE";
+    extrude.select = PlanSelect::LatestProfile;
+    extrude.args.push_back(PlanArg::num("distance", 20.0));
+    p.steps.push_back(extrude);
+    PlanStep fillet;
+    fillet.commandId = "part.fillet";
+    fillet.irOp = "FILLET";
+    fillet.select = PlanSelect::LatestSolid;
+    fillet.args.push_back(PlanArg::num("radius", 2.0));
+    fillet.args.push_back(PlanArg::str("selector", "SLOT"));
+    p.steps.push_back(fillet);
+    PlanStep shell;
+    shell.commandId = "part.shell";
+    shell.irOp = "SHELL";
+    shell.select = PlanSelect::LatestSolid;
+    shell.args.push_back(PlanArg::num("thickness", 2.0));
+    p.steps.push_back(shell);
+    const OpConstraintBridge bridge;
+    const ApplyOutcome out = applyPlanAsOneEdit(p, fx.shell, fx.doc, fx.undo, bridge);
+    CHECK_EQ_INT(out.applied, 1);
+    CHECK_EQ_INT(out.blocked, 1);
+    CHECK(out.rolledBack);
+    CHECK(out.restored);
+    CHECK_EQ_INT(out.revertedEdits, 1);
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK_EQ_INT(fx.undo.undoDepth(), 0);
+    CHECK_EQ_INT(fx.shell.journal().size(), 1);   // the extrude did dispatch
+  }
+
+  // ── e. THROUGH THE SHELL'S OWN UNDO, WITH A HOST THAT DERIVES GEOMETRY ─────
+  // The application's Ctrl+Z is `edit.undo` through the shell to its document
+  // host. ONE of them takes a 3-step plan back. And after a rolled-back plan the
+  // host's LAST re-derivation must be of the restored document: every step that
+  // dispatched OK told it the document had moved, so the rollback must tell it
+  // too, or the viewport keeps drawing a part that is no longer the document.
+  {
+    FaultFixture fx("", Fault::None);
+    RecordingHost host(fx.doc, fx.undo);
+    fx.shell.setDocumentHost(&host);
+    const std::string before = documentBytes(fx.doc);
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc, fx.undo);
+    CHECK(out.allOk());
+    CHECK_EQ_INT(fx.shell.document().undoDepth, 1);   // what the status strip reads
+    CHECK(fx.shell.run("edit.undo").ok());
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK_EQ_STR(host.derivedFrom, before);
+    CHECK_EQ_INT(fx.shell.document().undoDepth, 0);
+    CHECK(fx.shell.run("edit.redo").ok());
+    CHECK_EQ_INT(fx.doc.records().size(), 5);
+    fx.shell.setDocumentHost(nullptr);
+  }
+  {
+    FaultFixture fx("part.fillet", Fault::WriteThenRefuse);
+    RecordingHost host(fx.doc, fx.undo);
+    fx.shell.setDocumentHost(&host);
+    const std::string before = documentBytes(fx.doc);
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const std::size_t changedBefore = host.changed;
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc, fx.undo);
+    CHECK(out.rolledBack);
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK_EQ_INT(host.changed, changedBefore + 2);  // step 1's dispatch, then the rollback
+    CHECK_EQ_STR(host.derivedFrom, before);         // the picture is the restored part
+    CHECK_EQ_INT(fx.shell.document().undoDepth, 0);
+    fx.shell.setDocumentHost(nullptr);
+  }
+  {
+    // ...and when a handler THROWS, the host is told before the exception leaves.
+    FaultFixture fx("part.fillet", Fault::ThrowAfterWrite);
+    RecordingHost host(fx.doc, fx.undo);
+    fx.shell.setDocumentHost(&host);
+    const std::string before = documentBytes(fx.doc);
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    bool threw = false;
+    try {
+      cp.apply(fx.shell, fx.doc, fx.undo);
+    } catch (const std::runtime_error&) {
+      threw = true;
+    }
+    CHECK(threw);
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK_EQ_STR(host.derivedFrom, before);
+    fx.shell.setDocumentHost(nullptr);
+  }
+
+  // ── d. NOT INSIDE A TRANSACTION IT DOES NOT OWN ─────────────────────────────
+  {
+    FaultFixture fx("", Fault::None);
+    const std::string before = documentBytes(fx.doc);
+    UndoTransaction outer(fx.undo, fx.doc, "someone else's edit");
+    CHECK(outer.active());
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc, fx.undo);
+    CHECK_EQ_INT(out.applied, 0);
+    CHECK_EQ_INT(out.blocked, 3);
+    CHECK(!out.transaction);
+    CHECK_EQ_INT(fx.shell.journal().size(), 0);   // nothing dispatched
+    CHECK_EQ_STR(documentBytes(fx.doc), before);
+    CHECK(fx.undo.groupOpen());                   // and the owner's group is still open
+    CHECK_EQ_INT(outer.rollback(), 0);
+  }
+
+  // ── the per-step form is unchanged: what ForgeFrame calls until it passes its
+  //    stack. It records one undo step per step, and is NOT a transaction.
+  {
+    FaultFixture fx("", Fault::None);
+    ArchieCopilot cp;
+    planOnOffer(fx, cp, kThreeSteps, H);
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc);
+    CHECK(!out.transaction);
+    CHECK_EQ_INT(out.applied, 3);
+    CHECK_EQ_INT(fx.undo.undoDepth(), 3);
+  }
+  return H.finish();
+}
+
 }  // namespace
 
 int main() {
@@ -882,5 +1380,6 @@ int main() {
   rc |= testOpConstraintGate();
   rc |= testTools();
   rc |= testPlanBinding();
+  rc |= testPlanTransaction();
   return rc;
 }
