@@ -52,12 +52,78 @@
 //   6  the part is not edited before the staleness  -> the answer does not go
 //      check                                           stale. Proves the
 //                                                      staleness check is real.
+//
+//   PART C  the MODAL study is real physics. The same steel cantilever is asked
+//           for its eight lowest natural frequencies through the same seam
+//           (forge::desktop::runStudy, StudyKind::Modal). Each mode is
+//           identified from its OWN shape (bending along Y or Z, twisting,
+//           stretching) and compared with its closed form: Euler-Bernoulli for
+//           the first two bending pairs, Saint-Venant torsion of a square
+//           section, and the axial bar. The first frequency is also checked
+//           against the STATIC study's own tip stiffness (Part A) through the
+//           Euler-Bernoulli effective mass, so the modal mass and the static
+//           stiffness cannot be wrong together unnoticed. Doubling every
+//           dimension must halve every frequency, and a material with the same
+//           Poisson ratio must scale every frequency by sqrt(E / rho); both are
+//           exact, and luck cannot produce them. Three mesh resolutions are
+//           solved and the first frequency must converge.
+//
+//   PART D  the steady THERMAL study is real physics. A bar held at 100 C and
+//           20 C must reproduce the straight-line temperature at EVERY node and
+//           conduct k A dT / L through each end, read off the nodal reactions;
+//           a bar generating heat with both ends at 20 C must peak at
+//           T0 + q L^2 / 8k mid-way and send half the heat out of each end; and
+//           a square plate with one hot side must converge towards the
+//           superposition answer of a quarter of the difference at its centre.
+//           In every case the heat in, the heat out and the heat generated must
+//           balance.
+//
+//   7  the modal beam is built half as long again   -> every bending frequency
+//      as the closed forms assume                      falls to about 0.44 of
+//                                                      itself. Proves the real
+//                                                      length reaches the modal
+//                                                      solve. (150 mm, not 200:
+//                                                      200 mm at 40 across lands
+//                                                      in the size band the
+//                                                      kernel solves slowly, and
+//                                                      the mutation would go red
+//                                                      on that refusal instead.)
+//   8  the modal beam is made of nylon              -> frequencies fall to a
+//                                                      third. Proves the chosen
+//                                                      material's stiffness and
+//                                                      density reach it.
+//   9  the modal restraint holds the end along Z    -> the beam is free to slide
+//      only                                            and swing in Y: no first
+//                                                      bending pair at the beam
+//                                                      frequency. Proves the
+//                                                      restraint's directions
+//                                                      reach the eigen-solve.
+//  10  only two modes are asked for                 -> the second bending pair,
+//                                                      the torsion and the axial
+//                                                      mode are missing. Proves
+//                                                      the mode count reaches it.
+//  11  the thermal bar is built a thousand times    -> the conducted heat falls
+//      larger                                          a thousandfold. Proves a
+//                                                      millimetre / metre slip
+//                                                      cannot pass.
+//  12  the thermal bar is made of aluminium         -> about three times the
+//                                                      heat. Proves the chosen
+//                                                      conductivity reaches the
+//                                                      solve.
+//  13  both ends of the thermal bar are held at     -> nothing flows. Proves the
+//      100 C                                           second side's temperature
+//                                                      reaches the solve.
+//  14  the generating bar is given no heat           -> it stays at 20 C. Proves
+//                                                      the heat generated
+//                                                      reaches the solve.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -138,6 +204,108 @@ forge::ui::StudyOutcome solveBeam(const std::string& program,
   const forge::ui::StudyOutcome out = forge::desktop::runStudy(req, detail);
   if (!out.solved && !detail.empty()) std::printf("      [detail] %s\n", detail.c_str());
   return out;
+}
+
+// ── PART C/D helpers ────────────────────────────────────────────────────────
+forge::ui::StudyOutcome solveKind(const std::string& program,
+                                  const forge::ui::StudyDefinition& study) {
+  forge::desktop::StudyRequest req;
+  req.irProgram = program;
+  req.study = study;
+  std::string detail;
+  const forge::ui::StudyOutcome out = forge::desktop::runStudy(req, detail);
+  if (!out.solved && !detail.empty()) std::printf("      [detail] %s\n", detail.c_str());
+  return out;
+}
+
+forge::ui::StudyDefinition modalStudy(const char* materialId, int divisions, int modes) {
+  forge::ui::StudyDefinition s = steelStudy(materialId);
+  s.kind = forge::ui::StudyKind::Modal;
+  s.divisions = divisions;
+  s.modeCount = modes;
+  return s;
+}
+
+forge::ui::StudyDefinition thermalStudy(const char* materialId, int divisions) {
+  forge::ui::StudyDefinition s;
+  const forge::ui::Material* m = forge::ui::findMaterial(materialId);
+  if (m != nullptr) {
+    s.materialId = m->id;
+    s.materialName = m->name;
+    s.densityKgPerM3 = m->densityKgPerM3;
+  }
+  s.kind = forge::ui::StudyKind::Thermal;
+  s.divisions = divisions;
+  return s;
+}
+
+double rel(double got, double want) {
+  return std::fabs(got - want) / std::max(std::fabs(want), 1e-300);
+}
+
+// Euler-Bernoulli cantilever roots beta_n L of cos(bL) cosh(bL) = -1.
+constexpr double kBeta1L = 1.8751040687119611;
+constexpr double kBeta2L = 4.6940911329741745;
+constexpr double kPi = 3.14159265358979323846;
+
+// The n-th Euler-Bernoulli bending frequency of a square-section cantilever.
+double bernoulliHz(double betaL, double lengthM, double sideM, double E, double rho) {
+  const double I = sideM * sideM * sideM * sideM / 12.0;
+  const double A = sideM * sideM;
+  return betaL * betaL / (2.0 * kPi * lengthM * lengthM) * std::sqrt(E * I / (rho * A));
+}
+
+// The first Saint-Venant torsion frequency of a fixed-free square bar:
+//   f = (1 / 4L) sqrt(G J / (rho Ip)),  J = 0.1406 a^4,  Ip = a^4 / 6.
+double torsionHz(double lengthM, double E, double nu, double rho) {
+  const double G = E / (2.0 * (1.0 + nu));
+  const double JoverIp = 0.1406 * 6.0;
+  return std::sqrt(G * JoverIp / rho) / (4.0 * lengthM);
+}
+
+// The first axial frequency of a fixed-free bar: f = (1 / 4L) sqrt(E / rho).
+double axialHz(double lengthM, double E, double rho) {
+  return std::sqrt(E / rho) / (4.0 * lengthM);
+}
+
+// ── the bands, and where each one comes from ───────────────────────────────
+// MEASURED on the 100 x 10 x 10 mm mild-steel cantilever, 40 bricks along
+// (T-340 evidence, study_gate_r1.log / r2.log):
+//   first bending   812.802 Hz  / Euler-Bernoulli 814.344 Hz  = 0.99811
+//   second bending 4888.37 Hz   / Euler-Bernoulli 5103.40 Hz  = 0.9579
+//   first torsion  7404.36 Hz   / Saint-Venant    7206.0 Hz   = 1.0275
+//   first axial   12645.12 Hz   / bar formula    12602.82 Hz  = 1.00336
+//   static cross-check 812.802 / 813.651 Hz                   = 0.99896
+// Each band holds the measured value with room, and refuses the errors that
+// matter: a units slip is orders of magnitude, a wrong material a factor of
+// three, a wrong length a factor of four.
+//   * first bending: shear and rotary inertia LOWER a 10:1 beam's first mode
+//     slightly below Euler-Bernoulli; a value above it by more than 1% would be
+//     a stiffness or mass error, not a modelling choice.
+//   * second bending: the same effects lower the second mode several per cent
+//     (Timoshenko); it must sit BELOW Euler-Bernoulli and not far below.
+//   * torsion: four bricks across the section over-stiffen the warping, and
+//     the held end stops warping altogether; both raise the FE value above the
+//     free-warping Saint-Venant one. Up to 5% above is accepted, below is not.
+//   * axial: Poisson contraction is restrained at the held end, a small rise.
+constexpr double kBend1Low = 0.97, kBend1High = 1.01;
+constexpr double kBend2Low = 0.92, kBend2High = 0.99;
+constexpr double kTwistLow = 0.99, kTwistHigh = 1.05;
+constexpr double kAxialLow = 0.99, kAxialHigh = 1.02;
+constexpr double kStaticCrossBand = 0.01;
+// The square plate's centre, 40 across: measured -0.0228 K off 25 C.
+constexpr double kPlateCentreBandK = 0.05;
+
+// The index of the first mode of a character (and, for bending, a direction),
+// or -1.
+int findMode(const forge::ui::StudyOutcome& o, forge::ui::ModeCharacter c, int direction,
+             int startAt) {
+  for (std::size_t i = static_cast<std::size_t>(startAt); i < o.modes.size(); ++i) {
+    if (o.modes[i].motion.character != c) continue;
+    if (direction >= 0 && o.modes[i].motion.direction != direction) continue;
+    return static_cast<int>(i);
+  }
+  return -1;
 }
 
 struct HeadlessImGui {
@@ -405,6 +573,652 @@ int main(int argc, char** argv) {
     for (const std::string& s : sentences) {
       check(forge::ui::userFacingProseIsClean(s), "a refusal is written for a person",
             forge::ui::describeProseFindings(forge::ui::scanUserFacingProse(s)));
+    }
+  }
+
+  // ══ PART C: the modal study ══════════════════════════════════════════════
+  //
+  // The cantilever of Part A -- 100 x 10 x 10 mm mild steel held on its -X end
+  // -- asked for its eight lowest natural frequencies. The CLOSED FORMS are
+  // about the beam the comparison names (100 mm long). Mutation 7 builds a
+  // different one and leaves the reference alone.
+  {
+    std::printf("[gate] PART C: solving the cantilever's natural frequencies...\n");
+    const double L = 0.100, a = 0.010;
+    const forge::ui::ElasticProperties* st = forge::ui::elasticPropertiesFor("steel-1018");
+    const forge::ui::Material* stm = forge::ui::findMaterial("steel-1018");
+    check(st != nullptr && stm != nullptr, "mild steel carries stiffness and density", "");
+    if (st == nullptr || stm == nullptr) return 1;
+    const double E = st->youngsModulusPa, nu = st->poissonRatio, rho = stm->densityKgPerM3;
+
+    const std::string modalProgram =
+        g_mutation == 7 ? beamProgram(150.0, 10.0, 10.0) : beamProgram(100.0, 10.0, 10.0);
+    forge::ui::StudyDefinition modal =
+        modalStudy(g_mutation == 8 ? "nylon-66" : "steel-1018", 40, g_mutation == 10 ? 2 : 8);
+    if (g_mutation == 9) {
+      modal.restraints[0].holdX = false;
+      modal.restraints[0].holdY = false;
+    }
+    check(forge::ui::studyBlocker(modal, true).empty(), "a complete modal study is not blocked",
+          forge::ui::studyBlocker(modal, true));
+    // A modal study needs no force: the set-up above has none.
+    check(modal.loads.empty(), "the modal study carries no force", "");
+
+    const forge::ui::StudyOutcome m = solveKind(modalProgram, modal);
+    check(m.solved, "the modal study solves", m.blocker);
+    check(m.kind == forge::ui::StudyKind::Modal, "the answer says it is a modal one", "");
+    if (m.solved) {
+      std::printf("[gate] %zu points, %zu pieces, %zu freedoms (%zu held), %.1f ms, mass %.6f kg\n",
+                  m.meshNodes, m.meshElements, m.freedoms, m.heldFreedoms, m.solveMs,
+                  m.meshMassKg);
+      for (std::size_t i = 0; i < m.modes.size(); ++i) {
+        const forge::ui::NaturalMode& md = m.modes[i];
+        std::printf("[gate]   mode %zu  %10.2f Hz  %-22s share x %.3f y %.3f z %.3f twist %.3f\n",
+                    i + 1, md.frequencyHz, md.motion.describe().c_str(), md.motion.share[0],
+                    md.motion.share[1], md.motion.share[2], md.motion.twist);
+      }
+    }
+    if (m.solved) {
+      check(m.modesRequested == modal.modeCount, "the answer records how many modes were asked",
+            std::to_string(m.modesRequested));
+      check(m.modes.size() == 8, "eight modes came back", std::to_string(m.modes.size()));
+      check(m.modeShapes.size() == m.modes.size(), "one shape per mode",
+            std::to_string(m.modeShapes.size()));
+      bool ascending = true, positive = true;
+      for (std::size_t i = 0; i < m.modes.size(); ++i) {
+        if (!(m.modes[i].frequencyHz > 0.0)) positive = false;
+        if (i > 0 && m.modes[i].frequencyHz < m.modes[i - 1].frequencyHz) ascending = false;
+        // f = sqrt(omega^2) / 2 pi, exactly as the solver's value says.
+        check(std::fabs(m.modes[i].frequencyHz - std::sqrt(m.modes[i].eigenvalue) / (2.0 * kPi)) <=
+                  1e-12 * m.modes[i].frequencyHz,
+              "each frequency is the solver's own omega^2 converted", num(m.modes[i].frequencyHz));
+      }
+      check(ascending, "the modes come lowest first", "");
+      check(positive, "every frequency of a held part is above zero", "");
+
+      // The mass that vibrates is the mass of the part: a box meshes exactly.
+      // 1e-6, not round-off: the mesher sizes its bricks off the kernel's bounding
+      // box, which carries the shape's 1e-7 mm tolerance on each side.
+      check(rel(m.meshMassKg, rho * L * a * a) < 1e-6, "the vibrating mass is the beam's mass",
+            num(m.meshMassKg) + " kg vs " + num(rho * L * a * a));
+      check(rel(m.meshVolumeMm3, m.partVolumeMm3) < 1e-6,
+            "a box's bricks fill exactly the box", num(m.meshVolumeMm3) + " vs " +
+                                                       num(m.partVolumeMm3));
+
+      // ── every shape is fixed where the beam is held, and scaled to 1 ──────
+      // The held side's nodes are read off the solved surface's coordinates: the
+      // -X end is the smallest x of the mesh.
+      const std::vector<double>& xyz = m.surface.nodesMm;
+      check(xyz.size() == m.meshNodes * 3, "the drawn surface carries every mesh node",
+            std::to_string(xyz.size() / 3));
+      double xMin = 1e300;
+      for (std::size_t n = 0; n < xyz.size() / 3; ++n) xMin = std::min(xMin, xyz[3 * n]);
+      for (std::size_t k = 0; k < m.modeShapes.size(); ++k) {
+        const std::vector<double>& sh = m.modeShapes[k];
+        double heldMax = 0.0, peak = 0.0;
+        for (std::size_t n = 0; n < sh.size() / 3; ++n) {
+          const double mag = std::sqrt(sh[3 * n] * sh[3 * n] + sh[3 * n + 1] * sh[3 * n + 1] +
+                                       sh[3 * n + 2] * sh[3 * n + 2]);
+          peak = std::max(peak, mag);
+          if (std::fabs(xyz[3 * n] - xMin) < 1e-9) heldMax = std::max(heldMax, mag);
+        }
+        check(heldMax == 0.0, "a mode shape does not move the held end", num(heldMax));
+        check(std::fabs(peak - 1.0) < 1e-12, "a mode shape's furthest point moves exactly 1",
+              num(peak));
+      }
+
+      // ── the first bending pair: Euler-Bernoulli ────────────────────────────
+      // A square section bends equally in Y and in Z, so the two lowest modes are
+      // one of each at one frequency. Euler-Bernoulli ignores shear and rotary
+      // inertia, which lower a 10:1 beam's first frequency by well under 1%; the
+      // band is therefore tight above 1 and allows that below.
+      const double eb1 = bernoulliHz(kBeta1L, L, a, E, rho);
+      const double eb2 = bernoulliHz(kBeta2L, L, a, E, rho);
+      // The pair: the two lowest modes both bend, at one frequency, and between
+      // them they move the beam along Y and along Z. Which mixture of the two
+      // directions each one is, the solver is free to choose -- any mixture of
+      // two modes at one frequency is a mode -- so it is the PAIR that is
+      // checked, not each member's direction.
+      auto pairAt = [&](int first, const char* what, double ref, double lowBand,
+                        double highBand) -> bool {
+        if (first < 0 || first + 1 >= static_cast<int>(m.modes.size())) {
+          check(false, what, "not found");
+          return false;
+        }
+        const forge::ui::NaturalMode& p = m.modes[static_cast<std::size_t>(first)];
+        const forge::ui::NaturalMode& q = m.modes[static_cast<std::size_t>(first + 1)];
+        const bool bothBend = p.motion.character == forge::ui::ModeCharacter::Bending &&
+                              q.motion.character == forge::ui::ModeCharacter::Bending;
+        const double spanY = p.motion.share[1] + q.motion.share[1];
+        const double spanZ = p.motion.share[2] + q.motion.share[2];
+        std::printf("[gate] %s %.3f / %.3f Hz against Euler-Bernoulli %.3f Hz (ratio %.5f); "
+                    "the pair moves Y %.3f, Z %.3f\n",
+                    what, p.frequencyHz, q.frequencyHz, ref, p.frequencyHz / ref, spanY, spanZ);
+        check(bothBend, what, "both members bend");
+        check(rel(p.frequencyHz, q.frequencyHz) < 1e-3,
+              "a square beam bends at one frequency either way",
+              num(p.frequencyHz) + " vs " + num(q.frequencyHz));
+        check(spanY > forge::ui::kModeShareThreshold && spanZ > forge::ui::kModeShareThreshold,
+              "the pair moves the beam along both Y and Z", num(spanY) + ", " + num(spanZ));
+        check(p.frequencyHz / ref > lowBand && p.frequencyHz / ref < highBand, what,
+              "ratio " + num(p.frequencyHz / ref));
+        return true;
+      };
+      const int first = findMode(m, forge::ui::ModeCharacter::Bending, -1, 0);
+      check(first == 0, "the lowest mode of a cantilever bends", std::to_string(first));
+      pairAt(first, "first bending", eb1, kBend1Low, kBend1High);
+      const int second =
+          first >= 0 ? findMode(m, forge::ui::ModeCharacter::Bending, -1, first + 2) : -1;
+      pairAt(second, "second bending", eb2, kBend2Low, kBend2High);
+      const int y1 = first;
+      // ── torsion and stretching ─────────────────────────────────────────────
+      const int tw = findMode(m, forge::ui::ModeCharacter::Twisting, 0, 0);
+      const int ax = findMode(m, forge::ui::ModeCharacter::Stretching, 0, 0);
+      check(tw >= 0, "a twisting mode about the beam's axis is found", "");
+      check(ax >= 0, "a stretching mode along the beam's axis is found", "");
+      if (tw >= 0) {
+        const double f = m.modes[static_cast<std::size_t>(tw)].frequencyHz;
+        const double ref = torsionHz(L, E, nu, rho);
+        std::printf("[gate] torsion %.3f Hz against Saint-Venant %.3f Hz (ratio %.5f)\n", f, ref,
+                    f / ref);
+        check(f / ref > kTwistLow && f / ref < kTwistHigh,
+              "the torsion frequency agrees with Saint-Venant", "ratio " + num(f / ref));
+      }
+      if (ax >= 0) {
+        const double f = m.modes[static_cast<std::size_t>(ax)].frequencyHz;
+        const double ref = axialHz(L, E, rho);
+        std::printf("[gate] axial %.3f Hz against the bar formula %.3f Hz (ratio %.5f)\n", f, ref,
+                    f / ref);
+        check(f / ref > kAxialLow && f / ref < kAxialHigh,
+              "the axial frequency agrees with the bar formula", "ratio " + num(f / ref));
+      }
+
+      // ── the modal mass against the STATIC stiffness ────────────────────────
+      // Part A's own path, unmutated: k = F / tip. For an Euler-Bernoulli
+      // cantilever omega1^2 = k / m_eff with m_eff = 3 m / (beta1 L)^4.
+      if (y1 >= 0) {
+        forge::ui::StudyDefinition stat = steelStudy("steel-1018");
+        forge::ui::Load tip;
+        tip.face = forge::ui::StudyFace::MaxX;
+        tip.fz = -100.0;
+        stat.loads.push_back(tip);
+        const forge::ui::StudyOutcome so = solveBeam(beamProgram(100.0, 10.0, 10.0), stat);
+        // (the same 40 bricks along, so stiffness and mass come off one mesh)
+        check(so.solved, "the cross-check's static study solves", so.blocker);
+        if (so.solved) {
+          const double k = 100.0 / (so.maxDisplacementMm / 1000.0);
+          const double meff = 3.0 * rho * L * a * a / std::pow(kBeta1L, 4.0);
+          const double fs = std::sqrt(k / meff) / (2.0 * kPi);
+          const double f1 = m.modes[static_cast<std::size_t>(y1)].frequencyHz;
+          std::printf("[gate] first frequency from the static tip stiffness %.3f Hz, modal %.3f Hz "
+                      "(ratio %.5f)\n", fs, f1, f1 / fs);
+          check(rel(f1, fs) < kStaticCrossBand,
+                "the modal answer agrees with the static study's stiffness",
+                "ratio " + num(f1 / fs));
+        }
+      }
+
+      // ── similarity: twice the size, half the frequency ─────────────────────
+      {
+        const forge::ui::StudyOutcome big =
+            solveKind(beamProgram(200.0, 20.0, 20.0), modalStudy("steel-1018", 40, 8));
+        check(big.solved && big.modes.size() == m.modes.size(),
+              "the doubled beam solves to as many modes", big.blocker);
+        if (big.solved && big.modes.size() == m.modes.size()) {
+          double worst = 0.0;
+          for (std::size_t i = 0; i < m.modes.size(); ++i) {
+            worst = std::max(worst, rel(big.modes[i].frequencyHz, 0.5 * m.modes[i].frequencyHz));
+          }
+          std::printf("[gate] doubled beam: worst relative miss of half the frequency %.3g\n",
+                      worst);
+          check(worst < 1e-6, "doubling every dimension halves every frequency", num(worst));
+        }
+      }
+      // ── material: same Poisson ratio, every frequency scales by sqrt(E/rho) ─
+      {
+        const forge::ui::ElasticProperties* s2 = forge::ui::elasticPropertiesFor("steel-4140");
+        const forge::ui::Material* s2m = forge::ui::findMaterial("steel-4140");
+        check(s2 != nullptr && s2m != nullptr && s2->poissonRatio == nu,
+              "alloy steel has mild steel's Poisson ratio", "");
+        if (s2 != nullptr && s2m != nullptr) {
+          const double factor =
+              std::sqrt((s2->youngsModulusPa / s2m->densityKgPerM3) / (E / rho));
+          const forge::ui::StudyOutcome alloy =
+              solveKind(beamProgram(100.0, 10.0, 10.0), modalStudy("steel-4140", 40, 8));
+          check(alloy.solved && alloy.modes.size() == m.modes.size(),
+                "the alloy beam solves to as many modes", alloy.blocker);
+          if (alloy.solved && alloy.modes.size() == m.modes.size()) {
+            double worst = 0.0;
+            for (std::size_t i = 0; i < m.modes.size(); ++i) {
+              worst = std::max(worst, rel(alloy.modes[i].frequencyHz,
+                                          factor * m.modes[i].frequencyHz));
+            }
+            std::printf("[gate] alloy steel: factor %.6f, worst relative miss %.3g\n", factor,
+                        worst);
+            check(worst < 1e-6, "every frequency scales by sqrt(E / rho)", num(worst));
+          }
+        }
+      }
+
+      // ── the surface the mode shape is drawn on ─────────────────────────────
+      // 40 x 4 x 4 bricks: 2 (40*4 + 4*4 + 40*4) outside faces, 4 (40 + 4 + 4)
+      // crease segments along the box's twelve edges, and by Euler's formula
+      // V - E + F = 2 the outside edges are V + F - 2 with V = 41*5*5 - 39*3*3.
+      check(m.surface.quadCount() == 672, "the drawn surface is the mesh's outside",
+            std::to_string(m.surface.quadCount()));
+      check(m.surface.creaseCount() == 192, "its corners are the box's twelve edges",
+            std::to_string(m.surface.creaseCount()));
+      check(m.surface.edgeCount() == 674 + 672 - 2, "its edges satisfy Euler's formula",
+            std::to_string(m.surface.edgeCount()));
+      if (!m.modeShapes.empty()) {
+        const double amp = forge::ui::modeDisplayAmplitudeMm(100.0);
+        const std::vector<forge::ui::Segment3> rest =
+            forge::ui::modeShapeSegments(m.surface, m.modeShapes[0], amp, 0.0, true);
+        const std::vector<forge::ui::Segment3> peak =
+            forge::ui::modeShapeSegments(m.surface, m.modeShapes[0], amp, kPi / 2.0, true);
+        check(rest.size() == 192 && peak.size() == 192, "one drawn segment per crease",
+              std::to_string(peak.size()));
+        double moved = 0.0, heldMoved = 0.0;
+        for (std::size_t i = 0; i < rest.size() && i < peak.size(); ++i) {
+          for (int e = 0; e < 2; ++e) {
+            const double* p0 = e == 0 ? rest[i].a : rest[i].b;
+            const double* p1 = e == 0 ? peak[i].a : peak[i].b;
+            const double d = std::sqrt((p1[0] - p0[0]) * (p1[0] - p0[0]) +
+                                       (p1[1] - p0[1]) * (p1[1] - p0[1]) +
+                                       (p1[2] - p0[2]) * (p1[2] - p0[2]));
+            moved = std::max(moved, d);
+            if (std::fabs(p0[0] - xMin) < 1e-9) heldMoved = std::max(heldMoved, d);
+          }
+        }
+        check(std::fabs(moved - amp) < 1e-9, "the drawn shape moves its tip by the stated amount",
+              num(moved) + " vs " + num(amp));
+        check(heldMoved == 0.0, "the drawn shape leaves the held end where it is", num(heldMoved));
+      }
+    }
+
+    // ── three resolutions ──────────────────────────────────────────────────
+    // 10, 34 and 40 bricks along the beam: 1, 3 and 4 through its depth (20, the
+    // natural middle, lands in the band the kernel solves slowly and is refused
+    // below). MEASURED (T-340 evidence): 815.045, 813.135, 812.802 Hz, and at 20
+    // across 814.710 Hz. The change does NOT shrink geometrically as the mesh
+    // refines (10 -> 20 moved it 0.335 Hz, 20 -> 40 moved it 1.908 Hz), so these
+    // are not in the asymptotic range and no order of convergence is claimed: the
+    // fully held end is a corner singularity of 3-D elasticity, and each
+    // refinement releases more of it. What is asserted is what holds: refining
+    // never STIFFENS the beam (the static gate's rule), and every level stays
+    // inside the Euler-Bernoulli band above. The study's own limit is 40 across,
+    // so a finer level is not reachable through this seam.
+    {
+      double f[3] = {0.0, 0.0, 0.0};
+      const int divs[3] = {10, 34, 40};
+      bool all = true;
+      for (int r = 0; r < 3; ++r) {
+        const forge::ui::StudyOutcome o =
+            solveKind(beamProgram(100.0, 10.0, 10.0), modalStudy("steel-1018", divs[r], 2));
+        if (!o.solved || o.modes.empty()) {
+          all = false;
+          std::printf("[gate] %2d across did not solve: %s\n", divs[r], o.blocker.c_str());
+          continue;
+        }
+        f[r] = o.modes[0].frequencyHz;
+        std::printf("[gate] %2d bricks along: %zu freedoms, first frequency %.3f Hz, %.1f ms\n",
+                    divs[r], o.freedoms, f[r], o.solveMs);
+      }
+      check(all, "all three resolutions solve", "");
+      if (all) {
+        check(f[1] <= f[0] + 1e-9 && f[2] <= f[1] + 1e-9,
+              "refining the mesh never stiffens the beam",
+              num(f[0]) + " -> " + num(f[1]) + " -> " + num(f[2]));
+        const double eb1 = bernoulliHz(kBeta1L, 0.100, 0.010, E, rho);
+        for (int r = 0; r < 3; ++r) {
+          check(f[r] / eb1 > kBend1Low && f[r] / eb1 < kBend1High,
+                "every resolution stays inside the Euler-Bernoulli band", num(f[r] / eb1));
+        }
+      }
+    }
+
+    // ── the sizes the kernel solves slowly are refused, with a way out ──────
+    {
+      // The band's top IS the kernel's switch-over, read from the kernel's own
+      // source, so the refusal cannot outlive a kernel fix unnoticed.
+      std::string fea;
+      {
+        std::string root = __FILE__;
+        const std::string tail = "forge-desktop/test/study_gate.cpp";
+        if (root.size() >= tail.size() && root.compare(root.size() - tail.size(), tail.size(), tail) == 0) {
+          root.erase(root.size() - tail.size());
+        } else {
+          root = "./";
+        }
+        std::ifstream in(root + "forge-kernel/src/Fea.cpp");
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        fea = ss.str();
+      }
+      const std::string pin = "constexpr int kDenseModalCap = " +
+                              std::to_string(forge::desktop::kKernelDenseModalDof) + ";";
+      check(!fea.empty() && fea.find(pin) != std::string::npos,
+            "the slow band's top is the kernel's own dense-solver cap", pin);
+
+      const forge::ui::StudyOutcome slow =
+          solveKind(beamProgram(100.0, 10.0, 10.0), modalStudy("steel-1018", 20, 6));
+      check(!slow.solved && slow.freedoms > forge::desktop::kModalQuickDenseDof &&
+                slow.freedoms <= forge::desktop::kKernelDenseModalDof,
+            "a modal study the kernel would solve slowly is refused, not started",
+            slow.solved ? "it ran" : std::to_string(slow.freedoms) + " freedoms");
+      check(slow.suggestedDivisions > 20, "the refusal offers a finer count that is quick",
+            std::to_string(slow.suggestedDivisions));
+      check(forge::ui::userFacingProseIsClean(slow.blocker) &&
+                slow.blocker.find(std::to_string(slow.suggestedDivisions)) != std::string::npos,
+            "and says which count, in words a person may read", slow.blocker);
+      std::printf("[gate] 20 across: %zu freedoms refused: \"%s\"\n", slow.freedoms,
+                  slow.blocker.c_str());
+      if (slow.suggestedDivisions > 0) {
+        const forge::ui::StudyOutcome taken = solveKind(
+            beamProgram(100.0, 10.0, 10.0), modalStudy("steel-1018", slow.suggestedDivisions, 6));
+        check(taken.solved && taken.freedoms > forge::desktop::kKernelDenseModalDof,
+              "following the advice solves, outside the slow band",
+              taken.solved ? std::to_string(taken.freedoms) : taken.blocker);
+        std::printf("[gate] at the suggested %d across: %zu freedoms, %.1f ms\n",
+                    slow.suggestedDivisions, taken.freedoms, taken.solveMs);
+      }
+    }
+
+    // ── the refusals ───────────────────────────────────────────────────────
+    {
+      forge::ui::StudyDefinition free = modalStudy("steel-1018", 40, 8);
+      free.restraints.clear();
+      forge::ui::StudyDefinition none = modalStudy("steel-1018", 40, 0);
+      forge::ui::StudyDefinition many = modalStudy("steel-1018", 40, forge::ui::kMaxStudyModes + 1);
+      const std::string why[3] = {forge::ui::studyBlocker(free, true),
+                                  forge::ui::studyBlocker(none, true),
+                                  forge::ui::studyBlocker(many, true)};
+      for (const std::string& w : why) {
+        check(!w.empty(), "an incomplete modal study is refused", "");
+        check(forge::ui::userFacingProseIsClean(w), "the refusal is written for a person",
+              forge::ui::describeProseFindings(forge::ui::scanUserFacingProse(w)));
+      }
+      // The seam refuses what the panel refuses.
+      const forge::ui::StudyOutcome r = solveKind(beamProgram(100.0, 10.0, 10.0), free);
+      check(!r.solved && r.blocker == why[0] && r.kind == forge::ui::StudyKind::Modal,
+            "the seam refuses a modal study held nowhere, in the panel's words", r.blocker);
+      // A part held along ONE direction only, coarse enough for the kernel's
+      // dense path: it can slide and swing freely, and the answer must say so
+      // rather than list 0 Hz "frequencies" (measured before T-340's check:
+      // 0, 0, 0.0032 and 0.159 Hz came back as modes).
+      for (int variant = 0; variant < 2; ++variant) {
+        forge::ui::StudyDefinition loose = modalStudy("steel-1018", 10, 6);
+        loose.restraints[0].holdX = false;
+        if (variant == 0) loose.restraints[0].holdY = false;  // Z only; else Y and Z
+        const forge::ui::StudyOutcome lo = solveKind(beamProgram(100.0, 10.0, 10.0), loose);
+        check(!lo.solved && lo.modes.empty() && lo.freedoms <= forge::desktop::kModalQuickDenseDof,
+              "a part that can still slide is refused, not given 0 Hz frequencies",
+              lo.solved ? "solved with " + num(lo.modes.empty() ? 0.0 : lo.modes[0].frequencyHz) +
+                              " Hz first"
+                        : lo.blocker);
+        check(forge::ui::userFacingProseIsClean(lo.blocker) &&
+                  lo.blocker.find("held firmly") != std::string::npos,
+              "and the refusal says the part is not held firmly enough", lo.blocker);
+      }
+      // A part too finely divided for an eigen-solve is refused, not started.
+      forge::ui::StudyDefinition cube = modalStudy("steel-1018", 40, 6);
+      const forge::ui::StudyOutcome c = solveKind(beamProgram(100.0, 100.0, 100.0), cube);
+      check(!c.solved && !c.blocker.empty() && c.meshElements == 0,
+            "a modal study finer than the modal limit is refused before it meshes",
+            c.solved ? "it ran" : c.blocker);
+    }
+  }
+
+  // ══ PART D: the steady thermal study ══════════════════════════════════════
+  {
+    std::printf("[gate] PART D: solving steady heat conduction...\n");
+    const forge::ui::ThermalProperties* steelK = forge::ui::thermalPropertiesFor("steel-1018");
+    check(steelK != nullptr, "mild steel carries a heat conductivity", "");
+    if (steelK == nullptr) return 1;
+    const double k = steelK->conductivityWPerMK;
+    const double L = 0.100, A = 0.010 * 0.010;
+
+    // ── D1: a bar between two temperatures ────────────────────────────────
+    {
+      const double scaleT = g_mutation == 11 ? 1000.0 : 1.0;
+      forge::ui::StudyDefinition bar =
+          thermalStudy(g_mutation == 12 ? "aluminium-6061" : "steel-1018", 40);
+      forge::ui::FixedTemperature hot;
+      hot.face = forge::ui::StudyFace::MinX;
+      hot.temperatureC = 100.0;
+      forge::ui::FixedTemperature cold;
+      cold.face = forge::ui::StudyFace::MaxX;
+      cold.temperatureC = g_mutation == 13 ? 100.0 : 20.0;
+      bar.temperatures = {hot, cold};
+      check(forge::ui::studyBlocker(bar, true).empty(), "a complete thermal study is not blocked",
+            forge::ui::studyBlocker(bar, true));
+      const forge::ui::StudyOutcome t = solveKind(
+          beamProgram(100.0 * scaleT, 10.0 * scaleT, 10.0 * scaleT), bar);
+      check(t.solved, "the bar between two temperatures solves", t.blocker);
+      check(t.kind == forge::ui::StudyKind::Thermal, "the answer says it is a thermal one", "");
+      if (t.solved) {
+        const double Q = k * A * 80.0 / L;
+        std::printf("[gate] %zu points, %zu pieces, %.1f ms; heat in at -X %.6f W, at +X %.6f W "
+                    "(k A dT / L = %.6f W); %.3f..%.3f C\n",
+                    t.meshNodes, t.meshElements, t.solveMs,
+                    t.heatFlows.empty() ? 0.0 : t.heatFlows[0].heatInW,
+                    t.heatFlows.size() < 2 ? 0.0 : t.heatFlows[1].heatInW, Q,
+                    t.minTemperatureC, t.maxTemperatureC);
+        check(t.heldNodes == 2 * 25, "both ends are held at every node", std::to_string(t.heldNodes));
+        check(t.nodeTemperatureC.size() == t.meshNodes, "one temperature per mesh node",
+              std::to_string(t.nodeTemperatureC.size()));
+        // The straight line, at EVERY node.
+        double worst = 0.0;
+        const std::vector<double>& xyz = t.surface.nodesMm;
+        double xMin = 1e300, xMax = -1e300;
+        for (std::size_t n = 0; n < xyz.size() / 3; ++n) {
+          xMin = std::min(xMin, xyz[3 * n]);
+          xMax = std::max(xMax, xyz[3 * n]);
+        }
+        for (std::size_t n = 0; n < t.nodeTemperatureC.size() && 3 * n < xyz.size(); ++n) {
+          const double exact = 100.0 - 80.0 * (xyz[3 * n] - xMin) / (xMax - xMin);
+          worst = std::max(worst, std::fabs(t.nodeTemperatureC[n] - exact));
+        }
+        std::printf("[gate] worst departure from the straight line %.3g K\n", worst);
+        check(worst < 1e-9, "the temperature falls in a straight line at every node", num(worst));
+        check(t.heatFlows.size() == 2, "a heat flow per held end", std::to_string(t.heatFlows.size()));
+        if (t.heatFlows.size() == 2) {
+          check(rel(t.heatFlows[0].heatInW, Q) < 1e-6, "the hot end conducts k A dT / L in",
+                num(t.heatFlows[0].heatInW) + " vs " + num(Q));
+          check(rel(t.heatFlows[1].heatInW, -Q) < 1e-6, "the cold end lets the same heat out",
+                num(t.heatFlows[1].heatInW) + " vs " + num(-Q));
+        }
+        check(forge::ui::thermalBalanced(t), "heat in equals heat out",
+              num(t.heatImbalanceW) + " W unaccounted, " + num(t.maxResidualW) + " W at a node");
+        check(std::fabs(t.heatImbalanceW) < 1e-9 * Q, "to round-off", num(t.heatImbalanceW));
+        check(rel(t.maxHeatFluxWPerM2, k * 80.0 / L) < 1e-6,
+              "the heat flux density is k dT / L throughout", num(t.maxHeatFluxWPerM2));
+        check(std::fabs(t.maxTemperatureC - 100.0) < 1e-9 && std::fabs(t.minTemperatureC - 20.0) < 1e-9,
+              "the hottest and coldest points are the held ends", "");
+        check(t.surface.quadCount() == 672, "the temperature is drawn on the mesh's outside",
+              std::to_string(t.surface.quadCount()));
+      }
+    }
+
+    // ── D2: a bar generating heat, both ends at 20 C ───────────────────────
+    {
+      const double P = g_mutation == 14 ? 0.0 : 10.0;
+      forge::ui::StudyDefinition gen = thermalStudy("steel-1018", 40);
+      forge::ui::FixedTemperature left, right;
+      left.face = forge::ui::StudyFace::MinX;
+      left.temperatureC = 20.0;
+      right.face = forge::ui::StudyFace::MaxX;
+      right.temperatureC = 20.0;
+      gen.temperatures = {left, right};
+      gen.heatGeneratedW = P;
+      const forge::ui::StudyOutcome t = solveKind(beamProgram(100.0, 10.0, 10.0), gen);
+      check(t.solved, "the bar generating heat solves", t.blocker);
+      if (t.solved) {
+        const double Pref = 10.0;
+        const double q = Pref / (L * A);
+        const double peakRef = 20.0 + q * L * L / (8.0 * k);
+        std::printf("[gate] generating %.6f W: peak %.6f C against T0 + q L^2 / 8k = %.6f C; "
+                    "out of each end %.6f / %.6f W\n",
+                    t.heatGeneratedW, t.maxTemperatureC, peakRef,
+                    t.heatFlows.empty() ? 0.0 : t.heatFlows[0].heatInW,
+                    t.heatFlows.size() < 2 ? 0.0 : t.heatFlows[1].heatInW);
+        check(rel(t.heatGeneratedW, Pref) < 1e-12, "the heat assembled is the heat asked for",
+              num(t.heatGeneratedW));
+        check(rel(t.maxTemperatureC - 20.0, peakRef - 20.0) < 1e-6,
+              "the peak rise is q L^2 / 8k", num(t.maxTemperatureC - 20.0) + " vs " +
+                                                 num(peakRef - 20.0));
+        // The parabola at every node -- on the MESH's own length and volume, so
+        // that what is compared is the solve and not the 1e-7 mm the mesher's
+        // bounding box adds to each side (that difference is what the peak
+        // check above absorbs, at 1e-6).
+        double worst = 0.0;
+        const std::vector<double>& xyz = t.surface.nodesMm;
+        double xMin = 1e300, xMax = -1e300;
+        for (std::size_t n = 0; n < xyz.size() / 3; ++n) {
+          xMin = std::min(xMin, xyz[3 * n]);
+          xMax = std::max(xMax, xyz[3 * n]);
+        }
+        const double Lm = (xMax - xMin) / 1000.0;
+        const double qm = Pref / (t.meshVolumeMm3 * 1e-9);
+        for (std::size_t n = 0; n < t.nodeTemperatureC.size() && 3 * n < xyz.size(); ++n) {
+          const double x = (xyz[3 * n] - xMin) / 1000.0;
+          const double exact = 20.0 + qm * x * (Lm - x) / (2.0 * k);
+          worst = std::max(worst, std::fabs(t.nodeTemperatureC[n] - exact));
+        }
+        std::printf("[gate] worst departure from the parabola %.3g K\n", worst);
+        check(worst < 1e-9 * (peakRef - 20.0), "the temperature is the parabola at every node",
+              num(worst));
+        check(t.heatFlows.size() == 2, "a heat flow per held end", "");
+        if (t.heatFlows.size() == 2) {
+          check(rel(t.heatFlows[0].heatInW, -Pref / 2.0) < 1e-6 &&
+                    rel(t.heatFlows[1].heatInW, -Pref / 2.0) < 1e-6,
+                "half the heat leaves through each end",
+                num(t.heatFlows[0].heatInW) + ", " + num(t.heatFlows[1].heatInW));
+        }
+        check(forge::ui::thermalBalanced(t), "the heat generated all leaves",
+              num(t.heatImbalanceW) + " W unaccounted");
+      }
+    }
+
+    // ── D3: a square plate with one hot side, at three resolutions ────────
+    // Laplace's equation on a square with one side at T1 and three at T0: by
+    // superposing the four rotations of the problem, which add up to the whole
+    // boundary at T1, the CENTRE is at exactly T0 + (T1 - T0) / 4. The mesh
+    // cannot reproduce that exactly -- the corner nodes belong to two sides at
+    // once -- so it is a convergence check, not an identity.
+    {
+      const int divs[3] = {10, 20, 40};
+      double err[3] = {0.0, 0.0, 0.0};
+      bool all = true;
+      for (int r = 0; r < 3; ++r) {
+        forge::ui::StudyDefinition plate = thermalStudy("aluminium-6061", divs[r]);
+        forge::ui::FixedTemperature s;
+        s.temperatureC = 0.0;
+        s.face = forge::ui::StudyFace::MaxX;
+        plate.temperatures.push_back(s);
+        s.face = forge::ui::StudyFace::MinY;
+        plate.temperatures.push_back(s);
+        s.face = forge::ui::StudyFace::MaxY;
+        plate.temperatures.push_back(s);
+        s.face = forge::ui::StudyFace::MinX;
+        s.temperatureC = 100.0;
+        plate.temperatures.push_back(s);
+        const forge::ui::StudyOutcome t = solveKind(beamProgram(100.0, 100.0, 5.0), plate);
+        if (!t.solved) {
+          all = false;
+          std::printf("[gate] plate at %d did not solve: %s\n", divs[r], t.blocker.c_str());
+          continue;
+        }
+        // The centre: the node closest to (0, 0) in x and y (BOX is centred).
+        const std::vector<double>& xyz = t.surface.nodesMm;
+        double best = 1e300, tc = 0.0;
+        for (std::size_t n = 0; n < xyz.size() / 3; ++n) {
+          const double d = xyz[3 * n] * xyz[3 * n] + xyz[3 * n + 1] * xyz[3 * n + 1];
+          if (d < best) {
+            best = d;
+            tc = t.nodeTemperatureC[n];
+          }
+        }
+        err[r] = tc - 25.0;
+        std::printf("[gate] plate %2d across: centre %.6f C (error %+.4f K), %zu shared corner "
+                    "nodes, balance %.3g W\n",
+                    divs[r], tc, err[r], t.sharedHeldNodes, t.heatImbalanceW);
+        check(best < 1e-12, "the plate has a node at its centre", num(best));
+        check(forge::ui::thermalBalanced(t), "the plate's heat balances", num(t.heatImbalanceW));
+        // The three cold sides were listed first, so the corners where the hot
+        // side meets them stay cold and are counted.
+        check(t.sharedHeldNodes > 0, "the corners two held sides share are counted",
+              std::to_string(t.sharedHeldNodes));
+        double cornerT = -1.0;
+        for (std::size_t n = 0; n < xyz.size() / 3; ++n) {
+          if (std::fabs(xyz[3 * n] + 50.0) < 1e-6 && std::fabs(xyz[3 * n + 1] + 50.0) < 1e-6) {
+            cornerT = std::max(cornerT, t.nodeTemperatureC[n]);
+          }
+        }
+        check(cornerT == 0.0, "a corner two held sides share keeps the side listed first",
+              num(cornerT) + " C");
+      }
+      check(all, "the plate solves at all three resolutions", "");
+      if (all) {
+        check(std::fabs(err[2]) < std::fabs(err[1]) && std::fabs(err[1]) < std::fabs(err[0]),
+              "the centre converges towards a quarter of the difference",
+              num(err[0]) + " -> " + num(err[1]) + " -> " + num(err[2]));
+        check(std::fabs(err[2]) < kPlateCentreBandK, "and the finest mesh is close to it",
+              num(err[2]) + " K");
+        // Monotone, with a refinement ratio of exactly 2 in-plane: the observed
+        // order may be read off, and it is the second order a linear brick
+        // should show for a smooth interior value.
+        const double p1 = std::log2(err[0] / err[1]);
+        const double p2 = std::log2(err[1] / err[2]);
+        std::printf("[gate] plate centre: observed order %.3f then %.3f\n", p1, p2);
+        check(p1 > 1.8 && p1 < 2.2 && p2 > 1.8 && p2 < 2.2,
+              "the centre converges at second order", num(p1) + ", " + num(p2));
+      }
+    }
+
+    // ── the refusals ───────────────────────────────────────────────────────
+    {
+      forge::ui::StudyDefinition nothingHeld = thermalStudy("steel-1018", 20);
+      forge::ui::StudyDefinition belowZero = thermalStudy("steel-1018", 20);
+      forge::ui::FixedTemperature t;
+      t.temperatureC = -300.0;
+      belowZero.temperatures.push_back(t);
+      forge::ui::StudyDefinition noMaterial = thermalStudy("steel-1018", 20);
+      noMaterial.materialId = "unassigned";
+      noMaterial.temperatures.push_back(forge::ui::FixedTemperature{});
+      const std::string why[3] = {forge::ui::studyBlocker(nothingHeld, true),
+                                  forge::ui::studyBlocker(belowZero, true),
+                                  forge::ui::studyBlocker(noMaterial, true)};
+      for (const std::string& w : why) {
+        check(!w.empty(), "an incomplete thermal study is refused", "");
+        check(forge::ui::userFacingProseIsClean(w), "the refusal is written for a person",
+              forge::ui::describeProseFindings(forge::ui::scanUserFacingProse(w)));
+      }
+      const forge::ui::StudyOutcome r = solveKind(beamProgram(100.0, 10.0, 10.0), nothingHeld);
+      check(!r.solved && r.blocker == why[0] && r.kind == forge::ui::StudyKind::Thermal,
+            "the seam refuses a thermal study with nothing held, in the panel's words", r.blocker);
+      // A cube at 40 across is 64000 cells: measured at 231 s. Refused unmeshed.
+      forge::ui::StudyDefinition cube = thermalStudy("steel-1018", 40);
+      cube.temperatures.push_back(forge::ui::FixedTemperature{});
+      const forge::ui::StudyOutcome c = solveKind(beamProgram(100.0, 100.0, 100.0), cube);
+      check(!c.solved && !c.blocker.empty() && c.meshElements == 0,
+            "a thermal study finer than the thermal limit is refused before it meshes",
+            c.solved ? "it ran" : c.blocker);
+      // A thermal study needs no restraint and no force: neither is set above.
+      forge::ui::StudyDefinition bare = thermalStudy("steel-1018", 20);
+      bare.temperatures.push_back(forge::ui::FixedTemperature{});
+      check(bare.restraints.empty() && bare.loads.empty() &&
+                forge::ui::studyBlocker(bare, true).empty(),
+            "a thermal study with no restraint and no force is complete", "");
+      // One side at 20 C and nothing generated: the whole part sits at 20 C, no
+      // heat flows, and that answer balances (its reactions are round-off).
+      const forge::ui::StudyOutcome still = solveKind(beamProgram(100.0, 10.0, 10.0), bare);
+      check(still.solved && still.maxTemperatureC - still.minTemperatureC < 1e-9 &&
+                forge::ui::thermalBalanced(still),
+            "a part at one temperature conducts nothing, and balances",
+            still.solved ? num(still.maxTemperatureC - still.minTemperatureC) + " K spread, " +
+                               num(still.heatImbalanceW) + " W"
+                         : still.blocker);
     }
   }
 
