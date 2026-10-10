@@ -375,6 +375,84 @@ Mutation proofs (forced recompile, restored and `cmp`-verified):
   on, the cylinder at 0.3 / 0.15 has 56 / 17 disagreements, which produce non-manifold
   boundaries (8 / 16 edges) and leftover slivers.
 
+## The native path's boundary on the native surfaces (T-254)
+
+With `FORGE_NATIVE_FEATURES=1`, a native body is meshed by `tryNativeMeshShape` without
+OCCT. Its boundary samples came from `tessellateSolid`, densified with chord midpoints. The
+native primitives are segmented B-reps. The cylinder r 0.5 is 128 lateral sub-faces plus two
+128-gon caps, and the sphere r 1 is 128 x 64 = 8192 sub-faces. So the tessellation is the
+same 128-sector polyhedron at every targetEdge. Its chords (0.0245 m on the cylinder) are
+shorter than minLen at every gate level, so nothing was ever split. The surface error was
+frozen at the sector sag: 1.506e-4 m = 0.5 (1 - cos(pi/128)) on the cylinder, and 5.353e-4 m
+facet sag on the sphere. Projecting the extra points onto the surfaces would not have helped,
+because the 128-sector chords stay in the mesh.
+
+`sampleNativeSurfaces()` now makes the samples from the analytic surfaces at the requested
+spacing, whatever the segmentation:
+
+- **Curved faces** are grouped into surface classes: same kind and same analytic parameters.
+  The faces of a class must tile one (u, v) rectangle. The class is sampled in rows whose
+  3-D spacing is at most targetEdge, and each row is cut into pieces of at most targetEdge.
+  Periodic seams are detected numerically, and a pole or cone apex row is a single point. The
+  rectangle's boundary rows are the creases with neighbouring classes (for example a
+  cylinder's rims). They are exact on both surfaces.
+- **Planar faces** get their plane-plane crease edges cut into pieces of at most
+  targetEdge, plus a lattice of that spacing inside the loop, kept 0.5 x targetEdge away from
+  the loop.
+- **Interior lattice points** are kept 0.5 x targetEdge away from the boundary, measured
+  against the native tessellation.
+
+Only planes, cylinders, cones and spheres are sampled this way. Any other face makes the
+call fall back to the old densify path: a torus, a NURBS skin (the ellipsoid, the LE slab), an
+elliptic extrusion, a holed / trimmed / parameter-triangle face, coplanar neighbouring planar
+faces, or a class whose windows do not tile a rectangle. The torus is excluded because of a
+measurement: with these samples, R 1 r 0.3 at 0.075 carves with 16 non-manifold boundary
+edges, all in the saddle region, while the old path gives a valid mesh.
+
+Gate `PART=prim` with `FORGE_NATIVE_FEATURES=1` (evidence `~/.forge-program/evidence/T-254/`):
+
+| | BEFORE (T-255 library) | AFTER |
+|---|---|---|
+| Cylinder 0.3 / 0.15 / 0.075: vertex deviation | 1.506e-4 m at every level (frozen) | 1.2e-14 / 2.4e-14 / 2.4e-14 m (geometric precision) |
+| Cylinder facet sag | 1.506e-4 m at every level (frozen) | 1.80e-2 / 4.96e-3 / 1.24e-3 m: x3.62, x3.99, order 1.93 |
+| Cylinder slivers (< 0.02) | 93 / 92 / 100 | 0 / 0 / 0 (min radius ratio 0.573 / 0.491 / 0.161) |
+| Sphere 0.4 / 0.2 / 0.1: facet sag | 5.353e-4 m at every level (frozen) | 3.38e-2 / 8.59e-3 / 2.17e-3 m: x3.93, x3.95, order 1.98 |
+| Sphere vertex deviation | 9.0e-14 m | 5.0e-14 / 6.2e-14 / 9.2e-14 m |
+| Box 0.2 / 0.1 | Exact | Exact (min radius ratio 0.634 / 0.632) |
+| Verdict | FAIL, 6 RED | PASS (`PART=all` under FEAT also PASS, 5 min 10 s) |
+
+The native samples are spaced at targetEdge itself, so at equal targetEdge the native path
+is coarser than the OCCT path. The OCCT path also refines by angular deflection. For example,
+cylinder facet sag at 0.3 is 1.8e-2 m against 6.9e-3 m, and volume error is -5.4 / -1.5 /
+-0.37 % against -0.98 / -0.33 / -0.065 %. The fea_smoke cantilever under FEAT has 2302 nodes:
+179.25 um (-10.4 %) and 52.16 MPa (-13.1 %), inside the gate's 15 % bound, with CG at
+1071 iterations. With the feature off, every level line of the default gate is identical to
+T-255's.
+
+Shapes outside the gate, under the feature (`probe_native_T255_BEFORE.log` /
+`probe_native_T254.log`):
+
+| Shape | BEFORE | AFTER |
+|---|---|---|
+| Cone frustum r 0.5 -> 0.2, at 0.2 / 0.1 | Valid. Vertices up to 1.2e-4 m off the surface. 1195 / 2094 slivers, min 6.7e-4 | Valid. Vertices on the surface. 9 / 26 slivers, min 0.0038 / 0.0010 |
+| Cone with apex, at 0.2 / 0.1 | Valid. 119 / 152 slivers, min 8.0e-4 | Valid. 2 / 5 slivers, min 0.0197 / 0.0192 |
+| Cylinder, rotated and translated, at 0.1 | Valid. 199 slivers, min 0.0013 | Valid. 0 slivers, min 0.18 |
+| Torus, tube, plate with hole, ellipsoid, LE10 slab | | Declined (or OCCT-imported). Same mesh hash as BEFORE |
+
+The cone slivers that remain are not covered by the gate. The OCCT path also leaves slivers on the
+frustum: 26 / 48 at the same levels.
+
+Mutation proofs (forced recompile, restored and `cmp`-verified):
+
+- M13, sampler disabled: killed. This is the BEFORE state: frozen sags and cylinder slivers.
+- M14, no interior-lattice keep-out: **survives** the gate. The meshes change: cylinder min
+  radius ratio 0.573 / 0.491 / 0.161 falls to 0.193 / 0.169 / 0.150, and sphere
+  0.276 / 0.19 / 0.157 falls to 0.152 / 0.18 / 0.151. That is still above the gate's 0.02, and
+  no lattice vertex reaches the surface. On these shapes the keep-out buys quality, not
+  correctness.
+- M15, no planar-face keep-out: **survives**. Small change: cylinder at 0.3 goes from
+  0.573 to 0.522 minimum, and +48 tets at 0.075.
+
 ## What this does not fix (measured, open)
 
 - **Geometric slivers and solver conditioning: fixed by T-253** (section above). As found
@@ -393,10 +471,11 @@ Mutation proofs (forced recompile, restored and `cmp`-verified):
   `fea_tet_surface_conformance_test.mjs`. Native ports of the following passed on this fix:
   `fea_smoke.cjs` (static in Part Q; static plus modal in the validator's probe) and
   `fea_boundary_refines_test.mjs` (the validator's probe).
-- **The native tet path** (`FORGE_NATIVE_FEATURES=1`, off by default) still keeps chord
-  midpoints, so its surface error stays at the native tessellator's sag: 1.5e-4 m on the
-  cylinder and 5.4e-4 m facet sag on the sphere, at every level. Its meshes are valid
-  with the new Bowyer-Watson.
+- **The native tet path on planes, cylinders, cones and spheres: fixed by T-254** (section
+  above). As found by T-035: the native path keeps chord midpoints, so its surface error
+  stays at the native tessellator's sag (1.5e-4 m on the cylinder and 5.4e-4 m facet sag on
+  the sphere) at every level. It still does so for the bodies the sampler declines: tori,
+  NURBS skins, holed or trimmed faces, and split planar faces.
 - **LE11** is still blocked by the native boolean fuse, so it was not measured.
 - **Meshing time: fixed by T-255** (section above). As found by T-035: meshing time
   for the slab at 0.075 (14,775 nodes) is 76 to 126 s, depending on machine

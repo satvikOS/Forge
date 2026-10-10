@@ -2516,6 +2516,207 @@ Mesh buildShellTetFallbackNative(const std::vector<Vec3>& bndPts,
     return out;
 }
 
+// =========================================================================== //
+//  T-254 — the native path's boundary samples ON the native analytic surfaces  //
+// =========================================================================== //
+//
+// MEASURED DEFECT (T-035 / T-253, FORGE_NATIVE_FEATURES=1, gate PART=prim): the native path
+// took its boundary samples from forge::native::brep::tessellateSolid and densified them with
+// densifyBoundaryRecursive (chord midpoints). The native primitives are SEGMENTED B-reps —
+// the cylinder r 0.5 is 128 lateral sub-faces (Cone kind, r1 == r2) plus two 128-gon disk
+// caps, the sphere r 1 is 128 x 64 = 8192 sub-faces — so the tessellation is a fixed
+// 128-sector polyhedron whatever targetEdge asks for: its chords (0.0245 m on the cylinder)
+// are shorter than minLen at every gate level, nothing is ever split, and the curved-boundary
+// error is frozen at the sector sag: 1.506e-4 m = 0.5 (1 - cos(pi/128)) on the cylinder
+// (vertex deviation AND facet sag, the barycentres being chord points), 5.353e-4 m facet sag
+// on the sphere, at 0.3 / 0.15 / 0.075 and 0.4 / 0.2 / 0.1 alike. Projecting the densified
+// points onto the surfaces cannot fix the facet sag — the 128-sector chords stay — and
+// refining those chords by a sag criterion would have to go FINER than the native sectors at
+// every level for the error to keep falling (estimated: ~1.4 M boundary samples on the sphere
+// at 0.1 for a sag tolerance that falls 4x per halving from the sectors' own 5.4e-4 m).
+//
+// So the samples are made from the analytic surfaces themselves, at the requested spacing,
+// independent of how finely the B-rep happens to be segmented:
+//   * curved faces are grouped into SURFACE CLASSES — the same kind and the same analytic
+//     parameters (origin, axis, refDir, r1, r2, param) — whose (u, v) windows must tile one
+//     parameter rectangle; each class is sampled on that rectangle: rows in v at a parameter
+//     step whose 3-D length is <= targetEdge, each row cut into <= targetEdge pieces in u
+//     (closedness in u / v detected numerically, so a periodic seam is not doubled; a row of
+//     zero length — a pole, a cone apex — is one point). The rectangle's boundary rows are
+//     the creases with the neighbouring classes (a cylinder's rims), exact on both surfaces;
+//   * a planar face is sampled with its plane-plane crease edges cut into <= targetEdge
+//     pieces (a crease with a curved class is that class's boundary row) and a lattice of
+//     spacing <= targetEdge inside its outer loop, kept kKeepOut x targetEdge off the loop;
+//   * every sample is S(u, v) of the face's own Surface (or a point of a plane / a straight
+//     crease), i.e. ON the native geometry to rounding.
+// Only planes, cylinders, cones and spheres are sampled this way. A face
+// this cannot handle — no surface, a NURBS skin, a torus (MEASURED: its saddle region carves
+// non-manifold with these samples at 0.075, see sampleNativeSurfaces) or an elliptic extrusion,
+// a parameter-triangle / trimmed-region / holed face, inner loops, coplanar neighbouring planar
+// faces, a class whose windows do not tile a rectangle — makes the whole call fall back to the
+// tessellation densify in tryNativeMeshShape (reported with FORGE_FEA_TET_PROFILE=1), which is
+// what every native body did before.
+
+struct NativeSampleStats {
+    std::size_t curvedClasses = 0, planarFaces = 0, curvedSamples = 0, planarEdgeSamples = 0, planarInterior = 0;
+    const char* why = "";
+};
+
+bool sampleNativeSurfaces(const forge::native::brep::Solid& solid, double h, std::vector<Vec3>& out,
+                          NativeSampleStats& st) {
+    using namespace forge::native::brep;
+    std::vector<const Face*> faces;
+    for (const Shell* sh : solid.shells)
+        for (const Face* f : sh->faces) faces.push_back(f);
+    if (faces.empty()) { st.why = "no faces"; return false; }
+
+    auto same = [](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max({1.0, std::abs(a), std::abs(b)}); };
+    auto sameV = [&](const Vec3& a, const Vec3& b) { return same(a.x, b.x) && same(a.y, b.y) && same(a.z, b.z); };
+    auto sameSurface = [&](const Surface& a, const Surface& b) {
+        return a.kind == b.kind && sameV(a.origin, b.origin) && sameV(a.axis, b.axis) && sameV(a.refDir, b.refDir) &&
+               same(a.r1, b.r1) && same(a.r2, b.r2) && same(a.param, b.param);
+    };
+    auto isPlane = [](const Face* f) { return f->surface && f->surface->kind == SurfaceKind::Plane; };
+
+    for (const Face* f : faces) {
+        if (!f->surface) { st.why = "a face without a surface"; return false; }
+        const SurfaceKind k = f->surface->kind;
+        if (k == SurfaceKind::Nurbs) { st.why = "a NURBS face"; return false; }
+        if (k != SurfaceKind::Plane && k != SurfaceKind::Cylinder && k != SurfaceKind::Cone && k != SurfaceKind::Sphere) {
+            // MEASURED: a torus R 1 r 0.3 sampled this way carves with 16 non-manifold boundary
+            // edges at 0.075 (all in the saddle region, phi ~ +-1.9..2.7 rad), where the old
+            // tessellation densify gives a valid mesh; elliptic extrusions are untested.
+            st.why = "a torus / elliptic-extrusion face";
+            return false;
+        }
+        if (f->paramTri || f->regionUV || f->boolHoled || !f->innerLoops.empty() || !f->outerLoop) {
+            st.why = "a parameter-triangle / trimmed / holed face";
+            return false;
+        }
+    }
+
+    // ---- curved surface classes ---------------------------------------------------------
+    std::vector<std::vector<const Face*>> classes;
+    for (const Face* f : faces) {
+        if (isPlane(f)) continue;
+        bool placed = false;
+        for (auto& c : classes)
+            if (sameSurface(*c.front()->surface, *f->surface)) { c.push_back(f); placed = true; break; }
+        if (!placed) classes.push_back({f});
+    }
+    for (const auto& c : classes) {
+        const Surface& S = *c.front()->surface;
+        double U0 = c.front()->u0, U1 = c.front()->u1, V0 = c.front()->v0, V1 = c.front()->v1, area = 0.0;
+        for (const Face* f : c) {
+            U0 = std::min(U0, f->u0); U1 = std::max(U1, f->u1);
+            V0 = std::min(V0, f->v0); V1 = std::max(V1, f->v1);
+            area += (f->u1 - f->u0) * (f->v1 - f->v0);
+        }
+        const double rect = (U1 - U0) * (V1 - V0);
+        if (!(rect > 0) || std::abs(area - rect) > 1e-9 * rect) { st.why = "a surface class whose windows do not tile a rectangle"; return false; }
+        auto P = [&](double u, double v) { return S.evaluate(u, v); };
+        auto lenU = [&](double v) {
+            double L = 0; Vec3 a = P(U0, v);
+            for (int i = 1; i <= 256; ++i) { const Vec3 b = P(U0 + (U1 - U0) * i / 256.0, v); L += (b - a).norm(); a = b; }
+            return L;
+        };
+        auto lenV = [&](double u) {
+            double L = 0; Vec3 a = P(u, V0);
+            for (int i = 1; i <= 256; ++i) { const Vec3 b = P(u, V0 + (V1 - V0) * i / 256.0); L += (b - a).norm(); a = b; }
+            return L;
+        };
+        double Lv = 0, scale = 0;
+        for (int k = 0; k <= 4; ++k) {
+            const double u = U0 + (U1 - U0) * k / 4.0;
+            Lv = std::max(Lv, lenV(u));
+            scale = std::max(scale, lenU(V0 + (V1 - V0) * k / 4.0));
+        }
+        scale = std::max(scale, Lv);
+        const double closeTol = 1e-9 * std::max(1.0, scale);
+        bool closedU = true, closedV = true;
+        for (int k = 0; k <= 4; ++k) {
+            const double v = V0 + (V1 - V0) * k / 4.0, u = U0 + (U1 - U0) * k / 4.0;
+            if ((P(U0, v) - P(U1, v)).norm() > closeTol) closedU = false;
+            if ((P(u, V0) - P(u, V1)).norm() > closeTol) closedV = false;
+        }
+        const int nv = std::max(1, static_cast<int>(std::ceil(Lv / h)));
+        const int rows = closedV ? nv : nv + 1;
+        for (int j = 0; j < rows; ++j) {
+            const double v = V0 + (V1 - V0) * j / nv;
+            const double Lu = lenU(v);
+            if (!(Lu > closeTol)) { out.push_back(P(U0, v)); ++st.curvedSamples; continue; }   // pole / apex
+            const int nu = std::max(closedU ? 3 : 1, static_cast<int>(std::ceil(Lu / h)));
+            const int cols = closedU ? nu : nu + 1;
+            for (int i = 0; i < cols; ++i) { out.push_back(P(U0 + (U1 - U0) * i / nu, v)); ++st.curvedSamples; }
+        }
+        ++st.curvedClasses;
+    }
+
+    // ---- planar faces ---------------------------------------------------------------------
+    for (const Face* f : faces) {
+        if (!isPlane(f)) continue;
+        const Surface& S = *f->surface;
+        const Vec3 o = S.origin, e1 = S.refDir, e2 = S.binormal();
+        std::vector<std::array<double, 2>> poly;
+        const Coedge* c0 = f->outerLoop->first;
+        const Coedge* c = c0;
+        do {
+            const Vertex* va = c->originVertex();
+            const Vertex* vb = c->destVertex();
+            const Vec3 A{va->point.x, va->point.y, va->point.z}, B{vb->point.x, vb->point.y, vb->point.z};
+            poly.push_back({(A - o).dot(e1), (A - o).dot(e2)});
+            const Face* mf = c->mate && c->mate->loop ? c->mate->loop->face : nullptr;
+            if (!mf) { st.why = "an open edge"; return false; }
+            if (isPlane(mf)) {
+                // a coplanar neighbour (a split planar face): the two lattices would not line up
+                if (std::abs(std::abs(mf->surface->axis.dot(S.axis)) - 1.0) <= 1e-12 &&
+                    std::abs((mf->surface->origin - o).dot(S.axis)) <= 1e-9 * std::max(1.0, o.norm())) {
+                    st.why = "coplanar neighbouring planar faces";
+                    return false;
+                }
+                const double L = (B - A).norm();
+                const int n = std::max(1, static_cast<int>(std::ceil(L / h)));
+                for (int k = 0; k <= n; ++k) { out.push_back(A + (B - A) * (static_cast<double>(k) / n)); ++st.planarEdgeSamples; }
+            }
+            c = c->next;
+        } while (c && c != c0);
+        if (poly.size() < 3) { st.why = "a degenerate planar loop"; return false; }
+        double xmin = poly[0][0], xmax = xmin, ymin = poly[0][1], ymax = ymin;
+        for (const auto& q : poly) { xmin = std::min(xmin, q[0]); xmax = std::max(xmax, q[0]); ymin = std::min(ymin, q[1]); ymax = std::max(ymax, q[1]); }
+        auto inside = [&](double x, double y) {
+            bool in = false;
+            for (std::size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
+                const double xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+                if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) in = !in;
+            }
+            return in;
+        };
+        auto distToLoop = [&](double x, double y) {
+            double best = std::numeric_limits<double>::max();
+            for (std::size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
+                const double ax = poly[j][0], ay = poly[j][1], bx = poly[i][0], by = poly[i][1];
+                const double vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy;
+                double t = l2 > 0 ? ((x - ax) * vx + (y - ay) * vy) / l2 : 0.0;
+                t = std::max(0.0, std::min(1.0, t));
+                best = std::min(best, std::hypot(x - (ax + t * vx), y - (ay + t * vy)));
+            }
+            return best;
+        };
+        const int nx = std::max(1, static_cast<int>(std::ceil((xmax - xmin) / h)));
+        const int ny = std::max(1, static_cast<int>(std::ceil((ymax - ymin) / h)));
+        const double dx = (xmax - xmin) / nx, dy = (ymax - ymin) / ny;
+        for (int i = 1; i < nx; ++i)
+            for (int j = 1; j < ny; ++j) {
+                const double x = xmin + i * dx, y = ymin + j * dy;
+                if (!inside(x, y) || distToLoop(x, y) < kKeepOut * h) continue;
+                out.push_back(o + e1 * x + e2 * y);
+                ++st.planarInterior;
+            }
+        ++st.planarFaces;
+    }
+    return !out.empty();
+}
+
 // Try the native boundary tessellation + native AABB + native point-in-solid for the
 // meshShape domain build. Returns true + fills `out` on success; returns false (NEVER
 // throws) when the native path HONESTLY DEFERS so meshShapeFromHandle falls through to the
@@ -2600,8 +2801,15 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
     }
     if (bndPts.empty() || triangles.empty()) return false;              // degenerate -> defer
 
-    // 2b. Densify seeds — identical to meshShape (a: triangle midpoints/barycenters;
-    //     b: interior grid classified IN by the NATIVE pointInSolid).
+    // 2b. Seeds. T-254: when every face allows it, the boundary samples are made ON the native
+    //     analytic surfaces at the requested spacing (sampleNativeSurfaces) and interior lattice
+    //     points keep kKeepOut x targetEdge off the boundary; otherwise, as before, the
+    //     tessellation is densified (a: triangle midpoints/barycentres) and the lattice is not
+    //     kept out. b: the interior grid is classified IN by the NATIVE pointInSolid.
+    std::vector<Vec3> seeds;
+    NativeSampleStats nss;
+    std::vector<Vec3> surfSamples;
+    const bool onSurfaces = sampleNativeSurfaces(solid, targetEdge, surfSamples, nss);
     {
         struct ArrHash {
             std::size_t operator()(const std::array<long long, 3>& k) const noexcept {
@@ -2619,8 +2827,6 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
                 static_cast<long long>(std::floor(v.z * invCell))
             };
         };
-        for (const auto& p : bndPts) occupied.insert(cell(p));
-
         auto tryAdd = [&](const Vec3& p) {
             auto k = cell(p);
             for (int di = -1; di <= 1; ++di) {
@@ -2632,7 +2838,7 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
                 }
             }
             occupied.insert(k);
-            bndPts.push_back(p);
+            seeds.push_back(p);
             return true;
         };
 
@@ -2640,9 +2846,27 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
         const double minArea = 0.5 * targetEdge * targetEdge;
         std::size_t bndAdded = 0;
         bool bndCapped = false;
-        densifyBoundaryRecursive(bndPts, triangles, tryAdd, minLen, minArea,
-                                 static_cast<std::size_t>(seedBudget), 40,
-                                 bndAdded, bndCapped);
+        std::size_t surfKept = 0;
+        if (onSurfaces) {
+            for (const Vec3& p : surfSamples) if (tryAdd(p)) ++surfKept;
+        } else {
+            seeds = bndPts;
+            for (const auto& p : seeds) occupied.insert(cell(p));
+            // densifyBoundaryRecursive reads the tessellation vertices from `seeds` (= bndPts
+            // here) by the triangles' indices and appends to the same vector, as it did when
+            // both were bndPts.
+            densifyBoundaryRecursive(seeds, triangles, tryAdd, minLen, minArea,
+                                     static_cast<std::size_t>(seedBudget), 40,
+                                     bndAdded, bndCapped);
+        }
+        if (feaTetProfileEnabled()) {
+            if (onSurfaces)
+                std::fprintf(stderr, "[feaTet] native samples ON the surfaces: %zu curved classes (%zu samples), %zu planar faces "
+                                     "(%zu crease-edge + %zu interior samples); %zu kept after merging\n",
+                             nss.curvedClasses, nss.curvedSamples, nss.planarFaces, nss.planarEdgeSamples, nss.planarInterior, surfKept);
+            else
+                std::fprintf(stderr, "[feaTet] native samples: tessellation densify (on-surface sampling declined: %s)\n", nss.why);
+        }
         if (bndCapped) {
             std::fprintf(stderr,
                          "[feaTet] boundary densification hit its budget (%d points) at "
@@ -2656,10 +2880,20 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
         double dx = (xmax - xmin) / (nx + 1);
         double dy = (ymax - ymin) / (ny + 1);
         double dz = (zmax - zmin) / (nz + 1);
+        // T-254: with the samples on the surfaces, a lattice point closer than the keep-out to
+        // the boundary would sit between them and the surface (the T-035 keep-out, measured
+        // against the native tessellation, whose chord error is far below the keep-out).
+        std::vector<std::array<Vec3, 3>> tessTris;
+        if (onSurfaces) {
+            tessTris.reserve(triangles.size());
+            for (const auto& t : triangles) tessTris.push_back({bndPts[t[0]], bndPts[t[1]], bndPts[t[2]]});
+        }
+        const BoundaryProximity nearTess(tessTris, targetEdge);
         for (int ix = 1; ix <= nx; ++ix) {
             for (int iy = 1; iy <= ny; ++iy) {
                 for (int iz = 1; iz <= nz; ++iz) {
                     Vec3 p{xmin + ix * dx, ymin + iy * dy, zmin + iz * dz};
+                    if (onSurfaces && nearTess.within(p, kKeepOut * targetEdge)) continue;
                     const PointClass st = pointInSolid(
                         solid, forge::native::brep::Vec3{p.x, p.y, p.z}, mergeTol);
                     if (st != PointClass::Inside) continue;
@@ -2670,7 +2904,7 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
     }
 
     // 3. Bowyer-Watson on the boundary points (the SAME backend-agnostic mesher).
-    std::vector<Vec3> ptsCopy = bndPts;
+    std::vector<Vec3> ptsCopy = seeds;
     std::vector<LocalTet> bw;
     BwStats bwStats;
     bool bwOk = true;
