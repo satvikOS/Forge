@@ -22,8 +22,19 @@
 #                            rule (which also needs badEdges==0, and relaxes orientation for a
 #                            bare INPUT()). A caller that wants the JS gate needs the flags.
 #
-# MEASURED before the change (forge_verify at origin/archdisc b609b41d): 0 of 4 mesh
-# requests answered with a mesh, 0 of 2 validity requests with flags -> this gate RED.
+# A third opt-in, "importStep":"<path>", measures a STEP FILE AS IMPORTED --
+# forge::io::importStep and nothing else -- because that is the handle every JS scorer
+# measured. `%1 = INPUT()` is not it: INPUT() runs unifyFaces and, on an unoriented
+# import, harmonizeNormals, so it repairs exactly what the validity gate exists to see.
+#
+# MEASURED before the change (checks that depend on an answer run only when it came):
+#   forge_verify at origin/archdisc b609b41d: RED, 25 of the 33 checks that ran failed
+#     (no mesh, no flags, no importStep); the 8 that passed are the ones a tool without
+#     the opt-ins also satisfies (clean exit, every row answered, P1, P8 no-build, the
+#     P10 export and INPUT() fixture rows, "no `valid`" on a refused row, P13 no-ir).
+#   forge_verify at aed8eaaf (mesh + validity, no importStep yet): RED, 14 of 44 failed,
+#     all of them P10-P13.
+#   With importStep: GREEN, 46 of 46.
 #
 # What is asserted (each is a property a wrong implementation breaks):
 #   P1  a row that asks for neither field is answered with NEITHER key (opt-in, additive)
@@ -41,6 +52,29 @@
 #   P7  a malformed mesh spec ("abc", "0,0.5", "-1,0.5") answers meshError, emits no
 #       mesh, and does not cost any other row in the batch
 #   P8  a row that does not build emits neither mesh nor validity and the batch survives
+#   P9  badEdges is its OWN count: two boxes sharing one edge (FUSE -> non-manifold edge)
+#       report badEdges >= 1 with badFaces == 0, and `valid` is false
+#   P10 importStep is the RAW import: two boxes FUSEd face to face and written to STEP keep
+#       their split faces (10) through importStep, while INPUT() of the same file unifies
+#       them (6); volume, faceCount, bbox and the 0.3,0.6 mesh agree with the exporting
+#       row; there is no `valid` (a verdict needs a rule)
+#   P11 importStep neither unifies nor harmonizes: data/cadgenbench_edit_out/225/output.step
+#       (a real CADGenBench edit output) imports unoriented with a bad face and INPUT() of
+#       the same file reports it clean; 243/output.step also imports unoriented, and
+#       MEASURED, harmonizeNormals ALONE cleans 243 (it does not clean 225, which needs
+#       unifyFaces first), so 243 is what catches an importStep that only harmonizes. If a
+#       kernel change makes either file import clean, that fixture no longer
+#       discriminates: replace it, do not drop the check. (INPUT() of 243 is not asked:
+#       it takes ~94 s against ~3 s for importStep -- see T-301.)
+#   P12 importStep honours the mesh spec: data/cadgenbench_edit_out/218/output.step meshed
+#       at lin 0.05 has more triangles than at 0.3 (the shared 0.3,0.6 tessellation is
+#       reused only for that exact spec). Not a Forge-written cylinder: MEASURED, a
+#       CYL(10,20) written by outStep and read back by importStep (the native StepAnalytic
+#       route) tessellates to the same 378 triangles at every lin, with signed volume 0
+#       -- a kernel mesher defect on that route (T-300), not a property of this tool
+#   P13 importStep is exclusive and fails per row: with ir or inputStep it is refused, an
+#       empty or missing path answers ok:false, and a row with neither ir nor importStep
+#       still answers exactly {"id","ok":false,"error":"no ir"}
 #
 # Exit codes: 0 GREEN; 1 RED (a property failed); 3 RED (binary/fixture/python missing --
 # a check that could not run is not a check that passed).
@@ -69,6 +103,17 @@ IN="$TMP/batch.jsonl"
 OUT="$TMP/out.jsonl"
 
 PLATE='%1 = BOX(60,40,10)\n%2 = CYL(8,40)\n%3 = TRANSLATE(%2,0,0,-15)\n%4 = CUT(%1,%3)'
+EDGE2='%1 = BOX(10,10,10)\n%2 = BOX(10,10,10)\n%3 = TRANSLATE(%2,10,10,0)\n%4 = FUSE(%1,%3)'
+FUSE2='%1 = BOX(10,10,10)\n%2 = BOX(10,10,10)\n%3 = TRANSLATE(%2,10,0,0)\n%4 = FUSE(%1,%3)'
+REAL225="$ROOT/data/cadgenbench_edit_out/225/output.step"
+REAL218="$ROOT/data/cadgenbench_edit_out/218/output.step"
+REAL243="$ROOT/data/cadgenbench_edit_out/243/output.step"
+for fx in "$REAL225" "$REAL218" "$REAL243"; do
+  if [ ! -s "$fx" ]; then
+    echo "[fv-mesh] fixture $fx missing. RED."
+    exit 3
+  fi
+done
 {
   printf '%s\n' '{"id":"plain","ir":"%1 = BOX(10,20,30)"}'
   printf '%s\n' '{"id":"box","ir":"%1 = BOX(10,20,30)","mesh":"0.1,0.5","validity":"raw"}'
@@ -79,6 +124,21 @@ PLATE='%1 = BOX(60,40,10)\n%2 = CYL(8,40)\n%3 = TRANSLATE(%2,0,0,-15)\n%4 = CUT(
   printf '%s\n' '{"id":"bad_zero","ir":"%1 = BOX(1,1,1)","mesh":"0,0.5"}'
   printf '%s\n' '{"id":"bad_neg","ir":"%1 = BOX(1,1,1)","mesh":"-1,0.5"}'
   printf '%s\n' '{"id":"nobuild","ir":"%1 = NOSUCHOP(1)","mesh":"0.1,0.5","validity":"raw"}'
+  printf '%s\n' "{\"id\":\"nonmanifold\",\"ir\":\"$EDGE2\",\"validity\":\"raw\"}"
+  # rows run in order, so each STEP is written before the rows that import it
+  printf '%s\n' "{\"id\":\"mk_fuse\",\"ir\":\"$FUSE2\",\"outStep\":\"$TMP/fuse2.step\",\"mesh\":\"0.3,0.6\"}"
+  printf '%s\n' "{\"id\":\"imp_fuse\",\"importStep\":\"$TMP/fuse2.step\",\"mesh\":\"0.3,0.6\",\"validity\":\"raw\"}"
+  printf '%s\n' "{\"id\":\"inp_fuse\",\"ir\":\"%1 = INPUT()\",\"inputStep\":\"$TMP/fuse2.step\"}"
+  printf '%s\n' "{\"id\":\"imp_225\",\"importStep\":\"$REAL225\",\"validity\":\"raw\"}"
+  printf '%s\n' "{\"id\":\"inp_225\",\"ir\":\"%1 = INPUT()\",\"inputStep\":\"$REAL225\",\"validity\":\"raw\"}"
+  printf '%s\n' "{\"id\":\"imp_243\",\"importStep\":\"$REAL243\",\"validity\":\"raw\"}"
+  printf '%s\n' "{\"id\":\"imp_218_coarse\",\"importStep\":\"$REAL218\",\"mesh\":\"0.3,0.6\"}"
+  printf '%s\n' "{\"id\":\"imp_218_fine\",\"importStep\":\"$REAL218\",\"mesh\":\"0.05,0.6\"}"
+  printf '%s\n' "{\"id\":\"imp_and_ir\",\"ir\":\"%1 = BOX(1,1,1)\",\"importStep\":\"$TMP/fuse2.step\"}"
+  printf '%s\n' "{\"id\":\"imp_and_input\",\"importStep\":\"$TMP/fuse2.step\",\"inputStep\":\"$TMP/fuse2.step\"}"
+  printf '%s\n' '{"id":"imp_empty","importStep":""}'
+  printf '%s\n' "{\"id\":\"imp_missing\",\"importStep\":\"$TMP/no_such_file.step\"}"
+  printf '%s\n' '{"id":"noir"}'
   printf '%s\n' '{"id":"tail","ir":"%1 = BOX(2,2,2)","validity":"raw"}'
 } > "$IN"
 
@@ -104,7 +164,7 @@ with open(out_path) as fh:
             rows[r.get("id")] = r
 
 check("process exited cleanly", rc == 0, f"rc={rc}")
-check("every one of the 10 rows answered", len(rows) == 10, f"got {len(rows)}")
+check("every one of the 24 rows answered", len(rows) == 24, f"got {len(rows)}")
 
 def f32(x):
     return struct.unpack("f", struct.pack("f", x))[0]
@@ -230,11 +290,98 @@ t = rows.get("tail", {})
 check("P8 the row after it is answered normally",
       t.get("ok") is True and isinstance(t.get("validity"), dict))
 
+# P9 badEdges is its own count
+nm = rows.get("nonmanifold", {})
+nv = nm.get("validity")
+check("P9 non-manifold FUSE answered with raw validity flags", isinstance(nv, dict), str(nm.get("error")))
+if isinstance(nv, dict):
+    check("P9 badEdges >= 1 while badFaces == 0 (the two counts are reported independently)",
+          isinstance(nv.get("badEdges"), int) and nv.get("badEdges") >= 1 and nv.get("badFaces") == 0
+          and nv.get("isManifold") is False, str(nv))
+    check("P9 `valid` is false on it", nm.get("valid") is False)
+
+# P10 importStep is the raw import
+mk, im, inp = rows.get("mk_fuse", {}), rows.get("imp_fuse", {}), rows.get("inp_fuse", {})
+check("P10 the face-to-face FUSE built and was exported", mk.get("ok") is True and mk.get("exported") is True,
+      str({k: mk.get(k) for k in ("ok", "error", "exported")}))
+check("P10 importStep row answered ok with source=importStep",
+      im.get("ok") is True and im.get("source") == "importStep", str({k: im.get(k) for k in ("ok", "error", "source")}))
+check("P10 INPUT() of the same file unifies the split faces (the fixture discriminates)",
+      isinstance(inp.get("faceCount"), int) and isinstance(mk.get("faceCount"), int)
+      and inp.get("faceCount") < mk.get("faceCount"),
+      f"INPUT() faces={inp.get('faceCount')} exported faces={mk.get('faceCount')}")
+check("P10 importStep keeps every face the exporter wrote (no unifyFaces)",
+      im.get("faceCount") == mk.get("faceCount") and im.get("edgeCount") == mk.get("edgeCount"),
+      f"importStep faces/edges={im.get('faceCount')}/{im.get('edgeCount')} "
+      f"exported={mk.get('faceCount')}/{mk.get('edgeCount')}")
+check("P10 importStep volume == the exporting row's volume (2000)",
+      isinstance(im.get("volume"), (int, float)) and abs(im.get("volume") - 2000) < 1e-6
+      and abs(mk.get("volume", 0) - 2000) < 1e-6, f"{im.get('volume')} vs {mk.get('volume')}")
+check("P10 importStep emits no `valid` verdict", "valid" not in im)
+iv = im.get("validity")
+check("P10 importStep raw flags of a clean part are all clean",
+      isinstance(iv, dict) and iv.get("isClosed") is True and iv.get("isManifold") is True
+      and iv.get("isOriented") is True and iv.get("hasSelfIntersect") is False
+      and iv.get("badFaces") == 0 and iv.get("badEdges") == 0, str(iv))
+imm = im.get("mesh")
+if isinstance(imm, dict) and "positions" in imm:
+    mp = mesh_props(imm)
+    check("P10 importStep 0.3,0.6 mesh bbox == its reported bbox, closed, volume 2000",
+          mp["bbox"] is not None and mp["bbox"][0] == im.get("bbox", {}).get("min")
+          and mp["bbox"][1] == im.get("bbox", {}).get("max") and mp["two_manifold"]
+          and abs(mp["volume"] - 2000) <= 1e-9 * 2000,
+          f"mesh bbox={mp['bbox']} reported={im.get('bbox')} vol={mp['volume']!r}")
+    mkm = mk.get("mesh")
+    check("P10 importStep mesh == the exporting row's mesh (same solid, same spec)",
+          isinstance(mkm, dict) and mesh_props(mkm)["bbox"] == mp["bbox"]
+          and abs(mesh_props(mkm)["volume"] - mp["volume"]) <= 1e-9 * 2000)
+else:
+    check("P10 importStep row answered with a mesh", False, str(im.get("meshError")))
+
+# P11 importStep does not harmonize normals (real data)
+r225, i225 = rows.get("imp_225", {}), rows.get("inp_225", {})
+rv, iv2 = r225.get("validity"), i225.get("validity")
+def defect(v):
+    return isinstance(v, dict) and (v.get("isOriented") is False or (v.get("badFaces") or 0) > 0)
+check("P11 importStep of 225/output.step answered with raw flags",
+      r225.get("ok") is True and isinstance(rv, dict), str({k: r225.get(k) for k in ("ok", "error")}))
+check("P11 INPUT() of it reports it repaired (oriented, 0 bad faces) -- the fixture discriminates",
+      isinstance(iv2, dict) and not defect(iv2), str(iv2))
+check("P11 importStep reports the defect INPUT() repaired (unoriented or bad faces)", defect(rv), str(rv))
+r243 = rows.get("imp_243", {})
+check("P11 importStep of 243/output.step reports its raw defect (harmonizeNormals alone would clean it)",
+      r243.get("ok") is True and defect(r243.get("validity")), str(r243.get("validity") or r243.get("error")))
+check("P11 importStep keeps the faces INPUT() merges",
+      isinstance(r225.get("faceCount"), int) and isinstance(i225.get("faceCount"), int)
+      and r225.get("faceCount") > i225.get("faceCount"),
+      f"importStep {r225.get('faceCount')} vs INPUT() {i225.get('faceCount')}")
+
+# P12 the mesh spec is honoured on an importStep row
+cc2, cf2 = rows.get("imp_218_coarse", {}).get("mesh"), rows.get("imp_218_fine", {}).get("mesh")
+if isinstance(cc2, dict) and isinstance(cf2, dict) and "indices" in cc2 and "indices" in cf2:
+    a2, b2 = len(cc2["indices"]) // 3, len(cf2["indices"]) // 3
+    check("P12 lin 0.05 -> more triangles than lin 0.3 on the same imported part",
+          b2 > a2 > 0, f"tris {a2} -> {b2}")
+    check("P12 lin/ang echoed on importStep meshes",
+          (cc2.get("lin"), cc2.get("ang"), cf2.get("lin"), cf2.get("ang")) == (0.3, 0.6, 0.05, 0.6))
+else:
+    check("P12 both importStep meshes of 218 answered", False)
+
+# P13 exclusivity and per-row failure
+for rid, needle in (("imp_and_ir", "takes no ir"), ("imp_and_input", "takes no ir"),
+                    ("imp_empty", "importStep is empty"), ("imp_missing", "importStep:")):
+    r = rows.get(rid, {})
+    check(f"P13 {rid}: refused (ok:false, no measurement)",
+          r.get("ok") is False and needle in (r.get("error") or "") and "volume" not in r
+          and "mesh" not in r, str({k: r.get(k) for k in ("ok", "error")}))
+check("P13 a row with neither ir nor importStep answers exactly as before",
+      rows.get("noir") == {"id": "noir", "ok": False, "error": "no ir"}, str(rows.get("noir")))
+
 print()
 if fails:
     print(f"[fv-mesh] RED -- {len(fails)} check(s) failed.")
     sys.exit(1)
-print("[fv-mesh] GREEN -- mesh and raw validity are opt-in, exact, and consistent with the solid.")
+print("[fv-mesh] GREEN -- mesh, raw validity and importStep are opt-in, exact, and consistent with the solid.")
 PY
 st=$?
 if [ "$st" -ne 0 ] && [ -s "$TMP/err.log" ]; then sed 's/^/           stderr: /' "$TMP/err.log" | head -5; fi
