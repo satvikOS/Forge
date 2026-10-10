@@ -46,8 +46,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <unordered_map>
@@ -1259,7 +1261,8 @@ struct SurfaceRefineStats {
 // comment above). `pts` holds the tessellation vertices `triangles` index; `tryAdd(p)` appends
 // p to the point set unless a point already sits within the merge tolerance. Corners are read
 // BY VALUE per triangle: tryAdd may grow the vector `pts` refers to. `leaves` receives the
-// refined surface triangles (for the interior keep-out).
+// refined surface triangles (for the interior keep-out and, T-255, the inside/outside parity),
+// `leafFace` (optional) the CAD face of each.
 template <class AddFn>
 void refineBoundaryOnCad(const std::vector<Vec3>& pts,
                          const std::vector<std::array<int, 3>>& triangles,
@@ -1269,7 +1272,8 @@ void refineBoundaryOnCad(const std::vector<Vec3>& pts,
                          double minLen, double minArea,
                          std::size_t budget, int maxDepth,
                          std::vector<std::array<Vec3, 3>>& leaves,
-                         SurfaceRefineStats& st) {
+                         SurfaceRefineStats& st,
+                         std::vector<int>* leafFace = nullptr) {
     const int nFaces = static_cast<int>(cad.faces.size());
     auto faceOf = [&](std::size_t ti) -> int {
         const int f = ti < triFace.size() ? triFace[ti] : -1;
@@ -1361,6 +1365,7 @@ void refineBoundaryOnCad(const std::vector<Vec3>& pts,
                 if (st.added >= budget) {
                     st.capped = true;
                     leaves.push_back({A, B, C});
+                    if (leafFace) leafFace->push_back(face);
                     continue;
                 }
                 const Vec3 P0 = it.v[k], P1 = it.v[(k + 1) % 3], P2 = it.v[(k + 2) % 3];
@@ -1374,6 +1379,7 @@ void refineBoundaryOnCad(const std::vector<Vec3>& pts,
                 stack.push_back({{m, P1, P2}, it.depth + 1, {t01, t12, -1}});
             } else {
                 leaves.push_back({A, B, C});
+                if (leafFace) leafFace->push_back(face);
                 const double area = 0.5 * (B - A).cross(C - A).norm();
                 if (area > minArea) {
                     if (st.added < budget) {
@@ -1460,6 +1466,253 @@ private:
     const std::vector<std::array<Vec3, 3>>& tris_;
     double inv_;
     std::unordered_map<Key, std::vector<int>, KeyHash> cells_;
+};
+
+// =========================================================================== //
+//  T-255 — inside/outside without one B-rep classifier call per point          //
+// =========================================================================== //
+//
+// MEASURED (T-035, sample of meshShape on the LE10 slab at targetEdge 0.075, 14,775 nodes,
+// 76-126 s): 94 % of the samples (6017 of 6434) were in BRepClass3d_SClassifier::Perform,
+// projecting onto the slab's B-spline faces (Extrema_GenExtPS). meshShape called it once
+// per interior lattice point and once per Delaunay tet (the carve).
+//
+// Both questions are now answered against the REFINED BOUNDARY TRIANGULATION (the `leaves`
+// of refineBoundaryOnCad: every vertex ON the CAD geometry, watertight because a split
+// point is a function of its edge alone) by the parity of a ray's crossings, and the B-rep
+// classifier is asked only where that answer could differ from its own:
+//   * within `band` of the triangulation, band = 3 x the largest distance between a curved
+//     leaf and its CAD face (MEASURED per leaf: centroid and edge midpoints projected onto
+//     the face) + 10 x the merge tolerance — the faceted and the true surface bound the same
+//     solid everywhere farther than that from either;
+//   * where the ray grazes an edge, a vertex or the plane of a crossed triangle (undecided);
+//   * everywhere, when the triangulation is not watertight (budget-capped refinement) or a
+//     projection failed — counted, and the whole call then classifies as before.
+// FORGE_FEA_TET_CARVE_VERIFY=1 additionally asks the classifier at every point the parity
+// decided and counts disagreements (stderr, with FORGE_FEA_TET_PROFILE=1): the A/B that
+// shows the kept-tet set is the one the classifier would have kept.
+
+bool feaTetCarveVerifyEnabled() {
+    static const bool on = [] {
+        const char* e = std::getenv("FORGE_FEA_TET_CARVE_VERIFY");
+        return e && *e && *e != '0';
+    }();
+    return on;
+}
+
+class SurfaceParity {
+public:
+    SurfaceParity(const std::vector<std::array<Vec3, 3>>& tris, double cell)
+        : tris_(tris), cell_(std::max(cell, 1e-30)), inv_(1.0 / cell_), stamp_(tris.size(), 0u) {
+        // A fixed direction no model axis or face normal of a CAD primitive lines up with.
+        dir_ = Vec3{0.6178034, 0.3532473, 0.7025991};
+        dir_ = dir_ * (1.0 / dir_.norm());
+        lo_ = {std::numeric_limits<long long>::max(), std::numeric_limits<long long>::max(),
+               std::numeric_limits<long long>::max()};
+        hi_ = {std::numeric_limits<long long>::min(), std::numeric_limits<long long>::min(),
+               std::numeric_limits<long long>::min()};
+        for (std::size_t t = 0; t < tris.size(); ++t) {
+            const Vec3& a = tris[t][0];
+            const Vec3& b = tris[t][1];
+            const Vec3& c = tris[t][2];
+            const Key l = key({std::min({a.x, b.x, c.x}), std::min({a.y, b.y, c.y}), std::min({a.z, b.z, c.z})});
+            const Key h = key({std::max({a.x, b.x, c.x}), std::max({a.y, b.y, c.y}), std::max({a.z, b.z, c.z})});
+            for (int k = 0; k < 3; ++k) { lo_[k] = std::min(lo_[k], l[k]); hi_[k] = std::max(hi_[k], h[k]); }
+            for (long long i = l[0]; i <= h[0]; ++i)
+                for (long long j = l[1]; j <= h[1]; ++j)
+                    for (long long k = l[2]; k <= h[2]; ++k)
+                        cells_[Key{i, j, k}].push_back(static_cast<int>(t));
+        }
+    }
+
+    // Is the triangle soup a closed surface: every edge (by exact vertex coordinates) shared by
+    // exactly two triangles?
+    bool watertight() const {
+        struct EK {
+            double c[6];
+            bool operator==(const EK& o) const { for (int i = 0; i < 6; ++i) if (c[i] != o.c[i]) return false; return true; }
+        };
+        struct EH {
+            std::size_t operator()(const EK& k) const noexcept {
+                std::uint64_t h = 1469598103934665603ull;
+                for (double d : k.c) { std::uint64_t u; std::memcpy(&u, &d, sizeof u); h ^= u; h *= 1099511628211ull; }
+                return static_cast<std::size_t>(h);
+            }
+        };
+        std::unordered_map<EK, int, EH> cnt;
+        cnt.reserve(tris_.size() * 2);
+        auto less = [](const Vec3& p, const Vec3& q) {
+            return p.x != q.x ? p.x < q.x : (p.y != q.y ? p.y < q.y : p.z < q.z);
+        };
+        for (const auto& t : tris_)
+            for (int k = 0; k < 3; ++k) {
+                Vec3 p = t[k], q = t[(k + 1) % 3];
+                if (less(q, p)) std::swap(p, q);
+                ++cnt[EK{{p.x, p.y, p.z, q.x, q.y, q.z}}];
+            }
+        for (const auto& kv : cnt) if (kv.second != 2) return false;
+        return !tris_.empty();
+    }
+
+    // +1 inside, 0 outside, -1 undecided.
+    int classify(const Vec3& p) const {
+        if (++cur_ == 0) { std::fill(stamp_.begin(), stamp_.end(), 0u); cur_ = 1; }
+        Key c = key(p);
+        // Outside the triangulation's cell box the ray need only be cast from its entry; a
+        // point outside the box is outside the solid.
+        for (int k = 0; k < 3; ++k) if (c[k] < lo_[k] || c[k] > hi_[k]) return 0;
+        const double d[3] = {dir_.x, dir_.y, dir_.z};
+        const double o[3] = {p.x, p.y, p.z};
+        long long idx[3] = {c[0], c[1], c[2]};
+        int step[3];
+        double tMax[3], tDelta[3];
+        for (int k = 0; k < 3; ++k) {
+            step[k] = d[k] > 0 ? 1 : -1;
+            const double boundary = (static_cast<double>(idx[k]) + (d[k] > 0 ? 1.0 : 0.0)) * cell_;
+            tMax[k] = (boundary - o[k]) / d[k];
+            tDelta[k] = cell_ / std::abs(d[k]);
+        }
+        int hits = 0;
+        for (;;) {
+            auto it = cells_.find(Key{idx[0], idx[1], idx[2]});
+            if (it != cells_.end()) {
+                for (int t : it->second) {
+                    if (stamp_[t] == cur_) continue;
+                    stamp_[t] = cur_;
+                    const int r = crossing(p, tris_[t]);
+                    if (r < 0) return -1;
+                    hits += r;
+                }
+            }
+            int ax = 0;
+            if (tMax[1] < tMax[ax]) ax = 1;
+            if (tMax[2] < tMax[ax]) ax = 2;
+            idx[ax] += step[ax];
+            tMax[ax] += tDelta[ax];
+            if (idx[ax] < lo_[ax] || idx[ax] > hi_[ax]) break;
+        }
+        return (hits & 1) ? 1 : 0;
+    }
+
+private:
+    using Key = std::array<long long, 3>;
+    struct KeyHash {
+        std::size_t operator()(const Key& k) const noexcept {
+            std::uint64_t h = 1469598103934665603ull;
+            for (auto v : k) { h ^= static_cast<std::uint64_t>(v); h *= 1099511628211ull; }
+            return static_cast<std::size_t>(h);
+        }
+    };
+    Key key(const Vec3& v) const {
+        return {static_cast<long long>(std::floor(v.x * inv_)), static_cast<long long>(std::floor(v.y * inv_)),
+                static_cast<long long>(std::floor(v.z * inv_))};
+    }
+    // Does the ray p + s dir (s > 0) cross triangle abc? 1 yes, 0 no, -1 too close to call
+    // (through an edge or a vertex, in the triangle's plane, or from a point on it).
+    int crossing(const Vec3& p, const std::array<Vec3, 3>& tri) const {
+        constexpr double kBary = 1e-9;
+        const Vec3 e1 = tri[1] - tri[0], e2 = tri[2] - tri[0];
+        const Vec3 pv = dir_.cross(e2);
+        const double det = e1.dot(pv);
+        const double scale = e1.norm() * e2.norm();
+        const Vec3 tv = p - tri[0];
+        if (std::abs(det) <= 1e-12 * scale) {
+            // parallel: a miss unless the ray runs in the triangle's plane
+            const Vec3 n = e1.cross(e2);
+            const double nn = n.norm();
+            if (!(nn > 0)) return -1;                      // degenerate triangle
+            return std::abs(n.dot(tv)) / nn <= 1e-9 * std::sqrt(scale) ? -1 : 0;
+        }
+        const double inv = 1.0 / det;
+        const double u = tv.dot(pv) * inv;
+        if (u < -kBary || u > 1.0 + kBary) return 0;
+        const Vec3 qv = tv.cross(e1);
+        const double v = dir_.dot(qv) * inv;
+        if (v < -kBary || u + v > 1.0 + kBary) return 0;
+        const double s = e2.dot(qv) * inv;
+        const double len = std::sqrt(scale);
+        if (s < -1e-9 * len) return 0;                     // behind the start point
+        if (s <= 1e-9 * len) return -1;                    // the start point is on it
+        if (u < kBary || v < kBary || u + v > 1.0 - kBary) return -1;   // through an edge / vertex
+        return 1;
+    }
+
+    const std::vector<std::array<Vec3, 3>>& tris_;
+    double cell_, inv_;
+    Vec3 dir_;
+    Key lo_, hi_;
+    std::unordered_map<Key, std::vector<int>, KeyHash> cells_;
+    mutable std::vector<unsigned> stamp_;
+    mutable unsigned cur_ = 0;
+};
+
+struct InsideStats {
+    bool fast = false;                 // parity in use (false: every point went to the classifier)
+    double band = 0, maxLeafDev = 0;   // m
+    std::size_t curvedLeaves = 0, parity = 0, inBand = 0, undecided = 0, classifierCalls = 0, mismatches = 0;
+};
+
+// "Is p IN the solid?" as BRepClass3d_SolidClassifier::Perform(p, tol) answers it, asked of the
+// classifier only where the boundary parity could differ from it (see the block comment above).
+class InsideTest {
+public:
+    InsideTest(const std::vector<std::array<Vec3, 3>>& leaves, const std::vector<int>& leafFace,
+               const CadGeometry& cad, double cell, double mergeTol, bool capped,
+               BRepClass3d_SolidClassifier& cls, InsideStats& st)
+        : cls_(cls), st_(st), near_(leaves, cell), parity_(leaves, cell), verify_(feaTetCarveVerifyEnabled()) {
+        bool ok = !capped && !leaves.empty() && leafFace.size() == leaves.size();
+        double dev = 0;
+        for (std::size_t i = 0; ok && i < leaves.size(); ++i) {
+            const int f = leafFace[i];
+            if (f < 0 || f >= static_cast<int>(cad.faces.size())) { ok = false; break; }
+            if (cad.faces[f].planar) continue;            // a planar leaf lies in its face
+            ++st_.curvedLeaves;
+            const auto& L = leaves[i];
+            const Vec3 probe[4] = {(L[0] + L[1] + L[2]) * (1.0 / 3.0), (L[0] + L[1]) * 0.5,
+                                   (L[1] + L[2]) * 0.5, (L[2] + L[0]) * 0.5};
+            for (const Vec3& q : probe) {
+                Vec3 on;
+                double d = 0.0;
+                if (!projectOntoFace(cad.faces[f], q, on, d)) { ok = false; break; }
+                dev = std::max(dev, d);
+            }
+        }
+        if (ok) ok = parity_.watertight();
+        st_.fast = ok;
+        st_.maxLeafDev = dev;
+        band_ = 3.0 * dev + 10.0 * mergeTol;
+        st_.band = band_;
+    }
+
+    bool in(const Vec3& p, double tol) {
+        if (st_.fast) {
+            if (!near_.within(p, band_)) {
+                const int r = parity_.classify(p);
+                if (r >= 0) {
+                    ++st_.parity;
+                    if (verify_ && classify(p, tol) != (r == 1)) ++st_.mismatches;
+                    return r == 1;
+                }
+                ++st_.undecided;
+            } else {
+                ++st_.inBand;
+            }
+        }
+        ++st_.classifierCalls;
+        return classify(p, tol);
+    }
+
+private:
+    bool classify(const Vec3& p, double tol) {
+        cls_.Perform(gp_Pnt(p.x, p.y, p.z), tol);
+        return cls_.State() == TopAbs_IN;
+    }
+    BRepClass3d_SolidClassifier& cls_;
+    InsideStats& st_;
+    BoundaryProximity near_;
+    SurfaceParity parity_;
+    bool verify_;
+    double band_ = 0.0;
 };
 
 // =========================================================================== //
@@ -1978,6 +2231,20 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
 
     std::size_t nSurfPts = 0;   // [0, nSurfPts) of bndPts are boundary samples; the rest lattice
 
+    // T-255: the refined boundary triangulation outlives the seeding block — the carve
+    // classifies against it too (InsideTest below).
+    std::vector<std::array<Vec3, 3>> leaves;
+    std::vector<int> leafFace;
+    BRepClass3d_SolidClassifier classifier(shape);
+    InsideStats ist;
+    std::unique_ptr<InsideTest> inside;
+    const bool profile = feaTetProfileEnabled();
+    auto tNow = [] { return std::chrono::steady_clock::now(); };
+    auto msSince = [](std::chrono::steady_clock::time_point t0) {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    };
+    double msRefine = 0, msInside = 0, msLattice = 0, msBw = 0, msCarve = 0, msImprove = 0;
+
     // 2b. Densify seeds.
     //
     // BRepMesh on a planar face only produces corner+edge vertices — a
@@ -2033,11 +2300,15 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
         // triangle list to avoid iterating new points).
         const double minLen = 1.25 * targetEdge;
         const double minArea = 0.5 * targetEdge * targetEdge;
+        auto t0 = tNow();
         const CadGeometry cad = buildCadGeometry(shape);
-        std::vector<std::array<Vec3, 3>> leaves;
         SurfaceRefineStats rst;
         refineBoundaryOnCad(bndPts, triangles, triFace, cad, tryAdd, minLen, minArea,
-                            static_cast<std::size_t>(seedBudget), 40, leaves, rst);
+                            static_cast<std::size_t>(seedBudget), 40, leaves, rst, &leafFace);
+        msRefine = msSince(t0);
+        t0 = tNow();
+        inside = std::make_unique<InsideTest>(leaves, leafFace, cad, targetEdge, mergeTol, rst.capped, classifier, ist);
+        msInside = msSince(t0);
         const bool bndCapped = rst.capped;
         nSurfPts = bndPts.size();
         if (bndCapped) {
@@ -2048,7 +2319,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
                          seedBudget, targetEdge);
         }
         // (b) Interior grid.
-        BRepClass3d_SolidClassifier classifier(shape);
+        t0 = tNow();
         int nx = 0, ny = 0, nz = 0;
         seedCapped = sizeSeedGrid(xmax - xmin, ymax - ymin, zmax - zmin,
                                   targetEdge, seedBudget, nx, ny, nz, seedSpacing);
@@ -2063,9 +2334,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
                 for (int iz = 1; iz <= nz; ++iz) {
                     Vec3 p{xmin + ix * dx, ymin + iy * dy, zmin + iz * dz};
                     if (nearBoundary.within(p, keepOut)) { ++latticeKeptOut; continue; }
-                    gp_Pnt gp(p.x, p.y, p.z);
-                    classifier.Perform(gp, mergeTol);
-                    if (classifier.State() != TopAbs_IN) continue;
+                    if (!inside->in(p, mergeTol)) continue;   // T-255 (was: one classifier call)
                     if (tryAdd(p)) ++latticeIn;
                 }
             }
@@ -2079,6 +2348,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
                          rst.onCrease, rst.planarExact, rst.unprojected, rst.capped ? " CAPPED" : "",
                          latticeIn, latticeKeptOut, keepOut);
         }
+        msLattice = msSince(t0);
     }
 
     // 3. Bowyer-Watson on the boundary points (try).
@@ -2086,26 +2356,28 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
     std::vector<LocalTet> bw;
     BwStats bwStats;
     bool bwOk = true;
+    auto tBw = tNow();
     try {
         bw = bowyerWatson(ptsCopy, bwStats);
     } catch (...) {
         bw.clear();
         bwOk = false;
     }
+    msBw = msSince(tBw);
 
     Mesh out;
     if (bwOk && !bw.empty()) {
-        // 4. Filter against the solid: keep tets whose centroid is inside.
-        BRepClass3d_SolidClassifier classifier(shape);
+        // 4. Filter against the solid: keep tets whose centroid is inside — decided by the
+        //    boundary parity, the B-rep classifier only near the boundary (T-255).
+        auto tCarve = tNow();
         std::vector<LocalTet> kept;
         kept.reserve(bw.size());
         for (auto& t : bw) {
             Vec3 c = (ptsCopy[t.n[0]] + ptsCopy[t.n[1]] + ptsCopy[t.n[2]] + ptsCopy[t.n[3]])
                      * 0.25;
-            gp_Pnt p(c.x, c.y, c.z);
-            classifier.Perform(p, Precision::Confusion());
-            if (classifier.State() == TopAbs_IN) kept.push_back(t);
+            if (inside->in(c, Precision::Confusion())) kept.push_back(t);
         }
+        msCarve = msSince(tCarve);
         if (feaTetProfileEnabled() && !kept.empty()) {
             // Boundary recovery census: a face of the carved mesh that lies on its boundary
             // and has a LATTICE vertex is a lattice point exposed on the surface (a step).
@@ -2128,7 +2400,20 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
                                  "%zu with an exposed lattice vertex\n",
                          kept.size(), bw.size(), bFaces, exposed);
         }
+        auto tImp = tNow();
         improveSlivers(ptsCopy, kept, bwStats.snapQ);   // T-253
+        msImprove = msSince(tImp);
+        if (profile) {
+            std::fprintf(stderr, "[feaTet] inside test: %s band %.3g m (max leaf-to-face %.3g m over %zu curved leaves); "
+                                 "%zu by parity, %zu in the band, %zu undecided -> %zu B-rep classifier calls; "
+                                 "VERIFY %s: %zu disagreements\n",
+                         ist.fast ? "parity," : "B-REP ONLY", ist.band, ist.maxLeafDev, ist.curvedLeaves,
+                         ist.parity, ist.inBand, ist.undecided, ist.classifierCalls,
+                         feaTetCarveVerifyEnabled() ? "on" : "off", ist.mismatches);
+            std::fprintf(stderr, "[feaTet] time ms: refine %.0f, inside-test setup %.0f, lattice %.0f, Bowyer-Watson %.0f, "
+                                 "carve %.0f, sliver removal %.0f\n",
+                         msRefine, msInside, msLattice, msBw, msCarve, msImprove);
+        }
         if (!kept.empty()) {
             // Build nodes — use the union of points referenced by kept tets.
             std::unordered_map<int, int> remap;
