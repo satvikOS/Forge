@@ -4231,6 +4231,38 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
       ImGui::TextColored(rgb(242, 158, 38), "%s", summary.progress.c_str());
     }
 
+    // ── FORGE GUARDIAN (T-179) ─────────────────────────────────────────────
+    // Whether this machine is admitting heavy work, as the workstation governor
+    // publishes it (tools/guardian/SCHEMA.md §4.1). Unavailable and NoEvidence are
+    // drawn as warnings, never as healthy: a dead governor's last GREEN is the
+    // input forge::desktop::parseGuardianStatus exists to refuse.
+    if (ImGui::GetTime() >= guardianNextRead_) {
+      guardian_ = forge::desktop::readGuardianStatus(forge::desktop::defaultGuardianStatePath(),
+                                                     static_cast<long long>(std::time(nullptr)));
+      guardianNextRead_ = ImGui::GetTime() + kGuardianReadPeriod;
+    }
+    {
+      ImVec4 gc = rgb(122, 196, 108);                       // Healthy
+      switch (guardian_.level) {
+        case forge::desktop::GuardianLevel::Healthy: break;
+        case forge::desktop::GuardianLevel::Caution: gc = rgb(230, 200, 80); break;
+        case forge::desktop::GuardianLevel::Pressure: gc = rgb(242, 158, 38); break;
+        case forge::desktop::GuardianLevel::Critical: gc = rgb(235, 105, 95); break;
+        case forge::desktop::GuardianLevel::NoEvidence:
+        case forge::desktop::GuardianLevel::Unavailable: gc = rgb(200, 150, 230); break;
+      }
+      const std::string gtext = forge::desktop::guardianStripText(guardian_, 40);
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(120, 126, 137), "|");
+      ImGui::SameLine();
+      ImGui::TextColored(gc, "%s", gtext.c_str());
+      if (ImGui::IsItemHovered()) {
+        std::string tip;
+        for (const std::string& line : forge::desktop::guardianDetail(guardian_)) tip += line + "\n";
+        ImGui::SetTooltip("%s", tip.c_str());
+      }
+    }
+
     // Right side: the last thing that happened. A status bar that never says
     // what failed is decoration.
     //

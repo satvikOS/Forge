@@ -80,7 +80,7 @@ IMGUI_SRCS=("$IMGUI/imgui.cpp" "$IMGUI/imgui_draw.cpp" "$IMGUI/imgui_tables.cpp"
 echo "compiling the file-dialog gate (${#UI_SRCS[@]} forge::ui sources + ${#IMGUI_SRCS[@]} ImGui + 5 desktop sources)"
 c++ -std=c++20 -O1 -g -DFORGE_NATIVE_BREP=1 \
     -I "$ROOT/ui/include" -I "$DESKTOP/src" -I "$ROOT/forge-kernel/include" \
-    -I "$IMGUI" -I "$OCCT/include/opencascade" \
+    -I "$IMGUI" -I "$OCCT/include/opencascade" -I "$ROOT/retrieval/include" \
     -o "$OUT" \
     "${UI_SRCS[@]}" \
     "${IMGUI_SRCS[@]}" \
@@ -90,6 +90,8 @@ c++ -std=c++20 -O1 -g -DFORGE_NATIVE_BREP=1 \
     "$DESKTOP/src/PartFile.cpp" \
     "$DESKTOP/src/Camera.cpp" \
     "$DESKTOP/src/ForgeFrame.cpp" \
+    "$DESKTOP/src/GuardianStatus.cpp" \
+    "$ROOT/retrieval/src/Json.cpp" \
     "$HERE/file_dialog_gate.cpp" \
     "$LIB" \
     -Wl,-rpath,"$KBUILD" -Wl,-rpath,"$OCCT/lib"

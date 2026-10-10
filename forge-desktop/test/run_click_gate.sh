@@ -125,6 +125,11 @@ DESKTOP_LINK=(
   #    forge/ui/EngineeringCalculators.hpp, and the kernel calculators it calls
   #    are in the libforge_kernel_core.dylib this gate already links.
   forge-desktop/src/CalculatorHost.cpp
+  # -- 2026-10-08 (T-179): the app's view of Forge Guardian. A LINKED TU
+  #    references it (ForgeFrame::drawStatusStrip reads readGuardianStatus), and it
+  #    needs retrieval/src/Json.cpp, linked below. Headless: a file read, no SDK.
+  forge-desktop/src/GuardianStatus.cpp
+  retrieval/src/Json.cpp
 )
 # Deliberately NOT linked, each for a reason a reader can check:
 #   main.cpp, kernel_worker_main.cpp  -- each defines main(); click_gate.cpp owns it here
@@ -198,6 +203,7 @@ echo "[click-gate] desktop TUs linked: ${#DESKTOP_LINK[@]}, deliberately skipped
 "$CXX" -std=c++20 -O1 -Wall -Wextra -Werror "${ASAN[@]}" \
   -DFORGE_NATIVE_BREP=1 \
   -I ui/include -I forge-kernel/include -I forge-desktop/src -I "$IMGUI_DIR" \
+  -I retrieval/include \
   -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
   ui/src/*.cpp \
   "${DESKTOP_LINK[@]}" \

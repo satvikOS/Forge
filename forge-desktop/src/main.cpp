@@ -42,11 +42,16 @@
 //         cmake --build forge-desktop/build -j8 --target forge_desktop
 // Run:    ./forge-desktop/build/forge_desktop
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <fstream>
+#include <map>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -122,6 +127,67 @@ bool g_swapchainRebuild = false;
       return false;                                                          \
     }                                                                        \
   } while (0)
+
+// ── GPU FAILURES ARE EVIDENCE (T-179) ───────────────────────────────────────
+// Until this, the frame loop discarded the VkResult of vkQueueSubmit and waited on
+// its fences with UINT64_MAX: a lost device was invisible and a hung GPU wedged the
+// UI thread for ever, leaving nothing behind to say which. Forge Guardian ingests
+// local events from $FORGE_HEALTH_DIR/events/inbox/*.jsonl (tools/guardian/SCHEMA.md
+// §2, §7), so a GPU failure here becomes a timestamped `gpu_error` in the same
+// evidence stream as memory pressure, Jetsam reports and the user's own
+// `forge-guardian-ctl incident` -- which is what a "the screen went green" report
+// needs to be correlated against. ONE FILE PER EVENT: the sensor deletes an inbox
+// file once it has ingested it, so appending to a shared file could lose a line.
+const char* vkResultName(VkResult r) {
+  switch (r) {
+    case VK_SUCCESS: return "VK_SUCCESS";
+    case VK_NOT_READY: return "VK_NOT_READY";
+    case VK_TIMEOUT: return "VK_TIMEOUT";
+    case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+    case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+    case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+    case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+    case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+    case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+    case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+    default: return "VK_ERROR_(other)";
+  }
+}
+
+void reportGpuEvent(const char* where, VkResult r) {
+  // Rate-limited per call site: a GPU that fails every frame must not write 60
+  // files a second into the inbox.
+  static std::map<std::string, std::chrono::steady_clock::time_point> last;
+  const auto now = std::chrono::steady_clock::now();
+  auto it = last.find(where);
+  if (it != last.end() && now - it->second < std::chrono::seconds(60)) return;
+  last[where] = now;
+  std::fprintf(stderr, "[forge] GPU: %s -> %s (%d)\n", where, vkResultName(r), static_cast<int>(r));
+
+  std::string dir;
+  if (const char* d = std::getenv("FORGE_HEALTH_DIR"); d != nullptr && *d != '\0') dir = d;
+  else if (const char* h = std::getenv("HOME"); h != nullptr && *h != '\0') dir = std::string(h) + "/.forge-health";
+  struct stat st {};
+  if (dir.empty() || ::stat(dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return;  // no Guardian domain: stderr only
+  ::mkdir((dir + "/events").c_str(), 0700);
+  ::mkdir((dir + "/events/inbox").c_str(), 0700);
+  const long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::system_clock::now().time_since_epoch()).count();
+  const std::string path = dir + "/events/inbox/forge-desktop-" + std::to_string(::getpid()) + "-" +
+                           std::to_string(ms) + ".jsonl";
+  char line[512];
+  const int n = std::snprintf(line, sizeof line,
+                              "{\"ts\":%.3f,\"kind\":\"gpu_error\",\"source\":\"forge-desktop\","
+                              "\"where\":\"%s\",\"vk_result\":%d,\"vk_name\":\"%s\",\"pid\":%d}\n",
+                              static_cast<double>(ms) / 1000.0, where, static_cast<int>(r),
+                              vkResultName(r), static_cast<int>(::getpid()));
+  if (n <= 0 || n >= static_cast<int>(sizeof line)) return;
+  const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (fd < 0) return;
+  const ssize_t w = ::write(fd, line, static_cast<std::size_t>(n));
+  (void)w;   // evidence is best-effort; the stderr line above is always written
+  ::close(fd);
+}
 
 bool hasInstanceExtension(const char* name) {
   std::uint32_t n = 0;
@@ -815,6 +881,32 @@ int main(int argc, char** argv) {
   const int kArchieCaptureEvery = 30;   // ~2 Hz at 60 fps; one capture costs ~a frame
   int lastArchieFrame = -kArchieCaptureEvery;
   bool running = true;
+  // ── A LOST DEVICE IS A CLEAN STOP, NOT UNDEFINED BEHAVIOUR (T-179) ─────────
+  // Without a device nothing can be drawn -- including the unsaved-changes prompt
+  // the quit guard would raise -- so the work is autosaved FIRST (the next launch
+  // offers it, see recoveryDirPath), the evidence goes to Forge Guardian, the user
+  // is told in a native dialog that needs no GPU, and the loop ends.
+  bool gpuLost = false;
+  auto loseGpu = [&](const char* where, VkResult r) {
+    reportGpuEvent(where, r);
+    const bool saved = frame.autosaveNow();
+    std::fprintf(stderr, "[forge] graphics device lost at %s (%s); autosave %s\n", where,
+                 vkResultName(r), saved ? "written" : "NOT written");
+    const std::string msg =
+        std::string("Forge lost the graphics device (") + vkResultName(r) + " in " + where +
+        ") and has to close.\n\n" +
+        (saved ? "Your work was autosaved and will be offered the next time Forge starts."
+               : "Forge could not write an autosave. Unsaved changes since the last save are lost.") +
+        "\n\nForge Guardian recorded this event; `forge-guardian-ctl incident` preserves the "
+        "surrounding machine history.";
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Forge: graphics device lost", msg.c_str(), nullptr);
+    gpuLost = true;
+  };
+  // Fence and acquire waits are bounded slices, never UINT64_MAX: a GPU that does
+  // not answer within a slice is RECORDED, and one that does not answer for
+  // kGpuHangSlices slices (60 s) is treated as lost.
+  constexpr std::uint64_t kGpuWaitSliceNs = 5'000'000'000ull;
+  constexpr int kGpuHangSlices = 12;
   while (running) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -922,17 +1014,31 @@ int main(int argc, char** argv) {
     ImGui_ImplVulkanH_FrameSemaphores* sem =
         &g_window.FrameSemaphores[g_window.SemaphoreIndex];
     std::uint32_t imageIndex = 0;
-    VkResult acquired = vkAcquireNextImageKHR(g_device, g_window.Swapchain, UINT64_MAX,
+    VkResult acquired = vkAcquireNextImageKHR(g_device, g_window.Swapchain, kGpuWaitSliceNs,
                                               sem->ImageAcquiredSemaphore, VK_NULL_HANDLE,
                                               &imageIndex);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR || acquired == VK_SUBOPTIMAL_KHR) {
       g_swapchainRebuild = true;
       if (acquired == VK_ERROR_OUT_OF_DATE_KHR) continue;
+    } else if (acquired == VK_TIMEOUT || acquired == VK_NOT_READY) {
+      reportGpuEvent("vkAcquireNextImageKHR", acquired);   // no image this slice: skip the frame
+      continue;
+    } else if (acquired != VK_SUCCESS) {
+      loseGpu("vkAcquireNextImageKHR", acquired);
+      break;
     }
     g_window.FrameIndex = imageIndex;
     ImGui_ImplVulkanH_Frame* fd = &g_window.Frames[imageIndex];
 
-    vkWaitForFences(g_device, 1, &fd->Fence, VK_TRUE, UINT64_MAX);
+    VkResult fenced = VK_TIMEOUT;
+    for (int slice = 0; slice < kGpuHangSlices && fenced == VK_TIMEOUT; ++slice) {
+      fenced = vkWaitForFences(g_device, 1, &fd->Fence, VK_TRUE, kGpuWaitSliceNs);
+      if (fenced == VK_TIMEOUT) reportGpuEvent("vkWaitForFences", fenced);   // recorded once a minute
+    }
+    if (fenced != VK_SUCCESS) {
+      loseGpu(fenced == VK_TIMEOUT ? "vkWaitForFences (no answer for 60 s)" : "vkWaitForFences", fenced);
+      break;
+    }
     vkResetFences(g_device, 1, &fd->Fence);
     vkResetCommandPool(g_device, fd->CommandPool, 0);
 
@@ -969,7 +1075,11 @@ int main(int argc, char** argv) {
     submit.pCommandBuffers = &fd->CommandBuffer;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &sem->RenderCompleteSemaphore;
-    vkQueueSubmit(g_queue, 1, &submit, fd->Fence);
+    const VkResult submitted = vkQueueSubmit(g_queue, 1, &submit, fd->Fence);
+    if (submitted != VK_SUCCESS) {
+      loseGpu("vkQueueSubmit", submitted);
+      break;
+    }
 
     VkPresentInfoKHR present{};
     present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -981,6 +1091,9 @@ int main(int argc, char** argv) {
     const VkResult presented = vkQueuePresentKHR(g_queue, &present);
     if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) {
       g_swapchainRebuild = true;
+    } else if (presented != VK_SUCCESS) {
+      loseGpu("vkQueuePresentKHR", presented);
+      break;
     }
     g_window.SemaphoreIndex = (g_window.SemaphoreIndex + 1) % g_window.SemaphoreCount;
 
@@ -1056,5 +1169,7 @@ int main(int argc, char** argv) {
   vkDestroyInstance(g_instance, nullptr);
   SDL_DestroyWindow(window);
   SDL_Quit();
-  return 0;
+  // 3: the session ended because the graphics device was lost (autosave attempted,
+  // event recorded). Distinct from a startup failure (1) so a launcher can tell them apart.
+  return gpuLost ? 3 : 0;
 }

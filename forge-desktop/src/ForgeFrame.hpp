@@ -35,6 +35,7 @@
 
 #include "Camera.hpp"
 #include "FileDialog.hpp"
+#include "GuardianStatus.hpp"
 #include "DrawingGdt.hpp"
 #include "CamHost.hpp"
 #include "KernelScene.hpp"
@@ -1828,6 +1829,15 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // strip reads it through buildStatusSummary(), so a future long operation
   // reports itself by begin()/end() and needs no new status plumbing.
   forge::ui::ProgressTracker progress_;
+
+  // ── what Forge Guardian says about this machine (T-179) ──────────────────
+  // Re-read at most every kGuardianReadPeriod seconds of ImGui time: state.json
+  // is a few KiB and the governor republishes every 5 s, so a faster read shows
+  // nothing new. Starts Unavailable -- the strip never shows a healthy machine
+  // before it has read the evidence.
+  forge::desktop::GuardianStatus guardian_;
+  double guardianNextRead_ = 0.0;
+  static constexpr double kGuardianReadPeriod = 2.0;
 
   // ── the engineering calculations ────────────────────────────────────────
   // Holds the seam to the kernel's calculators and the last answer one gave.
