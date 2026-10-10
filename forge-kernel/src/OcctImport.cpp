@@ -139,6 +139,15 @@ struct FaceSurf {
     // revAngleToParam(uo - revU0, revDelta, revNSeg) — the exact inverse of the arc's
     // param->angle law. (V is the basis-curve param, carried through identically.)
     bool revolution = false;
+    // LINEAR EXTRUSION OF A CONIC (T-247; kind == Nurbs, conicExtrusion == true):
+    // the U-direction is the SAME equal-angle rational-quadratic arc layout as the
+    // revolution above (an ellipse is the affine image of a circle, so the weights
+    // and the angle->parameter law are identical), laid over the face's u-window.
+    // OCCT's u is the conic's own angle (eccentric angle for an ellipse); it maps
+    // through revAngleToParam with the three fields below exactly as a revolution's
+    // does. A distinct flag, because the PROPERTY bridge answers an extrusion with
+    // its exact composite form (profile + direction) and must not see this map.
+    bool conicExtrusion = false;
     double revU0 = 0.0;        // OCCT angle at the face's u-window start (segment 0 start)
     double revDelta = 0.0;     // angular width of each rational-quadratic segment
     int revNSeg = 0;           // number of segments spanning the face's angular window
@@ -349,9 +358,31 @@ bool readBSplineSurface(const Handle(Geom_BSplineSurface)& srcIn,
 // SAME readBSplineSurface 1:1 extractor (de-periodise/validate) for a single code path.
 // Returns false (named `why`) if the basis can't be turned into a B-spline curve or the
 // built surface fails the native validate gate — an HONEST defer, never a refit.
+//
+// ── A CONIC BASIS IS THE EXCEPTION TO "U IS OCCT'S u" (T-247) ──────────────────
+// The paragraph above holds for a line or a B-spline basis, NOT for a circle or an
+// ellipse: curveToBSpline returns the exact rational form of a conic, but its
+// parameter is the rational arc's projective parameter, not the conic's angle, so the
+// tensor surface put a DIFFERENT point at OCCT's (u,v). Before 8341ad68 that shipped
+// as ok=1 — MEASURED on c75af519 with test/import_conic_prism_gate.cpp: the boundary
+// vertices sat up to 4.6e-2 off the surface at their own (u,v), an elliptical-arc
+// D-prism came back +3.14 % in volume and a tilted elliptic prism +9.3e-5 — and from
+// 8341ad68 on the round-trip check below declined every such prism. A conic basis is
+// therefore laid out here as EQUAL-ANGLE exact rational-quadratic segments over the
+// face's u-window (the circle's standard construction, weight cos(delta/2) on each
+// mid control; an ellipse is the affine image of a circle, so the same weights and
+// the same angle->parameter law hold for its eccentric angle), and `out` publishes
+// that law (conicExtrusion + revU0/revDelta/revNSeg) for occtToNative, exactly as the
+// surface-of-revolution path publishes its own. The round-trip check stays, and now
+// checks native(revAngleToParam(u - u0), v) against OCCT's Value(u, v).
+bool readGeomCurve(const Handle(Geom_Curve)& gcIn, nb::Curve& c, std::string& why);
+double revAngleToParam(double angle, double delta, int nSeg);
+
 bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
                           const TopoDS_Face& face,
-                          nb::NurbsSurface& out, std::string& why) {
+                          FaceSurf& fsOut, std::string& why) {
+    nb::NurbsSurface& out = fsOut.nurbs;
+    fsOut.conicExtrusion = false;
     if (ext.IsNull()) { why = "null extrusion surface"; return false; }
     Handle(Geom_Curve) basis = ext->BasisCurve();
     if (basis.IsNull()) { why = "extrusion has null basis curve"; return false; }
@@ -359,6 +390,77 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
     const gp_Dir D = ext->Direction();
     double u0, u1, v0, v1;
     BRepTools::UVBounds(face, u0, u1, v0, v1);   // v-window = extrusion-length range
+
+    // ── CONIC BASIS: the equal-angle rational-quadratic U layout (T-247) ─────────
+    // readGeomCurve unwraps a Geom_TrimmedCurve (parameter-preserving; a reversed-
+    // sense trim stores an already-reversed conic whose own frame is read), so the
+    // centre/axes below are the ones OCCT evaluates the face's u against:
+    //     C(t) = O + a cos(t) X + b sin(t) Y,   Y = N x X   (gp_Ax2 is right-handed)
+    // with a == b == r for a circle. Every symbol it names is already demanded by
+    // the edge bridge, so this adds no OCCT import.
+    nb::Curve conic;
+    std::string conicWhy;
+    const bool isConic = readGeomCurve(basis, conic, conicWhy) &&
+                         (conic.kind == nb::GeomCurveKind::Circle ||
+                          conic.kind == nb::GeomCurveKind::Ellipse);
+    int nSeg = 0;
+    double delta = 0.0;
+    if (isConic) {
+        const double ca = (conic.kind == nb::GeomCurveKind::Circle) ? conic.r : conic.a;
+        const double cbr = (conic.kind == nb::GeomCurveKind::Circle) ? conic.r : conic.b;
+        double sweep = u1 - u0;
+        if (!(sweep > 1e-9) || !std::isfinite(sweep)) {
+            why = "conic extrusion u-window degenerate"; return false;
+        }
+        if (sweep > 2.0 * kPi + 1e-6) {
+            why = "conic extrusion u-window exceeds one period"; return false;
+        }
+        if (sweep > 2.0 * kPi) sweep = 2.0 * kPi;          // clamp a hairline over-period
+        // nSeg is 1, 2 or 4 — a DIVISOR of the solid importer's kEdgeSamples
+        // (asserted there) — so every knot lands ON a column of the full-rectangle
+        // grid. A cell that straddles a knot is integrated by one Gauss rule across
+        // the parameterisation's kink: MEASURED with nSeg = ceil(sweep/90deg) = 3 on
+        // a 4.4 rad circular-arc prism, volume rel 1.03e-6; with nSeg = 4, 1e-14.
+        nSeg = sweep <= 0.5 * kPi + 1e-9 ? 1 : (sweep <= kPi + 1e-9 ? 2 : 4);
+        delta = sweep / nSeg;                               // each segment <= 90 deg
+        const double cw = std::cos(0.5 * delta);            // mid-control weight (> 0)
+        if (!(cw > 1e-9)) { why = "conic extrusion segment weight degenerate"; return false; }
+        const Vec3 X = conic.refDir;
+        const Vec3 Y = conic.binormal();
+        const int nU = 2 * nSeg + 1;                        // deg-2, interior mult 2
+        TColgp_Array2OfPnt poles(1, nU, 1, 2);
+        TColStd_Array2OfReal wts(1, nU, 1, 2);
+        for (int ku = 0; ku < nU; ++ku) {
+            const bool mid = (ku % 2) == 1;                 // odd index = segment mid control
+            const int seg = mid ? (ku - 1) / 2 : ku / 2;
+            const double t = u0 + delta * (double)seg + (mid ? 0.5 * delta : 0.0);
+            const double sc = mid ? 1.0 / cw : 1.0;         // affine image of the circle net
+            const Vec3 P = nb::vadd(conic.origin,
+                                    nb::vadd(nb::vscale(X, ca * sc * std::cos(t)),
+                                             nb::vscale(Y, cbr * sc * std::sin(t))));
+            poles.SetValue(ku + 1, 1, gp_Pnt(P.x + v0 * D.X(), P.y + v0 * D.Y(), P.z + v0 * D.Z()));
+            poles.SetValue(ku + 1, 2, gp_Pnt(P.x + v1 * D.X(), P.y + v1 * D.Y(), P.z + v1 * D.Z()));
+            const double w = mid ? cw : 1.0;
+            wts.SetValue(ku + 1, 1, w); wts.SetValue(ku + 1, 2, w);
+        }
+        TColStd_Array1OfReal uk(1, nSeg + 1);
+        TColStd_Array1OfInteger um(1, nSeg + 1);
+        for (int i = 0; i <= nSeg; ++i) {
+            uk.SetValue(i + 1, (double)i);
+            um.SetValue(i + 1, (i == 0 || i == nSeg) ? 3 : 2);
+        }
+        TColStd_Array1OfReal vk(1, 2); vk.SetValue(1, v0); vk.SetValue(2, v1);
+        TColStd_Array1OfInteger vm(1, 2); vm.SetValue(1, 2); vm.SetValue(2, 2);
+        Handle(Geom_BSplineSurface) bs;
+        try {
+            bs = new Geom_BSplineSurface(poles, wts, uk, vk, um, vm,
+                                         2, 1, Standard_False, Standard_False);
+        } catch (const Standard_Failure& f) {
+            why = std::string("conic extrusion tensor surface build failed: ") + f.GetMessageString();
+            return false;
+        }
+        if (!readBSplineSurface(bs, out, why)) return false;
+    }
 
     // ── AN UNBOUNDED BASIS CURVE HAS NO DOMAIN TO BUILD A B-SPLINE OVER ──────
     // Every prismatic wall OCCT rebuilds as an extrusion (a filleted box's sides
@@ -380,6 +482,7 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
     // to be the IDENTITY stays the identity. A BOUNDED basis is untouched: its
     // own range is already a domain, and re-trimming it would move poles the
     // solid importer's measured volumes are read off.
+    if (!isConic) {   // line / B-spline basis: the 1:1 tensor form below, unchanged
     if (Precision::IsInfinite(basis->FirstParameter()) ||
         Precision::IsInfinite(basis->LastParameter())) {
         if (Precision::IsInfinite(u0) || Precision::IsInfinite(u1) || !(u1 > u0)) {
@@ -429,6 +532,7 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
     }
     // 1:1 extract (handles a periodic U basis via the de-periodise+clamp path).
     if (!readBSplineSurface(bs, out, why)) return false;
+    }   // !isConic
 
     // ---- RUNTIME round-trip self-check: native(u,v) == OCCT's ext->Value(u,v) ----
     // The SAME net readRevolutionSurface has carried since T-151, and the reason
@@ -445,7 +549,10 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
                 const double uu = u0 + (u1 - u0) * ((double)i  + 0.5) / 5.5;   // interior
                 const double vv = v0 + (v1 - v0) * ((double)jj + 0.5) / 5.5;
                 gp_Pnt occ = ext->Value(uu, vv);
-                nb::SurfaceSample ss = nb::evaluatePoint(out, uu, vv);
+                // The (u,v) map this bridge publishes: the IDENTITY for a line /
+                // B-spline basis, the arc law for a conic (T-247).
+                const double un = isConic ? revAngleToParam(uu - u0, delta, nSeg) : uu;
+                nb::SurfaceSample ss = nb::evaluatePoint(out, un, vv);
                 if (!ss.ok) continue;                       // singular sample — skip
                 const Vec3 o{occ.X(), occ.Y(), occ.Z()};
                 const double mag = nb::vlen(o); if (mag > scale) scale = mag;
@@ -459,6 +566,12 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
                 ++okCount;
             }
         if (okCount < 4) { why = "extrusion self-check validated no samples (defer)"; return false; }
+    }
+    if (isConic) {
+        fsOut.conicExtrusion = true;
+        fsOut.revU0 = u0;
+        fsOut.revDelta = delta;
+        fsOut.revNSeg = nSeg;
     }
     return true;
 }
@@ -800,9 +913,9 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         Handle(Geom_SurfaceOfLinearExtrusion) ext =
             Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(gs);
         if (ext.IsNull()) { why = "extrusion face had no Geom_SurfaceOfLinearExtrusion"; return false; }
-        if (!readExtrusionSurface(ext, face, out.nurbs, why)) return false;
+        if (!readExtrusionSurface(ext, face, out, why)) return false;
         out.kind = nb::SurfaceKind::Nurbs;
-        return true;
+        return true;   // a conic basis also sets out.conicExtrusion (occtToNative remaps u).
     }
     case GeomAbs_SurfaceOfRevolution: {
         // A surface of revolution (a turned/lathe profile swept about an axis) has NO
@@ -1449,10 +1562,12 @@ static ImportResult importOcctSolidBody(const TopoDS_Shape& shape) {
                 // are angles, so just keep each within a contiguous window for the CDT.
                 un = unwrapU(uo); vn = unwrapV(vo); return;
             case nb::SurfaceKind::Nurbs:
-                if (fs.revolution) {
+                if (fs.revolution || fs.conicExtrusion) {
                     // REVOLUTION NURBS: the native U-param is the rational-quadratic arc
                     // param, NOT OCCT's uniform revolution ANGLE (uo). Map angle -> param
                     // by the exact inverse (revAngleToParam); V (basis param) passes through.
+                    // A CONIC-basis EXTRUSION (T-247) carries the same U layout, with
+                    // OCCT's u the conic's own angle, so the same map applies.
                     un = revAngleToParam(uo - fs.revU0, fs.revDelta, fs.revNSeg);
                     vn = vo;
                 } else {
@@ -1640,7 +1755,28 @@ static ImportResult importOcctSolidBody(const TopoDS_Shape& shape) {
                 }
                 auto sharedNs = std::make_shared<const nb::NurbsSurface>(fs.nurbs);
                 const int nu = kEdgeSamples, nv = kEdgeSamples;
-                auto gx = [&](int iu) { return pu0 + du * iu / nu; };
+                // A CONIC-basis extrusion's native u is the arc parameter, which OCCT's
+                // UNIFORM angle maps onto non-uniformly (revAngleToParam), while its
+                // v = const borders are sampled uniformly in that angle (kEdgeSamples
+                // per edge, the edge's own parameter). Uniform native columns would bin
+                // each canonical border point onto a column it does not lie on — the
+                // vertex then sits up to 4.6e-2 off the surface at its own (u,v) on a
+                // 3 x 1.25 elliptic prism (MEASURED, mutant M4 of
+                // test/run_import_conic_prism_gate.sh). So for
+                // that kind the columns ARE the mapped uniform angles: border sample k
+                // and column k are the same parameter, and every vertex is exactly at
+                // its (u,v) (T-247). Every other kind keeps the uniform columns.
+                static_assert(kEdgeSamples % 4 == 0,
+                              "readExtrusionSurface's conic nSeg (1, 2 or 4) must divide the "
+                              "column count so every knot is a column (T-247)");
+                auto gx = [&](int iu) {
+                    if (fs.conicExtrusion) {
+                        double un, vn;
+                        occtToNative(umin + (umax - umin) * iu / nu, vmin, un, vn);
+                        return un;
+                    }
+                    return pu0 + du * iu / nu;
+                };
                 auto gy = [&](int iv) { return pv0 + dv * iv / nv; };
 
                 // BORDER welding: the 4 rectangle edges are SHARED with adjacent faces,
@@ -1668,6 +1804,13 @@ static ImportResult importOcctSolidBody(const TopoDS_Shape& shape) {
                     }
                     if (onV0 || onV1) { // const-v border: bin by u
                         int iu = (int)std::llround((u - pu0) / du * nu);
+                        if (fs.conicExtrusion) {   // columns are not uniform: nearest one
+                            double best = 1e300;
+                            for (int k = 0; k <= nu; ++k) {
+                                const double d = std::fabs(gx(k) - u);
+                                if (d < best) { best = d; iu = k; }
+                            }
+                        }
                         if (iu >= 0 && iu <= nu) {
                             if (onV0) { bV0[iu] = bs.p3; hV0[iu] = 1; }
                             else      { bV1[iu] = bs.p3; hV1[iu] = 1; }
@@ -2743,7 +2886,16 @@ SurfaceImportResult importOcctFaceSurface(const TopoDS_Face& face) {
 
     FaceSurf fs;
     std::string why;
-    if (!readSurface(face, fs, why)) {
+    const bool readOk = readSurface(face, fs, why);
+    // ── A CONIC-BASIS EXTRUSION IS ANSWERED BY ITS COMPOSITE FORM (T-247) ──
+    // readSurface now builds the solid importer a tensor NURBS for it, whose
+    // u is the rational arc parameter (fs.conicExtrusion). That map is not a
+    // (scale, shift) pair, and the property facade does not need the tensor
+    // form at all: profile + direction is exact with the IDENTITY map, which is
+    // what this bridge returned for the kind before (T-151, reached when
+    // readSurface declined it). Same answer, same route.
+    if (readOk && fs.conicExtrusion) return extrudedFaceSurface(face);
+    if (!readOk) {
         // ── THE GENERAL OFFSET IS THE SECOND CHANCE, NEVER THE FIRST ───────
         // readSurface already took every offset whose base re-expresses EXACTLY.
         // Only what it declined arrives here.
