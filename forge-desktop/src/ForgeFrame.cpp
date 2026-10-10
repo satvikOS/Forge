@@ -44,6 +44,7 @@
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/FileExchange.hpp"
+#include "forge/ui/GuardedProcess.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/InspectionReport.hpp"
 #include "forge/ui/Keymap.hpp"
@@ -2333,6 +2334,16 @@ void ForgeFrame::invoke(const std::string& id) {
   // in frame_gate. The counter is the same discriminator ForgeShell::run's own
   // recordDispatch() uses, for the same reason it gives: two failed opens of one
   // path leave identical text, so the string alone cannot tell them apart.
+  // ★ T-294: SAVE THE DRAWING DOES NOT FREEZE THE WINDOW. With the isolated
+  // worker configured, a Save whose views are not already in hand is PARKED and
+  // the views are worked out in forge_kernel_worker while this loop keeps
+  // drawing; pumpDrawingJob() dispatches it -- through the shell, the same as
+  // here -- when they arrive, or refuses it in words when they cannot be used.
+  if (id == "file.export_drawing" && parkDrawing(false, &overrides)) {
+    lastInvokeOk_ = false;
+    note("Save the Drawing — working out which edges of the part are hidden");
+    return;
+  }
   const std::size_t documentErrorsBefore = shell_.documentErrorSeq();
   const forge::ui::InvokeOutcome outcome = shell_.invoke(id, overrides);
   const bool documentRefusedThis = shell_.documentErrorSeq() != documentErrorsBefore &&
@@ -3906,6 +3917,10 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   // "Draw the sheet", deferred for the same reason: it compiles the part and
   // runs the hidden-line remover, which takes seconds, and the button that asked
   // for it was drawn inside the dock walk.
+  // The drawing job (T-294): polled every frame, never waited on. When it has
+  // finished, what it parked -- a Save, the Sheet tab -- goes through here, after
+  // the walk, like every other mutation.
+  pumpDrawingJob();
   if (pendingSheetDraw_) {
     pendingSheetDraw_ = false;
     runPendingSheetDraw();
@@ -4226,6 +4241,21 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
     ImGui::TextColored(rgb(120, 126, 137), "|");
     ImGui::SameLine();
     ImGui::Text("%s", summary.selection.c_str());
+
+    // ── a drawing being worked out off the frame thread (T-294) ─────────────
+    // Wherever it was asked for -- the File menu's Save, the Sheet tab -- the
+    // strip says so and offers the Stop, so a Save asked for from a workspace
+    // with no Sheet tab can still be ended.
+    if (drawingJob_.active) {
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(120, 126, 137), "|");
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(235, 175, 95), "Working out the drawing  %.1f s",
+                         static_cast<double>(forge::ui::steadyNowMs() - drawingJob_.startedMs) /
+                             1000.0);
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Stop##drawing_job")) stopDrawingJob();
+    }
 
     // ── THE MEASUREMENT OF WHAT IS PICKED ─────────────────────────────────
     // A CAD status bar that names a selection and not its size is half a
@@ -9545,6 +9575,9 @@ std::string ForgeFrame::sheetChange(const SheetWitness& then, const SheetWitness
 }
 
 void ForgeFrame::runPendingSheetDraw() {
+  // T-294: with the worker configured the views are worked out THERE while the
+  // frames keep coming; this runs again, instantly, when they are in.
+  if (parkDrawing(true, nullptr)) return;
   ++sheetDrawRequests_;
   SheetCanvas next;
   // Taken BEFORE the source is asked, so a change that lands while the sheet is
@@ -9721,6 +9754,184 @@ void ForgeFrame::paintSheet(float x, float y, float w, float h, bool hovered, bo
   dl->PopClipRect();
 }
 
+// ── THE DRAWING JOB (T-294) ─────────────────────────────────────────────────
+ForgeFrame::DrawingKey ForgeFrame::drawingKey() {
+  DrawingKey k;
+  k.program = partDoc_.irProgram();
+  k.inputFile = scene_.inputFile();
+  k.builds = scene_.builds();
+  return k;
+}
+
+bool ForgeFrame::syncDrawingProjector() {
+  // The SAME worker command and limits the scene's rebuild uses: the drawing
+  // gets the rebuild's deadline, and an application without its worker runs the
+  // drawing here exactly as it runs its rebuild here. Never reconfigured under a
+  // running job.
+  if (drawingProjector_.running()) return drawingProjector_.isolated();
+  const forge::ui::KernelSession& s = scene_.session();
+  if (!scene_.isolationConfigured()) {
+    if (drawingProjector_.isolated()) drawingProjector_.configure({}, s.limits());
+    return false;
+  }
+  const forge::ui::GuardLimits& a = drawingProjector_.limits();
+  const forge::ui::GuardLimits& b = s.limits();
+  const bool sameLimits = a.deadlineMs == b.deadlineMs && a.termGraceMs == b.termGraceMs &&
+                          a.stdoutCap == b.stdoutCap && a.stderrCap == b.stderrCap;
+  if (drawingProjector_.workerArgv() != s.workerArgv() || !sameLimits) {
+    drawingProjector_.configure(s.workerArgv(), s.limits());
+  }
+  return drawingProjector_.isolated();
+}
+
+bool ForgeFrame::drawingSheetReady() {
+  return drawingVerdictActive_ || (projectionValid_ && projectionKey_ == drawingKey());
+}
+
+bool ForgeFrame::parkDrawing(bool forSheet, const forge::ui::CommandParams* exportParams) {
+  if (!syncDrawingProjector()) return false;  // no worker: in this process, as before
+  if (drawingSheetReady()) return false;      // it answers at once anyway
+  // The refusals that cost nothing answer at once rather than after seconds of
+  // work: nothing to draw, a part on screen that is not the history, a file
+  // name that is not .svg or .dxf, no file name at all.
+  if (!hasDrawing() || partDoc_.irProgram() != builtProgram_) return false;
+  if (exportParams != nullptr) {
+    const std::optional<std::string> p = exportParams->text("path");
+    forge::ui::DrawingFileFormat format = forge::ui::DrawingFileFormat::Svg;
+    if (!p || p->empty() || !forge::ui::drawingFormatFromPath(*p, format)) return false;
+  }
+  const std::uint64_t now = forge::ui::steadyNowMs();
+  const DrawingKey key = drawingKey();
+  if (!drawingJob_.active) {
+    forge::desktop::DrawingProjectionRequest request;
+    request.irProgram = key.program;
+    request.inputFile = key.inputFile;
+    request.views = {forge::ui::NamedView::Front, forge::ui::NamedView::Top,
+                     forge::ui::NamedView::Right};
+    // Nothing started (the worker went missing, a spawn refused): the caller
+    // works the views out in this process, as it would without a worker.
+    if (!drawingProjector_.start(request, now)) return false;
+    drawingJob_ = DrawingJob{};
+    drawingJob_.active = true;
+    drawingJob_.key = key;
+    drawingJob_.startedMs = now;
+    ++drawingJobsStarted_;
+  } else if (!(drawingJob_.key == key)) {
+    // A job for an OLDER document is running and this request is for the part
+    // as it is now: stop that one, and pumpDrawingJob() starts again for this.
+    drawingProjector_.cancel(now);
+    drawingJob_.restart = true;
+  }
+  if (forSheet) drawingJob_.forSheet = true;
+  if (exportParams != nullptr) {
+    // ONE parked Save: a later one replaces it. No replace-consent travels with
+    // it: Save the Drawing is a COPY, which the shell's writeTarget() lets onto
+    // any free or non-Forge file and refuses onto a Forge part or a bound file
+    // whatever a panel answered -- consent only ever lifts a DocumentSave.
+    drawingJob_.forExport = true;
+    drawingJob_.exportParams = *exportParams;
+  }
+  return true;
+}
+
+void ForgeFrame::stopDrawingJob() {
+  if (!drawingJob_.active) return;
+  drawingJob_.restart = false;
+  drawingProjector_.cancel(forge::ui::steadyNowMs());
+}
+
+void ForgeFrame::dispatchParkedExport(const forge::ui::CommandParams& params) {
+  const std::size_t errorsBefore = shell_.documentErrorSeq();
+  const forge::ui::InvokeOutcome outcome = shell_.invoke("file.export_drawing", params);
+  const bool refused =
+      shell_.documentErrorSeq() != errorsBefore && !shell_.lastDocumentError().empty();
+  const forge::ui::CommandDescriptor* d = shell_.registry().find("file.export_drawing");
+  const std::string label = d != nullptr && !d->label.empty() ? d->label : "Save the Drawing";
+  if (outcome.dispatch.ok() && !refused) {
+    note(label + " — done");
+  } else {
+    note(label + " — " + shell_.lastDocumentError());
+  }
+}
+
+void ForgeFrame::pumpDrawingJob() {
+  if (!drawingJob_.active) return;
+  forge::desktop::DrawingProjectionResult result;
+  if (!drawingProjector_.poll(forge::ui::steadyNowMs(), result)) return;
+  DrawingJob job = std::move(drawingJob_);
+  drawingJob_ = DrawingJob{};
+  const DrawingKey now = drawingKey();
+
+  // A newer request asked for the part as it is now: start again for it,
+  // carrying what is parked. When that cannot start, what is parked is
+  // answered below like any other ending.
+  if (job.restart && hasDrawing() && now.program == builtProgram_) {
+    forge::desktop::DrawingProjectionRequest request;
+    request.irProgram = now.program;
+    request.inputFile = now.inputFile;
+    request.views = {forge::ui::NamedView::Front, forge::ui::NamedView::Top,
+                     forge::ui::NamedView::Right};
+    if (drawingProjector_.start(request, forge::ui::steadyNowMs())) {
+      job.active = true;
+      job.restart = false;
+      job.key = now;
+      job.startedMs = forge::ui::steadyNowMs();
+      drawingJob_ = std::move(job);
+      ++drawingJobsStarted_;
+      return;
+    }
+  }
+
+  std::string verdict;
+  if (!result.ok) {
+    // The worker crashed, ran out of time, was stopped, or answered in a form
+    // this build cannot read -- or the part could not be drawn. The person gets
+    // the sentence; the log gets the cause (the signal and the statement).
+    shell_.log().warning("Drawing", "The drawing's views could not be worked out.",
+                         result.detail.empty() ? std::string("no detail") : result.detail);
+    verdict = (!result.blocker.empty() && forge::ui::isUserReadable(result.blocker))
+                  ? result.blocker
+                  : std::string("Forge could not work out this part's drawing. Your part and "
+                                "your work are unchanged.");
+  } else if (!(job.key == now)) {
+    // ★ THE STALE ANSWER IS REJECTED. The views are of the document as it was
+    // when they were asked for; saving or showing them now would put a part
+    // that no longer exists on the sheet under today's title block.
+    ++drawingJobsRejectedStale_;
+    shell_.log().info("Drawing", "Set aside a drawing worked out for an earlier version of the part.",
+                      std::string("asked at build ") + std::to_string(job.key.builds) +
+                          ", now build " + std::to_string(now.builds));
+    verdict = "The part changed while Forge was working out its drawing, so that drawing was set "
+              "aside rather than saved or shown. Ask for the drawing again to get the part as it "
+              "is now.";
+  } else {
+    // MEASURED, as drawingSheet() measures its own: where the time went, and
+    // where it ran.
+    char timing[320];
+    std::snprintf(timing, sizeof(timing),
+                  "compile %.0f ms; native import %.0f ms (%zu faces); views %.0f ms at "
+                  "curve tessellation %zu, %zu samples per edge (%zu edges classified); %s; "
+                  "%.0f ms from the request to the answer",
+                  result.compileMs, result.importMs, result.nativeFaces, result.viewsMs,
+                  result.curveTess, result.samplesPerEdge, result.edgesClassified,
+                  result.isolated ? "in the isolated worker" : "in this process",
+                  static_cast<double>(forge::ui::steadyNowMs() - job.startedMs));
+    shell_.log().info("Drawing", "Drew the part's views for the drawing.", timing);
+    projectionValid_ = true;
+    projectionKey_ = now;
+    projection_ = std::move(result);
+  }
+
+  // What the job parked goes through the ordinary path now -- instantly when
+  // the views are in, refused in words when they are not.
+  drawingVerdictActive_ = !verdict.empty();
+  drawingVerdict_ = verdict;
+  if (job.forExport) dispatchParkedExport(job.exportParams);
+  if (job.forSheet) runPendingSheetDraw();
+  drawingVerdictActive_ = false;
+  drawingVerdict_.clear();
+}
+
 void ForgeFrame::drawSheetCanvasPanel() {
   // ONE child holds the whole tab -- the button, the sentences and the paper --
   // so what the tab shows is one draw list.
@@ -9748,7 +9959,15 @@ void ForgeFrame::drawSheetCanvasPanel() {
                       "a few seconds.");
   }
   ImGui::SameLine();
-  if (sheet_.drawn) {
+  if (drawingJob_.active) {
+    // T-294: the views are being worked out in the isolated worker and this
+    // window keeps drawing meanwhile. The time is real, and so is the Stop.
+    const std::uint64_t now = forge::ui::steadyNowMs();
+    ImGui::TextColored(rgb(235, 175, 95), "Working out which edges are hidden...  %.1f s",
+                       static_cast<double>(now - drawingJob_.startedMs) / 1000.0);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Stop")) stopDrawingJob();
+  } else if (sheet_.drawn) {
     ImGui::TextDisabled("%s   %s   %s   drawn in %.1f s", sheet_.content.sheet.label.c_str(),
                         sheet_.content.scale.text().c_str(),
                         forge::ui::projectionLabel(sheet_.content.projection),
@@ -10425,8 +10644,36 @@ bool ForgeFrame::drawingSheet(forge::ui::DrawingSheetContent& out) {
   request.views = {forge::ui::NamedView::Front, forge::ui::NamedView::Top,
                    forge::ui::NamedView::Right};
 
-  forge::desktop::DrawingProjectionResult projected =
-      forge::desktop::projectDrawingViews(request);
+  // ── T-294: a drawing job that has just finished is answering what it parked ──
+  // Its refusal -- the part changed while the views were worked out, or the
+  // worker stopped -- is the answer, and the views are NOT worked out again here,
+  // on the frame thread, behind the user's back.
+  if (drawingVerdictActive_) {
+    out.advice = drawingVerdict_;
+    return false;
+  }
+  // ── the views: kept for THIS document, or worked out now ────────────────
+  // Kept only under the exact program, bound file and build count they were
+  // worked out from, so they are the projection of the history on screen and
+  // never of an older body -- the promise DrawingSource makes. A second Save of
+  // an unchanged part, or the Sheet tab after a Save, costs nothing.
+  const DrawingKey key = drawingKey();
+  forge::desktop::DrawingProjectionResult projected;
+  const bool reused = projectionValid_ && projectionKey_ == key;
+  if (reused) {
+    projected = projection_;
+    ++drawingProjectionsReused_;
+  } else {
+    // In forge_kernel_worker when the scene has one (the deadline bounds the
+    // wait), in this process otherwise -- exactly as before T-294.
+    syncDrawingProjector();
+    projected = drawingProjector_.project(request);
+    if (projected.ok) {
+      projectionValid_ = true;
+      projectionKey_ = key;
+      projection_ = projected;
+    }
+  }
   if (!projected.ok) {
     if (!projected.detail.empty()) {
       shell_.log().warning("Drawing", "The drawing views could not be made.", projected.detail);
@@ -10434,16 +10681,20 @@ bool ForgeFrame::drawingSheet(forge::ui::DrawingSheetContent& out) {
     out.advice = projected.blocker;
     return false;
   }
-  {
-    // MEASURED, every time: this work runs on the thread that dispatched the
-    // command, and the log is where a slow save can be traced to its phase.
-    char timing[256];
+  if (reused) {
+    shell_.log().info("Drawing", "Used the part's views already worked out for this drawing.",
+                      "the program, the bound file and the build are unchanged");
+  } else {
+    // MEASURED, every time: the log is where a slow save can be traced to its
+    // phase -- and to WHERE it ran.
+    char timing[288];
     std::snprintf(timing, sizeof(timing),
                   "compile %.0f ms; native import %.0f ms (%zu faces); views %.0f ms at "
-                  "curve tessellation %zu, %zu samples per edge (%zu edges classified)",
+                  "curve tessellation %zu, %zu samples per edge (%zu edges classified); %s",
                   projected.compileMs, projected.importMs, projected.nativeFaces,
                   projected.viewsMs, projected.curveTess, projected.samplesPerEdge,
-                  projected.edgesClassified);
+                  projected.edgesClassified,
+                  projected.isolated ? "in the isolated worker" : "in this process");
     shell_.log().info("Drawing", "Drew the part's views for the drawing.", timing);
   }
 

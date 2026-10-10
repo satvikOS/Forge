@@ -381,7 +381,10 @@ run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # scale x delta, and a part the views cannot cover is refused. Its nine mutations
 # corrupt what the frame hands the writer, through a DrawingSource the gate
 # installs in front of the frame's own.
-run_gate forge_desktop_drawing_export_gate 1 2 3 4 5 6 7 8 9
+# 10 (T-294): the File menu's Save with the application's isolated worker must
+# not freeze the frame loop -- the mutation works the views out ON the frame
+# thread inside that Save, and the longest-frame check goes red.
+run_gate forge_desktop_drawing_export_gate 1 2 3 4 5 6 7 8 9 10
 # The SHEET CANVAS gate (T-296): the Drawing workspace's Sheet tab used to draw
 # the 3-D viewport texture. It must draw the SHEET -- the same ink File > Save the
 # Drawing writes, read out of the tab's draw list and compared with the saved SVG

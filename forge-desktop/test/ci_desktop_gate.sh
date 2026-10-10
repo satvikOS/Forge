@@ -277,7 +277,11 @@ set -uo pipefail
 #    (another scale, hidden lines dropped, views upside down, a stale sheet not
 #    flagged). The same awk now prints 205, READ OFF THIS TREE:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
-EXPECTED_MUTATIONS=205
+#  * 2026-10-10, T-294: forge_desktop_drawing_export_gate gained 10 -- the
+#    views worked out on the frame thread inside the File menu's Save with the
+#    worker configured, which its longest-frame check must catch. The same awk
+#    now prints 206, READ OFF THIS TREE.
+EXPECTED_MUTATIONS=206
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

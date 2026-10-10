@@ -727,13 +727,18 @@ set_target_properties(forge_desktop_drawing_gate PROPERTIES
 # projection angle, hidden edges of the bore, the title block's scale -- then a
 # dimension and the hole's location are edited and the drawing must follow.
 # `--mutate 1..9` each break one link, through a DrawingSource the gate installs
-# in front of the frame's own -- the application carries no mutation switch.
+# in front of the frame's own -- the application carries no mutation switch. 10
+# (T-294) works the views out on the frame thread inside the worker-path Save.
 add_executable(forge_desktop_drawing_export_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/drawing_export_gate.cpp")
 target_compile_options(forge_desktop_drawing_export_gate PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(forge_desktop_drawing_export_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_drawing_export_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+# T-294: its section 10 drives the REAL forge_kernel_worker built beside it -- the
+# Save from the File menu with the application's isolated worker, a worker
+# SIGSEGV during that Save -- so the worker must exist whenever the gate does.
+add_dependencies(forge_desktop_drawing_export_gate forge_kernel_worker)
 
 # ---------------------------------------------------- the SHEET CANVAS gate
 # T-296. HEADLESS: the Drawing workspace's Sheet tab, which used to draw the 3-D
@@ -1171,7 +1176,7 @@ endforeach()
 add_test(NAME forge_desktop_drawing_export_gate COMMAND forge_desktop_drawing_export_gate)
 # Same WILL_FAIL idiom: a mutation that starts exiting zero is one whose defect
 # the gate no longer detects. Do not "fix" that by removing the property.
-foreach(_de RANGE 1 9)
+foreach(_de RANGE 1 10)
     add_test(NAME forge_desktop_drawing_export_mutation_${_de}
              COMMAND forge_desktop_drawing_export_gate --mutate ${_de})
     set_tests_properties(forge_desktop_drawing_export_mutation_${_de} PROPERTIES WILL_FAIL TRUE)

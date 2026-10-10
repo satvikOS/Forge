@@ -53,6 +53,19 @@
 //   9. A PART THE VIEWS CANNOT COVER. A round boss (the native importer defers a
 //      circle extrusion) is refused in plain words, writes nothing, and logs the
 //      technical cause -- the honest edge of what this export can draw today.
+//  10. (T-294) THE SAME SAVE FROM THE FILE MENU WITH THE APP'S ISOLATED WORKER,
+//      the real forge_kernel_worker built beside this gate. The Save is parked,
+//      the views are worked out in the worker, and the frame loop keeps building
+//      frames meanwhile: every frame is timed and none may spend 100 ms of the
+//      frame thread (nor freeze the window for a second of wall clock). The file
+//      is BYTE-IDENTICAL to the in-process Save of the same part; a second Save
+//      of the unchanged part starts no job; a part edited WHILE its views are
+//      worked out gets its answer set aside and the Save refused in plain words,
+//      nothing written; a real SIGSEGV of the worker during a Save (its own
+//      self-test pragma, put in front of drawing requests only by a bash wrapper
+//      that execs it) is refused in plain words with the document, dirty flag
+//      and on-screen part untouched, and the next Save works; the Sheet tab's
+//      Draw the sheet goes the same way.
 //
 // ── PROVING IT CAN FAIL: --mutate <n> ───────────────────────────────────────
 // The application carries no mutation switch. The gate installs its OWN
@@ -66,6 +79,8 @@
 //      angle                                    8  top and side views swap cells
 //   9  a part that CANNOT be drawn gets the last sheet that could be (the
 //      previous part's drawing saved under the new name) -- section 9's refusal
+//  10  (T-294) the views are ALSO worked out on the frame thread inside the
+//      worker-path Save (a real in-process projection) -- section 10's frames
 // run_desktop.sh runs each and requires a non-zero exit.
 #include <algorithm>
 #include <array>
@@ -75,6 +90,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -84,10 +100,12 @@
 #include <utility>
 #include <vector>
 
+#include <csignal>
 #include <unistd.h>
 
 #include "imgui.h"
 
+#include "FileDialog.hpp"
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/ActivityLog.hpp"
@@ -95,8 +113,21 @@
 #include "forge/ui/Drawing.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/GuardedProcess.hpp"
+#include "forge/ui/KernelSession.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/Types.hpp"
+#include "forge/ui/WorkspaceProfile.hpp"
+
+// T-294's off-the-frame-thread Save, PROBED (see the seam below): the worker
+// section below is compiled against a tree whose frame works the views out
+// inside the Save, which is how its failing-first frame gap was measured.
+#include "DrawingHost.hpp"
+#if defined(FORGE_FRAME_HAS_DRAWING_JOB)
+#define FORGE_GATE_HAS_DRAWING_JOB 1
+#else
+#define FORGE_GATE_HAS_DRAWING_JOB 0
+#endif
 
 // The seam this gate's mutations go through. Probed rather than assumed so the
 // SAME source compiles against a tree that predates the drawing egress, which
@@ -746,6 +777,18 @@ class MutatingSource final : public forge::ui::DrawingSource {
       : inner_(inner), mutation_(mutation) {}
   bool hasDrawing() override { return inner_.hasDrawing(); }
   bool drawingSheet(forge::ui::DrawingSheetContent& out) override {
+#if FORGE_GATE_HAS_DRAWING_JOB
+    // MUTATION 10: the views worked out ON THE FRAME THREAD inside the Save --
+    // a real in-process projection of the document, which is what every Save
+    // did before T-294. The frame-gap check must see it.
+    if (mutation_ == 10 && program_ != nullptr) {
+      forge::desktop::DrawingProjectionRequest r;
+      r.irProgram = *program_;
+      r.views = {forge::ui::NamedView::Front, forge::ui::NamedView::Top,
+                 forge::ui::NamedView::Right};
+      (void)forge::desktop::projectDrawingViews(r);
+    }
+#endif
     if (!inner_.drawingSheet(out)) {
       // MUTATION 9: when the part cannot be drawn, hand over the last sheet
       // that could be -- the previous part's drawing saved under this one's name.
@@ -819,6 +862,13 @@ class MutatingSource final : public forge::ui::DrawingSource {
  private:
   forge::ui::DrawingSource& inner_;
   int mutation_ = 0;
+
+ public:
+  // The document's program, for mutation 10 only. Updated by the gate before
+  // the section that uses it.
+  const std::string* program_ = nullptr;
+
+ private:
   bool haveFirst_ = false;
   forge::ui::DrawingSheetContent first_;
   bool haveLast_ = false;
@@ -855,6 +905,78 @@ bool editFeature(forge::ui::ForgeShell& shell, int feature, int index, double va
   const forge::ui::DispatchResult r = shell.run("part.edit_feature", p);
   why = std::string(forge::ui::machineName(r.status)) + " " + r.detail;
   return r.ok();
+}
+
+// ── T-294: the File menu's Save, with the application's isolated worker ─────
+// The Save panel, scripted: it answers every request with `path`.
+class ScriptedSave final : public forge::desktop::FileDialog {
+ public:
+  std::string path;
+  std::size_t shown = 0;
+  forge::desktop::FileDialogResult run(const forge::desktop::FileDialogRequest&) override {
+    ++shown;
+    forge::desktop::FileDialogResult r;
+    r.accepted = true;
+    r.path = path;
+    return r;
+  }
+};
+
+// The worker the application runs beside itself; this gate is built beside it.
+std::string workerBesideThisGate(const char* argv0) {
+  const std::string self(argv0 != nullptr ? argv0 : "");
+  const std::size_t slash = self.find_last_of('/');
+  return (slash == std::string::npos ? std::string(".") : self.substr(0, slash)) +
+         "/forge_kernel_worker";
+}
+
+// What the frame loop did while one drawing job ran: how many frames it built,
+// and the longest of them -- TWICE. `maxFrameCpuMs` is the CPU the frame thread
+// itself spent building that frame (CLOCK_THREAD_CPUTIME_ID): the work the
+// application put on its UI thread, which is what T-294 moves off it, and which
+// does not change when the machine is busy. `maxFrameMs` is the wall clock a
+// user would see; on a machine shared with a dozen builds the scheduler alone
+// can hold a frame for ~100 ms (MEASURED: 132 ms once, with a 2.9 ms build), so
+// the wall clock is held to the bound a FROZEN window breaks -- a second --
+// while the CPU is held to the acceptance's 100 ms.
+struct FrameLoop {
+  std::size_t frames = 0;
+  double maxFrameMs = 0.0;
+  double maxFrameCpuMs = 0.0;
+  double totalMs = 0.0;
+  bool finished = false;
+};
+
+double threadCpuMs() {
+  struct timespec ts {};
+  ::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+  return static_cast<double>(ts.tv_sec) * 1000.0 + static_cast<double>(ts.tv_nsec) / 1.0e6;
+}
+
+// Builds frames until `done()` says so (or 180 s pass), timing every one.
+template <typename Done>
+FrameLoop runFrames(forge::desktop::ForgeFrame& frame, Done done) {
+  FrameLoop out;
+  const auto start = std::chrono::steady_clock::now();
+  for (;;) {
+    const auto t0 = std::chrono::steady_clock::now();
+    const double c0 = threadCpuMs();
+    step(frame);
+    const double cpu = threadCpuMs() - c0;
+    const double ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    ++out.frames;
+    out.maxFrameMs = std::max(out.maxFrameMs, ms);
+    out.maxFrameCpuMs = std::max(out.maxFrameCpuMs, cpu);
+    out.totalMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    if (done()) {
+      out.finished = true;
+      break;
+    }
+    if (out.totalMs > 180000.0) break;
+  }
+  return out;
 }
 
 void printViews(const SvgDrawing& d, const char* tag) {
@@ -1148,6 +1270,358 @@ int main(int argc, char** argv) {
   }
   std::remove(svgPath.c_str());
   std::remove(dxfPath.c_str());
+
+  // ══ 10. ★ THE SAME SAVE, FROM THE FILE MENU, WITH THE APP'S WORKER (T-294) ══
+  // The shipped application runs its kernel in forge_kernel_worker. Before
+  // T-294 a Save from the File menu still worked the views out IN THIS PROCESS,
+  // inside the frame that asked: 3-5 s with no frame drawn, and an OCCT fault
+  // there took the document down. Now, with the worker configured, the Save is
+  // parked, the views are worked out in the worker while frames keep coming,
+  // and the parked Save goes through the ONE registry when they are in.
+  {
+    const std::string worker = workerBesideThisGate(argv[0]);
+    std::error_code ec;
+    const bool haveWorker = std::filesystem::exists(worker, ec);
+    check(haveWorker, "the worker the application runs is built beside this gate", worker);
+    forge::ui::GuardLimits limits;
+    limits.deadlineMs = 120000;
+    const std::string savePath = tempPath("forge_drawing_export_gate_worker.svg");
+    std::remove(savePath.c_str());
+    ScriptedSave panel;
+    panel.path = savePath;
+    frame.setFileDialog(&panel);
+    // The document is the starting part again (section 7's two undos), so the
+    // first export's bytes are the reference for every Save below.
+    const std::string program0 = frame.document().irProgram();
+#if FORGE_GATE_HAS_DRAWING_EXPORT
+    source.program_ = &program0;
+#endif
+    if (haveWorker) scene.useIsolatedWorker({worker}, limits);
+    // Sections 7 and 8 left the starting part's views in hand (the frame keeps
+    // the last ones for the document as it is). An edit and its undo bring back
+    // the same part as a NEW build, so its views have to be worked out again --
+    // which is the Save this section is about.
+    {
+      std::string why;
+      check(editFeature(shell, 1, 0, 85.0, why), "a throwaway edit", why);
+      step(frame);
+      const forge::ui::DispatchResult u = shell.run("edit.undo");
+      step(frame);
+      check(u.ok() && frame.document().irProgram() == program0,
+            "...undone: the starting part, as a new build", "");
+    }
+    // ── a Save through the menu: the frames keep coming ──────────────────
+    {
+      frame.invoke("file.export_drawing");
+      const FrameLoop loop = runFrames(frame, [&]() { return onDisk(savePath); });
+      bool ok = false;
+      const std::string bytes = readWholeFile(savePath, ok);
+      std::printf("[drawing_export_gate] worker Save: %zu frames in %.0f ms while the views were "
+                  "worked out, longest frame %.1f ms wall / %.1f ms on the frame thread; %zu "
+                  "bytes\n",
+                  loop.frames, loop.totalMs, loop.maxFrameMs, loop.maxFrameCpuMs, bytes.size());
+      check(panel.shown == 1, "the Save panel was shown once", std::to_string(panel.shown));
+      check(loop.finished && ok, "★ the drawing was saved from the File menu with the worker",
+            shell.lastDocumentError());
+      check(loop.maxFrameCpuMs < 100.0,
+            "★ NO FRAME spent 100 ms of the frame thread while the views were worked out",
+            std::to_string(loop.maxFrameCpuMs) + " ms");
+      check(loop.maxFrameMs < 1000.0, "and none froze the window (wall clock under a second)",
+            std::to_string(loop.maxFrameMs) + " ms");
+      check(loop.frames >= 20, "the frame loop kept building frames meanwhile",
+            std::to_string(loop.frames) + " frames");
+      check(ok && bytes == first.bytes,
+            "★ and the file is BYTE-IDENTICAL to the in-process Save of the same part",
+            std::to_string(bytes.size()) + " vs " + std::to_string(first.bytes.size()));
+#if FORGE_GATE_HAS_DRAWING_JOB
+      check(frame.drawingJobsStarted() == 1, "one drawing job was started",
+            std::to_string(frame.drawingJobsStarted()));
+      check(frame.drawingProjector().isolatedRuns() == 1 &&
+                frame.drawingProjector().fallbacks() == 0,
+            "and it ran in the worker, with no fallback", "");
+      bool loggedWorker = false;
+      for (const forge::ui::LogEntry& le : shell.log().entries()) {
+        if (le.source == "Drawing" && le.detail.find("in the isolated worker") != std::string::npos) {
+          loggedWorker = true;
+        }
+      }
+      check(loggedWorker, "the activity log says where the views were worked out", "");
+#endif
+    }
+    // ── a Save OVER the drawing just saved, parked and then dispatched ────────
+    // Save the Drawing is a COPY: the shell lets it replace an existing drawing
+    // (and refuses a Forge part or a bound file whatever a panel answered), so
+    // a parked Save onto the file the last one wrote must go through.
+    {
+      std::string why;
+      check(editFeature(shell, 1, 0, 85.0, why), "another throwaway edit", why);
+      step(frame);
+      const forge::ui::DispatchResult u = shell.run("edit.undo");
+      step(frame);
+      check(u.ok() && onDisk(savePath), "the drawing from the Save above is on disk", "");
+      const std::size_t seqBefore = shell.documentErrorSeq();
+      frame.invoke("file.export_drawing");
+      const FrameLoop loop = runFrames(frame, [&]() {
+#if FORGE_GATE_HAS_DRAWING_JOB
+        return !frame.drawingJobRunning() && frame.drawingJobsStarted() >= 2;
+#else
+        return true;
+#endif
+      });
+      bool ok = false;
+      const std::string bytes = readWholeFile(savePath, ok);
+      check(loop.finished && shell.documentErrorSeq() == seqBefore,
+            "★ a parked Save over the existing drawing goes through after the wait",
+            shell.lastDocumentError());
+      check(ok && bytes == first.bytes, "and the file holds the drawing", "");
+    }
+    // ── the same part again: nothing is worked out twice ─────────────────
+    {
+      std::remove(savePath.c_str());
+#if FORGE_GATE_HAS_DRAWING_JOB
+      const std::size_t jobs = frame.drawingJobsStarted();
+      const std::size_t reused = frame.drawingProjectionsReused();
+#endif
+      frame.invoke("file.export_drawing");
+      const FrameLoop loop = runFrames(frame, [&]() { return onDisk(savePath); });
+      bool ok = false;
+      const std::string bytes = readWholeFile(savePath, ok);
+      check(ok && bytes == first.bytes, "a second Save of the unchanged part is the same file", "");
+      check(loop.maxFrameCpuMs < 100.0 && loop.maxFrameMs < 1000.0,
+            "and it took no long frame either",
+            std::to_string(loop.maxFrameCpuMs) + " ms cpu, " + std::to_string(loop.maxFrameMs) +
+                " ms wall");
+#if FORGE_GATE_HAS_DRAWING_JOB
+      check(frame.drawingJobsStarted() == jobs && frame.drawingProjectionsReused() == reused + 1,
+            "★ it used the views already worked out for this part (no second job)", "");
+#endif
+    }
+    // ── a Save from a MACRO (the registry, no frame): still in the worker ──────
+    // A macro, a plan step or an Archie tool call dispatches synchronously and
+    // needs the file when the dispatch returns, so it waits -- but the views are
+    // still worked out in the worker, bounded by its deadline, not in this
+    // process.
+#if FORGE_GATE_HAS_DRAWING_JOB
+    {
+      std::string why;
+      check(editFeature(shell, 1, 0, 85.0, why), "a third throwaway edit", why);
+      step(frame);
+      const forge::ui::DispatchResult u = shell.run("edit.undo");
+      step(frame);
+      check(u.ok(), "...undone", "");
+      const std::size_t isolatedBefore = frame.drawingProjector().isolatedRuns();
+      const Export m = exportTo(shell, savePath);
+      check(m.ran && m.onDisk && m.bytes == first.bytes,
+            "a Save dispatched straight through the registry writes the same file", m.error);
+      check(frame.drawingProjector().isolatedRuns() == isolatedBefore + 1 &&
+                frame.drawingProjector().fallbacks() == 0,
+            "★ and its views were worked out IN THE WORKER, not in this process", "");
+      std::remove(savePath.c_str());
+    }
+#endif
+    // ── ★ the part changes while its views are worked out: the answer is SET ASIDE
+    {
+      std::string why;
+      // A part whose views are not in hand yet: the bore moved to x = 5.
+      check(editFeature(shell, 3, 2, 5.0, why), "the bore was moved to x = 5", why);
+      step(frame);
+      std::remove(savePath.c_str());
+      frame.invoke("file.export_drawing");
+      step(frame);  // the panel answers; the Save is parked and the job starts
+#if FORGE_GATE_HAS_DRAWING_JOB
+      check(frame.drawingJobRunning(), "a Save of a changed part starts a job", "");
+#endif
+      // Edited WHILE the job runs: the plate's width, 80 -> 90.
+      check(editFeature(shell, 1, 0, 90.0, why), "the plate was widened while the views were "
+                                                 "being worked out", why);
+      const std::size_t seqBefore = shell.documentErrorSeq();
+      const FrameLoop loop = runFrames(frame, [&]() {
+#if FORGE_GATE_HAS_DRAWING_JOB
+        return !frame.drawingJobRunning();
+#else
+        return true;
+#endif
+      });
+      check(loop.finished, "the job ended", "");
+      check(!onDisk(savePath), "★ the stale drawing was NOT saved", savePath);
+      const std::string said = shell.lastDocumentError();
+      std::printf("[drawing_export_gate] stale answer: \"%s\"\n", said.c_str());
+      check(shell.documentErrorSeq() != seqBefore &&
+                said.find("changed while Forge was working out") != std::string::npos &&
+                forge::ui::isUserReadable(said),
+            "★ and the Save is refused in plain words: the part changed meanwhile", said);
+#if FORGE_GATE_HAS_DRAWING_JOB
+      check(frame.drawingJobsRejectedStale() == 1, "the frame counted one stale answer set aside",
+            std::to_string(frame.drawingJobsRejectedStale()));
+#endif
+      const forge::ui::DispatchResult u1 = shell.run("edit.undo");
+      step(frame);
+      const forge::ui::DispatchResult u2 = shell.run("edit.undo");
+      step(frame);
+      check(u1.ok() && u2.ok() && frame.document().irProgram() == program0,
+            "both edits were undone", "");
+    }
+    // ── Stop: the user ends the job; the parked Save is refused in plain words ──
+#if FORGE_GATE_HAS_DRAWING_JOB
+    {
+      std::string why;
+      check(editFeature(shell, 3, 2, 5.0, why), "the bore was moved to x = 5 once more", why);
+      step(frame);
+      std::remove(savePath.c_str());
+      frame.invoke("file.export_drawing");
+      step(frame);
+      check(frame.drawingJobRunning(), "a job is running for the Save", "");
+      const std::size_t seqBefore = shell.documentErrorSeq();
+      frame.stopDrawingJob();  // the Stop control's body
+      const FrameLoop loop = runFrames(frame, [&]() {
+        return !frame.drawingJobRunning() && shell.documentErrorSeq() != seqBefore;
+      });
+      const std::string said = shell.lastDocumentError();
+      std::printf("[drawing_export_gate] stopped answer: \"%s\"\n", said.c_str());
+      check(loop.finished && !onDisk(savePath), "★ a stopped Save writes nothing", savePath);
+      check(frame.drawingProjector().session().state() == forge::ui::KernelJobState::Cancelled,
+            "the worker was stopped, not left running",
+            forge::ui::toString(frame.drawingProjector().session().state()));
+      check(forge::ui::isUserReadable(said) &&
+                said.find("stopped before it was finished") != std::string::npos,
+            "and the Save says so in plain words", said);
+      const forge::ui::DispatchResult u = shell.run("edit.undo");
+      step(frame);
+      check(u.ok() && frame.document().irProgram() == program0, "the move was undone", "");
+    }
+#endif
+    // ── asked AGAIN after the part changed: the old job gives way to a new one ──
+    // A Save for the part as it is now must not be refused because an older job
+    // was still running: the old one is stopped and the views are worked out
+    // again for the current part.
+#if FORGE_GATE_HAS_DRAWING_JOB
+    {
+      std::string why;
+      check(editFeature(shell, 3, 2, 5.0, why), "the bore was moved to x = 5 again", why);
+      step(frame);
+      std::remove(savePath.c_str());
+      frame.invoke("file.export_drawing");
+      step(frame);
+      check(frame.drawingJobRunning(), "a job is running for it", "");
+      const std::size_t jobs = frame.drawingJobsStarted();
+      const std::size_t stale = frame.drawingJobsRejectedStale();
+      check(editFeature(shell, 1, 0, 90.0, why), "the plate was widened meanwhile", why);
+      const std::size_t seqBefore = shell.documentErrorSeq();
+      frame.invoke("file.export_drawing");  // the user asks again
+      const FrameLoop loop = runFrames(frame, [&]() { return onDisk(savePath); });
+      check(loop.finished && shell.documentErrorSeq() == seqBefore,
+            "★ the Save asked again after the change is SAVED, not refused", shell.lastDocumentError());
+      check(frame.drawingJobsStarted() == jobs + 1 && frame.drawingJobsRejectedStale() == stale,
+            "by one new job for the part as it is now", "");
+      check(loop.maxFrameCpuMs < 100.0, "and still off the frame thread",
+            std::to_string(loop.maxFrameCpuMs) + " ms");
+      const forge::ui::DispatchResult u1 = shell.run("edit.undo");
+      step(frame);
+      const forge::ui::DispatchResult u2 = shell.run("edit.undo");
+      step(frame);
+      check(u1.ok() && u2.ok() && frame.document().irProgram() == program0,
+            "both edits were undone", "");
+    }
+#endif
+    // ── ★ the worker CRASHES during the Save: refused, and nothing else lost ──
+    // A real SIGSEGV of the real worker binary: for a DRAWING request (and only
+    // that -- rebuilds pass straight through) this wrapper puts the worker's own
+    // documented self-test pragma in front of the request, and execs the worker,
+    // so the signal kills the worker process itself.
+    if (haveWorker) {
+      const std::string wrapper =
+          "IFS= read -r first; "
+          "if [[ $first == '#!forge-worker-drawing'* ]]; then "
+          "exec \"$0\" < <(printf '#!forge-worker-selftest crash\\n%s\\n' \"$first\"; cat); "
+          "else exec \"$0\" < <(printf '%s\\n' \"$first\"; cat); fi";
+      scene.useIsolatedWorker({"/bin/bash", "-c", wrapper, worker}, limits);
+      std::string why;
+      // A different part, so its views are not already in hand.
+      check(editFeature(shell, 3, 2, 10.0, why), "the bore was moved to x = 10", why);
+      step(frame);
+      const std::string programBefore = frame.document().irProgram();
+      const bool dirtyBefore = frame.documentDirty();
+      std::remove(savePath.c_str());
+      frame.invoke("file.export_drawing");
+      const std::size_t seqBefore = shell.documentErrorSeq();
+      const FrameLoop loop = runFrames(frame, [&]() {
+#if FORGE_GATE_HAS_DRAWING_JOB
+        return !frame.drawingJobRunning() && shell.documentErrorSeq() != seqBefore;
+#else
+        return shell.documentErrorSeq() != seqBefore || true;
+#endif
+      });
+      check(true, "★ THE APPLICATION SURVIVED A WORKER SIGSEGV DURING A SAVE");
+      check(loop.finished, "the crashed job ended", "");
+      check(!onDisk(savePath), "nothing was written", savePath);
+      const std::string said = shell.lastDocumentError();
+      std::printf("[drawing_export_gate] crash answer: \"%s\"\n", said.c_str());
+      check(forge::ui::isUserReadable(said) && !said.empty() &&
+                said.find("SIGSEGV") == std::string::npos,
+            "★ the Save is REFUSED in plain words", said);
+#if FORGE_GATE_HAS_DRAWING_JOB
+      check(frame.drawingProjector().session().state() == forge::ui::KernelJobState::Crashed &&
+                frame.drawingProjector().session().lastGuardReport().signalNumber == SIGSEGV,
+            "it really was a SIGSEGV in the worker",
+            forge::ui::toString(frame.drawingProjector().session().state()));
+#endif
+      check(frame.document().irProgram() == programBefore && frame.documentDirty() == dirtyBefore,
+            "★ the document is exactly as it was", "");
+      for (int i = 0; i < 5; ++i) step(frame);
+      check(scene.triangleCount() > 0 && frame.rebuildError().empty(),
+            "and the part is still built and on screen", frame.rebuildError());
+      // Nothing is quarantined: the real worker back, the same Save works.
+      scene.useIsolatedWorker({worker}, limits);
+      frame.invoke("file.export_drawing");
+      const FrameLoop again = runFrames(frame, [&]() { return onDisk(savePath); });
+      check(again.finished && again.maxFrameCpuMs < 100.0 && again.maxFrameMs < 1000.0,
+            "★ the next Save of the same part works, off the frame thread",
+            std::to_string(again.maxFrameCpuMs) + " ms cpu, " +
+                std::to_string(again.maxFrameMs) + " ms wall");
+      const forge::ui::DispatchResult u = shell.run("edit.undo");
+      step(frame);
+      check(u.ok() && frame.document().irProgram() == program0, "the move was undone", "");
+    }
+    // ── the Sheet tab asks the same way ──────────────────────────────────
+#if FORGE_GATE_HAS_DRAWING_JOB
+    if (haveWorker) {
+      std::string why;
+      check(editFeature(shell, 1, 0, 100.0, why), "the plate was widened to 100", why);
+      check(shell.setWorkspace(forge::ui::WorkspaceProfile::Drawing), "the Drawing workspace", "");
+      for (int i = 0; i < 3; ++i) step(frame);
+      const forge::desktop::ForgeFrame::WidgetRect r = frame.sheetDrawButtonRect();
+      check(r.valid, "the Sheet tab offers Draw the sheet", "");
+      const std::size_t jobs = frame.drawingJobsStarted();
+      ImGuiIO& io = ImGui::GetIO();
+      io.AddMousePosEvent(0.5f * (r.x0 + r.x1), 0.5f * (r.y0 + r.y1));
+      step(frame);
+      io.AddMouseButtonEvent(0, true);
+      step(frame);
+      io.AddMouseButtonEvent(0, false);
+      const FrameLoop loop = runFrames(frame, [&]() { return frame.sheetDrawn(); });
+      io.AddMousePosEvent(2.0f, 2.0f);
+      std::printf("[drawing_export_gate] worker sheet: %zu frames in %.0f ms, longest %.1f ms "
+                  "wall / %.1f ms on the frame thread\n",
+                  loop.frames, loop.totalMs, loop.maxFrameMs, loop.maxFrameCpuMs);
+      check(loop.finished && frame.sheetNotice().empty(), "the Sheet tab drew the sheet",
+            frame.sheetNotice());
+      check(frame.drawingJobsStarted() == jobs + 1, "through a drawing job in the worker", "");
+      check(loop.maxFrameCpuMs < 100.0 && loop.maxFrameMs < 1000.0,
+            "★ and no frame spent 100 ms of the frame thread while it did",
+            std::to_string(loop.maxFrameCpuMs) + " ms cpu, " + std::to_string(loop.maxFrameMs) +
+                " ms wall");
+      const forge::ui::DispatchResult u = shell.run("edit.undo");
+      step(frame);
+      check(u.ok() && frame.document().irProgram() == program0, "the widening was undone", "");
+      shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+      step(frame);
+    }
+#endif
+    // Back to this process for the section that follows, as it was written.
+    scene.useIsolatedWorker({}, limits);
+    frame.setFileDialog(nullptr);
+    std::remove(savePath.c_str());
+  }
 
   // ══ 9. A PART THE DRAWING VIEWS CANNOT COVER ════════════════════════════
   // MEASURED on this tree: the native importer the HLR reads through DECLINES a

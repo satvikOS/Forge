@@ -36,6 +36,7 @@
 #include "Camera.hpp"
 #include "FileDialog.hpp"
 #include "DrawingGdt.hpp"
+#include "DrawingHost.hpp"
 #include "CamHost.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/ActivityLog.hpp"
@@ -862,6 +863,45 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   std::size_t sheetDrawRequests() const noexcept { return sheetDrawRequests_; }
   double sheetDrawMilliseconds() const noexcept { return sheet_.milliseconds; }
 
+  // ── THE DRAWING'S VIEWS, OFF THE FRAME THREAD (T-294) ────────────────────
+  // File > Save the Drawing and the Sheet tab both need the part's views, and
+  // working them out is a compile, a native import and three hidden-line passes:
+  // 3.2 s on the starting part (T-230), minutes on larger ones, on the OCCT paths
+  // the kernel's own report records faulting on. They used to run in THIS
+  // process, inside the frame that asked -- the window froze for the whole of it
+  // and a fault took the document down with it.
+  //
+  // With the scene's isolated worker configured (the shipped application), a
+  // request from the UI -- the File menu's Save with its path, the Sheet tab's
+  // Draw the sheet -- STARTS the projection in forge_kernel_worker
+  // (forge::desktop::DrawingProjector, with the rebuild's deadline) and returns;
+  // the frame loop keeps drawing while it runs, a Stop control ends it, and every
+  // frame polls it. The request is tagged with what it was made from (the
+  // program, the bound file and the build count). When the answer arrives:
+  //   * the document is still that document -> the views are kept and the
+  //     parked Save / Draw goes through the ordinary path, now instantly;
+  //   * the document changed meanwhile -> the answer is REJECTED, and the parked
+  //     Save / Draw is refused in plain words through that same path;
+  //   * the worker crashed, timed out or was stopped -> refused the same way,
+  //     and the document and the UI are untouched.
+  // Without a worker (every headless gate that never configures one) nothing
+  // changes: the views are worked out in this process, as before.
+  //
+  // drawingSheet() keeps the last answer for the document as it is, so a second
+  // Save of an unchanged part -- or the Sheet tab after a Save -- does not work
+  // the views out again.
+#define FORGE_FRAME_HAS_DRAWING_JOB 1
+  bool drawingJobRunning() const noexcept { return drawingJob_.active; }
+  // Stops a running drawing job (the Stop control's body).
+  void stopDrawingJob();
+  // Lifetime counters a gate can assert on.
+  std::size_t drawingJobsStarted() const noexcept { return drawingJobsStarted_; }
+  std::size_t drawingJobsRejectedStale() const noexcept { return drawingJobsRejectedStale_; }
+  std::size_t drawingProjectionsReused() const noexcept { return drawingProjectionsReused_; }
+  const forge::desktop::DrawingProjector& drawingProjector() const noexcept {
+    return drawingProjector_;
+  }
+
   // ── the simulation study ────────────────────────────────────────────────
   // The study the Restraints and Loads panels edit, and the answer the solver
   // last gave for it. Public so a gate drives the SHIPPING path -- the button in
@@ -1392,6 +1432,25 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   void drawSheetCanvasPanel();
   void runPendingSheetDraw();
   void paintSheet(float x, float y, float w, float h, bool hovered, bool dragging);
+  // T-294: the drawing job. drawingSheetReady() is true when drawingSheet() can
+  // answer without working out views (it has them for this document, or a
+  // finished job left its refusal); parkDrawing() starts or joins a job for the
+  // export / the sheet and returns false when this request cannot be parked
+  // (no worker, or it would answer at once anyway).
+  struct DrawingKey {
+    std::string program;
+    std::string inputFile;
+    std::size_t builds = 0;
+    bool operator==(const DrawingKey& o) const {
+      return builds == o.builds && program == o.program && inputFile == o.inputFile;
+    }
+  };
+  DrawingKey drawingKey();
+  bool syncDrawingProjector();
+  bool drawingSheetReady();
+  bool parkDrawing(bool forSheet, const forge::ui::CommandParams* exportParams);
+  void pumpDrawingJob();
+  void dispatchParkedExport(const forge::ui::CommandParams& params);
   void drawGdtPanel();
   void drawAnnotationPanel();
   // One editable title-block row. Returns true when the user changed it. Not a
@@ -1798,6 +1857,34 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   float sheetZoom_ = 1.0f;
   float sheetPanX_ = 0.0f;
   float sheetPanY_ = 0.0f;
+
+  // ── the drawing job (T-294) ─────────────────────────────────────────────
+  forge::desktop::DrawingProjector drawingProjector_;
+  // The views last worked out, and the document they were worked out from.
+  bool projectionValid_ = false;
+  DrawingKey projectionKey_;
+  forge::desktop::DrawingProjectionResult projection_;
+  struct DrawingJob {
+    bool active = false;
+    DrawingKey key;
+    std::uint64_t startedMs = 0;
+    // What is waiting for it. ONE parked Save (a later one replaces it) and the
+    // Sheet tab.
+    bool forSheet = false;
+    bool forExport = false;
+    forge::ui::CommandParams exportParams;
+    // A newer request arrived for a CHANGED document while this job ran: it was
+    // cancelled, and the job starts again for the document as it is now.
+    bool restart = false;
+  };
+  DrawingJob drawingJob_;
+  // While a finished job hands its refusal to what it parked, drawingSheet()
+  // answers with this instead of working the views out again.
+  bool drawingVerdictActive_ = false;
+  std::string drawingVerdict_;
+  std::size_t drawingJobsStarted_ = 0;
+  std::size_t drawingJobsRejectedStale_ = 0;
+  std::size_t drawingProjectionsReused_ = 0;
 
   // The recovered edges, on the SAME triangle-count witness as the measure
   // cache. Two witnesses for one tessellation is how one of them goes stale.
