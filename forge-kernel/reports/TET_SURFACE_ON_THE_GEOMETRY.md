@@ -330,6 +330,51 @@ kept, marked invalid, under `evidence/T-253/invalid_mutant_runs/`. The harness n
 the object before each build and checks that the build log shows `FeaTet.cpp` being
 recompiled.
 
+## Carving without one B-rep classifier call per tet (T-255)
+
+After T-035, meshing the LE10 slab at 0.075 (14,775 nodes) took 76 to 126 s. In a sample,
+94 % of the time was in `BRepClass3d_SClassifier::Perform` projecting onto the slab's
+B-spline faces. `meshShape` called that classifier once per interior lattice point and once
+per Delaunay tet.
+
+Both questions are now answered against the refined boundary triangulation (the `leaves`
+of `refineBoundaryOnCad`). Its vertices are all on the CAD geometry, and it is watertight
+because each split point depends only on its edge. A point is classified by the parity of
+the crossings of a ray cast in a fixed generic direction, using a uniform grid and a 3-D
+DDA walk. The B-rep classifier is called only in three cases:
+
+- the point is within `band` of the triangulation. `band` is 3 x the largest measured
+  distance between a curved leaf and its CAD face, plus 10 x the merge tolerance. The
+  distance is measured by projecting each curved leaf's centroid and edge midpoints onto its
+  face;
+- the ray passes through an edge, a vertex or the plane of a triangle it crosses
+  (undecided);
+- the triangulation is not watertight (a budget-capped refinement) or a projection failed.
+  Then every point goes to the classifier, exactly as before.
+
+`FORGE_FEA_TET_CARVE_VERIFY=1` also calls the classifier on every point that the parity
+decided, and counts disagreements. `FORGE_FEA_TET_PROFILE=1` prints the counts and a
+per-phase time.
+
+Measured (evidence `~/.forge-program/evidence/T-255/`):
+
+| Check | Result |
+|---|---|
+| LE10 at 0.075, wall time, T-253 vs T-255, 3 interleaved runs of the same binary driver | 103.8 / 92.6 / 88.2 s -> 3.65 / 2.32 / 2.47 s (about 37x at the median); CPU 98 / 92 / 95 s -> 6.1 / 6.4 / 6.9 s |
+| Same mesh? | Same FNV hash of node coordinates and tets in all 6 runs |
+| B-rep classifier calls, LE10 at 0.075 | 955, down from about 88,000 (87,194 decided by parity) |
+| Gate `PART=all` | PASS, 115 ok; every level line the same as T-253's except for the times; whole gate 3 min 14 s |
+| Gate `PART=all` with VERIFY | PASS; 0 disagreements on all 18 meshes |
+| Independent probe (T-035 validator's 21 shapes: boxes, translated / rotated / scaled cantilevers, L-bracket, plate with hole) with VERIFY | 20 shapes: 0 disagreements, and node count, tet count, min quality and volume error identical to T-253. The 1e-4 m micro cantilever: 883 disagreements. There the classifier is the one that is wrong: its mesh has 27 non-manifold boundary edges and -0.15 % volume (the open item T-035's validator reported), and the parity mesh is valid with exact volume |
+| Budget-capped refinement (`FORGE_FEA_TET_SEED_BUDGET=300`, LE10 at 0.15) | Falls back to the classifier only (1997 calls); same hash as T-253 |
+
+Mutation proofs (forced recompile, restored and `cmp`-verified):
+
+- M12, parity inverted: killed, 20 RED on Part P.
+- M11, the measured sag removed from `band` (merge-tolerance band only): killed. With VERIFY
+  on, the cylinder at 0.3 / 0.15 has 56 / 17 disagreements, which produce non-manifold
+  boundaries (8 / 16 edges) and leftover slivers.
+
 ## What this does not fix (measured, open)
 
 - **Geometric slivers and solver conditioning: fixed by T-253** (section above). As found
@@ -353,7 +398,8 @@ recompiled.
   cylinder and 5.4e-4 m facet sag on the sphere, at every level. Its meshes are valid
   with the new Bowyer-Watson.
 - **LE11** is still blocked by the native boolean fuse, so it was not measured.
-- **Meshing time** for the slab at 0.075 (14,775 nodes) is 76 to 126 s, depending on machine
+- **Meshing time: fixed by T-255** (section above). As found by T-035: meshing time
+  for the slab at 0.075 (14,775 nodes) is 76 to 126 s, depending on machine
   load. A sample of the run puts that time outside Bowyer-Watson: 94 % of the samples
   (6017 of 6434) are in `BRepClass3d_SClassifier::Perform`, which projects onto the
   B-spline faces (`Extrema_GenExtPS`). meshShape calls that classifier once per lattice
